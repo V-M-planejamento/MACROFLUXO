@@ -25,6 +25,9 @@ def tratar_macrofluxo():
         # Remover colunas totalmente vazias
         df = df.dropna(axis=1, how='all')
 
+        # Remover colunas que começam com 'Unnamed:'
+        df = df.loc[:, ~df.columns.astype(str).str.startswith('Unnamed:')]
+
         # Identificar as colunas de unpivot (datas)
         # As colunas de data agora têm o formato 'ETAPA.TIPO.INICIO_FIM'
         colunas_unpivot = [col for col in df.columns if 
