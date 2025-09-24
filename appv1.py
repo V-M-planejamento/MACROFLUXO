@@ -11,7 +11,10 @@ from datetime import datetime
 from dropdown_component import simple_multiselect_dropdown
 from popup import show_welcome_screen
 from calculate_business_days import calculate_business_days
+<<<<<<< HEAD
 import traceback
+=======
+>>>>>>> cd784f8bb5a7a947be315a93eeadd28036fc44d9
 
 # --- Bloco de Importação de Dados ---
 try:
@@ -1031,6 +1034,7 @@ if df_data is not None and not df_data.empty:
     # Criar abas
     tab1, tab2 = st.tabs(["📊 Gráfico de Gantt", "📋 Tabela Detalhada"])
 
+<<<<<<< HEAD
     # --- Início do Bloco de Código Fornecido ---
 
     with tab1:
@@ -1242,10 +1246,23 @@ if df_data is not None and not df_data.empty:
 
     with tab2:
         st.subheader("Tabelão Horizontal")
+=======
+    with tab1:
+        st.subheader("Gráfico de Gantt")
+        
+        if df_filtered.empty:
+            st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
+        else:
+            gerar_gantt(df_filtered, tipo_visualizacao, filtrar_nao_concluidas)
+
+    with tab2:
+        st.subheader("Tabela Detalhada")
+>>>>>>> cd784f8bb5a7a947be315a93eeadd28036fc44d9
 
         if df_filtered.empty:
             st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
         else:
+<<<<<<< HEAD
             # --- DATA PREPARATION ---
             df_detalhes = df_filtered.copy()
             
@@ -1613,3 +1630,25 @@ if df_data is not None and not df_data.empty:
             </div>""", unsafe_allow_html=True)
 else:
     st.error("❌ Não foi possível carregar ou gerar os dados.")
+=======
+            # Exibir tabela simples
+            df_display = df_filtered.copy()
+            
+            # Formatar datas
+            for col in ['Inicio_Prevista', 'Termino_Prevista', 'Inicio_Real', 'Termino_Real']:
+                if col in df_display.columns:
+                    df_display[col] = df_display[col].dt.strftime('%d/%m/%Y').fillna('-')
+            
+            # Formatar porcentagem
+            if '% concluído' in df_display.columns:
+                df_display['% concluído'] = df_display['% concluído'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "-")
+            
+            # Mapear etapas para nomes completos
+            df_display['Etapa'] = df_display['Etapa'].map(sigla_para_nome_completo).fillna(df_display['Etapa'])
+            
+            st.dataframe(df_display, use_container_width=True)
+
+else:
+    st.error("Não foi possível carregar os dados. Verifique se os arquivos estão disponíveis.")
+
+>>>>>>> cd784f8bb5a7a947be315a93eeadd28036fc44d9
