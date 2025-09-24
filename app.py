@@ -14,11 +14,12 @@ from calculate_business_days import calculate_business_days
 
 # --- Bloco de Importação de Dados ---
 try:
+    from tratamento_dados_reais import processar_cronograma
     from tratamento_macrofluxo import tratar_macrofluxo
 except ImportError:
     st.warning("Scripts de processamento não encontrados. O app usará dados de exemplo.")
+    processar_cronograma = None
     tratar_macrofluxo = None
-
 
 # --- Configurações de Estilo ---
 class StyleConfig:
@@ -125,27 +126,78 @@ def calcular_porcentagem_correta(grupo):
     return porcentagens_validas.mean()
 
 # --- Mapeamentos e Padronização ---
+# Mapeamento fornecido pelo usuário
+mapeamento_etapas_usuario = {
+    'PROSPECÇÃO':             "PROSPEC",
+    'LEGALIZAÇÃO PARA VENDA': "LEGVENDA",
+    'PULMÃO VENDA':           "PULVENDA",
+    'PL.LIMP':                "PL.LIMP",
+    'LEG.LIMP':               "LEG.LIMP",
+    'ENG. LIMP.':             "ENG.LIMP",
+    'EXECUÇÃO LIMP.':         "EXECLIMP",
+    'PL.TER.':                "PL.TER",
+    'LEG.TER.':               "LEG.TER",
+    'ENG. TER.':              "ENG.TER",
+    'EXECUÇÃO TER.':          "EXECTER",
+    'PL.INFRA':               "PL.INFRA",
+    'LEG.INFRA':              "LEG.INFRA",
+    'ENG. INFRA':             "ENG.INFRA",
+    'EXECUÇÃO INFRA':         "EXECINFRA",
+    'LEG.PAV':                "LEG.PAV",
+    'ENG. PAV':               "ENG.PAV",
+    'EXECUÇÃO PAV.':          "EXEC.PAV",
+    'PULMÃO INFRA':           "PUL.INFRA",
+    'PL.RADIER':              "PL.RAD",
+    'LEG.RADIER':             "LEG.RAD",
+    'RADIER':                 "RAD",
+    'DEMANDA MÍNIMA':         "DEM.MIN",
+}
+
+# Mapeamento reverso para exibição
+mapeamento_reverso = {v: k for k, v in mapeamento_etapas_usuario.items()}
+
+# Siglas para nomes completos (mantendo compatibilidade com o código original)
 sigla_para_nome_completo = {
-    'DM': '1. DEFINIÇÃO DO MÓDULO', 'DOC': '2. DOCUMENTAÇÃO', 'LAE': '3. LAE',
-    'MEM': '4. MEMORIAL', 'CONT': '5. CONTRATAÇÃO', 'ASS': '6. PRÉ-ASSINATURA',
-    'M':  '7. DEMANDA MÍNIMA', 'PJ':  '8. 1º PJ'
+    'PROSPEC': 'PROSPECÇÃO',
+    'LEGVENDA': 'LEGALIZAÇÃO PARA VENDA',
+    'PULVENDA': 'PULMÃO VENDA',
+    'PL.LIMP': 'PL.LIMP',
+    'LEG.LIMP': 'LEG.LIMP',
+    'ENG.LIMP': 'ENG. LIMP.',
+    'EXECLIMP': 'EXECUÇÃO LIMP.',
+    'PL.TER': 'PL.TER.',
+    'LEG.TER': 'LEG.TER.',
+    'ENG.TER': 'ENG. TER.',
+    'EXECTER': 'EXECUÇÃO TER.',
+    'PL.INFRA': 'PL.INFRA',
+    'LEG.INFRA': 'LEG.INFRA',
+    'ENG.INFRA': 'ENG. INFRA',
+    'EXECINFRA': 'EXECUÇÃO INFRA',
+    'LEG.PAV': 'LEG.PAV',
+    'ENG.PAV': 'ENG. PAV',
+    'EXEC.PAV': 'EXECUÇÃO PAV.',
+    'PUL.INFRA': 'PULMÃO INFRA',
+    'PL.RAD': 'PL.RADIER',
+    'LEG.RAD': 'LEG.RADIER',
+    'RAD': 'RADIER',
+    'DEM.MIN': 'DEMANDA MÍNIMA',
 }
+
 nome_completo_para_sigla = {v: k for k, v in sigla_para_nome_completo.items()}
-mapeamento_variacoes_real = {
-    'DEFINIÇÃO DO MÓDULO': 'DM', 'DOCUMENTAÇÃO': 'DOC', 'LAE': 'LAE', 'MEMORIAL': 'MEM',
-    'CONTRATAÇÃO': 'CONT', 'PRÉ-ASSINATURA': 'ASS', 'ASS': 'ASS', '1º PJ': 'PJ',
-    'PLANEJamento': 'DM', 'MEMORIAL DE INCORPORAÇÃO': 'MEM', 'EMISSÃO DO LAE': 'LAE',
-    'CONTESTAÇÃO': 'LAE', 'DJE': 'CONT', 'ANÁLISE DE RISCO': 'CONT', 'MORAR BEM': 'ASS',
-    'SEGUROS': 'ASS', 'ATESTE': 'ASS', 'DEMANDA MÍNIMA': 'M', 'DEMANDA MINIMA': 'M',
-    'PRIMEIRO PJ': 'PJ',
-}
 
 def padronizar_etapa(etapa_str):
     if pd.isna(etapa_str): return 'UNKNOWN'
     etapa_limpa = str(etapa_str).strip().upper()
-    if etapa_limpa in mapeamento_variacoes_real: return mapeamento_variacoes_real[etapa_limpa]
-    if etapa_limpa in nome_completo_para_sigla: return nome_completo_para_sigla[etapa_limpa]
-    if etapa_limpa in sigla_para_nome_completo: return etapa_limpa
+    
+    # Primeiro, verifica se já está no formato de sigla
+    if etapa_limpa in sigla_para_nome_completo:
+        return etapa_limpa
+    
+    # Depois, verifica se está no mapeamento do usuário
+    if etapa_limpa in mapeamento_etapas_usuario:
+        return mapeamento_etapas_usuario[etapa_limpa]
+    
+    # Se não encontrou, retorna UNKNOWN
     return 'UNKNOWN'
 
 # --- Funções de Filtragem e Ordenação ---
@@ -159,7 +211,7 @@ def filtrar_etapas_nao_concluidas(df):
     return df_filtrado
 
 def obter_data_meta_assinatura(df_original, empreendimento):
-    df_meta = df_original[(df_original['Empreendimento'] == empreendimento) & (df_original['Etapa'] == 'M')]
+    df_meta = df_original[(df_original['Empreendimento'] == empreendimento) & (df_original['Etapa'] == 'DEM.MIN')]
     
     if df_meta.empty:
         return pd.Timestamp.max
@@ -399,15 +451,19 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
             
             eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
             # --- FIM DA MODIFICAÇÃO ---
+            
+    if not rotulo_para_posicao:
+        st.pyplot(figura)
+        plt.close(figura)
+        return
 
     max_pos = max(rotulo_para_posicao.values())
     eixo_gantt.set_ylim(max_pos + 1, -1)
     eixo_gantt.set_yticks([])
     
-    # Linhas horizontais de separação
     for pos in rotulo_para_posicao.values():
         eixo_gantt.axhline(y=pos + 0.5, color='#dcdcdc', linestyle='-', alpha=0.7, linewidth=0.8)
-    
+
     # --- MODIFICAÇÃO: LÓGICA CONDICIONAL PARA A LINHA E TEXTO "HOJE" ---
     limite_esquerdo, limite_direito = eixo_gantt.get_xlim()
     margem_fixa = pd.Timedelta(days=30)
@@ -415,19 +471,17 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
     
     if hoje <= data_fim_projeto + margem_fixa:
         eixo_gantt.axvline(hoje, color=StyleConfig.COR_HOJE, linestyle='--', linewidth=1.5)
-        eixo_gantt.text(hoje, eixo_gantt.get_ylim()[1], 'Hoje', color=StyleConfig.COR_HOJE, fontsize=10, ha='center', va='bottom')
+        eixo_gantt.text(hoje, eixo_gantt.get_ylim()[0], 'Hoje', color=StyleConfig.COR_HOJE, fontsize=10, ha='center', va='bottom')
     else:
         eixo_gantt.axvline(limite_direito, color=StyleConfig.COR_HOJE, linestyle='--', linewidth=1.5)
         eixo_gantt.text(limite_direito, eixo_gantt.get_ylim()[1], 'Hoje >', color=StyleConfig.COR_HOJE, fontsize=10, ha='right', va='bottom')
     # --- FIM DA MODIFICAÇÃO ---
 
-    # Grade e formatação
     eixo_gantt.grid(axis='x', linestyle='--', alpha=0.6)
     eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
     eixo_gantt.xaxis.set_major_formatter(mdates.DateFormatter('%m/%y'))
     plt.setp(eixo_gantt.get_xticklabels(), rotation=90, ha='center')
 
-    # Legenda
     handles_legenda = [Patch(color=StyleConfig.COR_PREVISTO, label='Previsto'), Patch(color=StyleConfig.COR_REAL, label='Real')]
     eixo_gantt.legend(handles=handles_legenda, loc='upper center', bbox_to_anchor=(1.1, 1), frameon=False, borderaxespad=0.1)
 
@@ -436,6 +490,9 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
     plt.close(figura)
 
 def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
+    """
+    Gera um gráfico Gantt individual para um empreendimento ou conjunto de dados.
+    """
     if df.empty:
         return
 
@@ -444,37 +501,39 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
     
     hoje = pd.Timestamp.now()
     
-    num_empreendimentos = df['Empreendimento'].nunique()
-    num_etapas = df['Etapa'].nunique()
-    
-    # Lógica de posicionamento
+    # Configuração do mapeamento de posições
     rotulo_para_posicao = {}
     posicao = 0
     
-    if num_empreendimentos > 1 and num_etapas == 1:
-        # Para o caso comparativo, a ordem das linhas é definida pela ordenação do DataFrame
-        for rotulo in df['Empreendimento'].unique():
-            rotulo_para_posicao[rotulo] = posicao
+    num_empreendimentos = df['Empreendimento'].nunique()
+    num_etapas = df['Etapa'].nunique()
+    
+    # Lógica de posicionamento baseada no número de empreendimentos e etapas
+    if num_empreendimentos == 1 and num_etapas > 1:
+        # Um empreendimento, múltiplas etapas
+        for etapa in df['Etapa'].unique():
+            rotulo_para_posicao[etapa] = posicao
             posicao += 1
-        df['Posicao'] = df['Empreendimento'].map(rotulo_para_posicao)
     else:
-        # Para o caso tradicional, a ordem é baseada em como os dados chegam
-        empreendimentos_unicos = df['Empreendimento'].unique()
-        for empreendimento in empreendimentos_unicos:
-            etapas_do_empreendimento = df[df['Empreendimento'] == empreendimento]['Etapa'].unique()
-            for etapa in etapas_do_empreendimento:
-                rotulo = f'{empreendimento}||{etapa}'
-                rotulo_para_posicao[rotulo] = posicao
+        # Outros casos
+        for _, linha in df.iterrows():
+            chave = f"{linha['Empreendimento']} - {linha['Etapa']}"
+            if chave not in rotulo_para_posicao:
+                rotulo_para_posicao[chave] = posicao
                 posicao += 1
-            if len(empreendimentos_unicos) > 1:
-                    posicao += StyleConfig.ESPACO_ENTRE_EMPREENDIMENTOS / 2
-        df['Posicao'] = (df['Empreendimento'] + '||' + df['Etapa']).map(rotulo_para_posicao)
-
+    
+    # Mapear posições no DataFrame
+    if num_empreendimentos == 1 and num_etapas > 1:
+        df['Posicao'] = df['Etapa'].map(rotulo_para_posicao)
+    else:
+        df['Posicao'] = df.apply(lambda row: rotulo_para_posicao.get(f"{row['Empreendimento']} - {row['Etapa']}", None), axis=1)
+    
     df.dropna(subset=['Posicao'], inplace=True)
+    
     if df.empty:
         return
 
-    # --- Configuração da Figura ---
+    # Configuração da figura
     num_linhas = len(rotulo_para_posicao)
     altura_total = max(10, num_linhas * StyleConfig.ALTURA_GANTT_POR_ITEM)
     figura = plt.figure(figsize=(StyleConfig.LARGURA_TABELA + StyleConfig.LARGURA_GANTT, altura_total))
@@ -484,7 +543,7 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
     eixo_gantt = figura.add_subplot(grade[1], sharey=eixo_tabela)
     eixo_tabela.axis('off')
 
-    # --- Consolidação e Desenho (sem alterações) ---
+    # Consolidação dos dados
     dados_consolidados = df.groupby('Posicao').agg({
         'Empreendimento': 'first', 'Etapa': 'first',
         'Inicio_Prevista': 'min', 'Termino_Prevista': 'max',
@@ -492,11 +551,13 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
         '% concluído': 'max'
     }).reset_index()
 
+    # Desenho da tabela
     empreendimento_atual = None
     for _, linha in dados_consolidados.iterrows():
         y_pos = linha['Posicao']
         
-        if not (num_empreendimentos > 1 and num_etapas == 1) and linha['Empreendimento'] != empreendimento_atual:
+        # Cabeçalho do empreendimento (se mudou)
+        if linha['Empreendimento'] != empreendimento_atual and num_empreendimentos > 1:
             empreendimento_atual = linha['Empreendimento']
             nome_formatado = empreendimento_atual.replace('CONDOMINIO ', '')
             y_cabecalho = y_pos - (StyleConfig.ALTURA_GANTT_POR_ITEM / 2) - 0.2
@@ -605,7 +666,7 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
 
     if num_empreendimentos == 1 and num_etapas > 1:
         empreendimento = df["Empreendimento"].unique()[0]
-        df_assinatura = df[(df["Empreendimento"] == empreendimento) & (df["Etapa"] == "M")]
+        df_assinatura = df[(df["Empreendimento"] == empreendimento) & (df["Etapa"] == "DEM.MIN")]
         if not df_assinatura.empty:
             data_meta, tipo_meta = (None, "")
             if pd.notna(df_assinatura["Inicio_Prevista"].iloc[0]):
@@ -634,4 +695,372 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
     plt.close(figura)
     
 #========================================================================================================
+
+# --- Lógica Principal do App Streamlit ---
+st.set_page_config(layout="wide", page_title="Dashboard de Gantt Comparativo")
+
+@st.cache_data
+def load_data():
+    df_real = pd.DataFrame()
+    df_previsto = pd.DataFrame()
+
+    # Carregar dados reais
+    if processar_cronograma:
+        try:
+            df_real_resultado = processar_cronograma('GRÁFICOMACROFLUXO.xlsx')
+            if df_real_resultado is not None and not df_real_resultado.empty:
+                df_real = df_real_resultado.copy()
+                # Padronizar etapas usando o mapeamento do usuário
+                df_real['Etapa'] = df_real['Etapa'].apply(padronizar_etapa)
+                # Renomear colunas para compatibilidade
+                df_real = df_real.rename(columns={
+                    'EMP': 'Empreendimento',
+                    '%_Concluido': '% concluído'
+                })
+                # Converter porcentagem
+                if '% concluído' in df_real.columns:
+                    df_real['% concluído'] = df_real['% concluído'].apply(converter_porcentagem)
+                
+                # Criar colunas de data baseadas no Tipo_Data e Inicio_Fim
+                df_real_pivot = df_real.pivot_table(
+                    index=['Empreendimento', 'Etapa', '% concluído'],
+                    columns='Inicio_Fim',
+                    values='Valor',
+                    aggfunc='first'
+                ).reset_index()
+                
+                # Renomear colunas
+                df_real_pivot.columns.name = None
+                if 'INICIO' in df_real_pivot.columns:
+                    df_real_pivot = df_real_pivot.rename(columns={'INICIO': 'Inicio_Real'})
+                if 'TERMINO' in df_real_pivot.columns:
+                    df_real_pivot = df_real_pivot.rename(columns={'TERMINO': 'Termino_Real'})
+                
+                df_real = df_real_pivot
+            else:
+                df_real = pd.DataFrame()
+                
+        except Exception as e:
+            st.warning(f"Erro ao carregar dados reais: {e}")
+            df_real = pd.DataFrame()
+
+    # Carregar dados previstos
+    if tratar_macrofluxo:
+        try:
+            df_previsto_resultado = tratar_macrofluxo()
+            if df_previsto_resultado is not None and not df_previsto_resultado.empty:
+                df_previsto = df_previsto_resultado.copy()
+                # Padronizar etapas usando o mapeamento do usuário
+                df_previsto['Etapa'] = df_previsto['Etapa'].apply(padronizar_etapa)
+                # Renomear colunas para compatibilidade
+                df_previsto = df_previsto.rename(columns={
+                    'EMP': 'Empreendimento',
+                    'UGB': 'UGB'
+                })
+                
+                # Criar pivot para separar INICIO e TERMINO
+                df_previsto_pivot = df_previsto.pivot_table(
+                    index=['UGB', 'Empreendimento', 'Etapa'],
+                    columns='Inicio_Fim',
+                    values='Valor',
+                    aggfunc='first'
+                ).reset_index()
+                
+                # Renomear colunas
+                df_previsto_pivot.columns.name = None
+                if 'INICIO' in df_previsto_pivot.columns:
+                    df_previsto_pivot = df_previsto_pivot.rename(columns={'INICIO': 'Inicio_Prevista'})
+                if 'TERMINO' in df_previsto_pivot.columns:
+                    df_previsto_pivot = df_previsto_pivot.rename(columns={'TERMINO': 'Termino_Prevista'})
+                
+                df_previsto = df_previsto_pivot
+            else:
+                df_previsto = pd.DataFrame()
+                
+        except Exception as e:
+            st.warning(f"Erro ao carregar dados previstos: {e}")
+            df_previsto = pd.DataFrame()
+
+    # Verificar se ambos os DataFrames estão vazios
+    if df_real.empty and df_previsto.empty:
+        st.warning("Nenhuma fonte de dados carregada. Usando dados de exemplo.")
+        return criar_dados_exemplo()
+
+    # Merge dos dados
+    if not df_real.empty and not df_previsto.empty:
+        # Merge baseado em UGB, Empreendimento e Etapa
+        df_merged = pd.merge(
+            df_previsto,
+            df_real[['Empreendimento', 'Etapa', 'Inicio_Real', 'Termino_Real', '% concluído']],
+            on=['Empreendimento', 'Etapa'],
+            how='outer'
+        )
+    elif not df_previsto.empty:
+        df_merged = df_previsto.copy()
+        df_merged['% concluído'] = 0.0
+    elif not df_real.empty:
+        df_merged = df_real.copy()
+        # Adicionar colunas de UGB se não existir
+        if 'UGB' not in df_merged.columns:
+            df_merged['UGB'] = 'UGB1'  # Valor padrão
+    else:
+        return criar_dados_exemplo()
+    
+    # Garantir que todas as colunas necessárias existam
+    for col in ['UGB', 'Inicio_Prevista', 'Termino_Prevista', 'Inicio_Real', 'Termino_Real', '% concluído']:
+        if col not in df_merged.columns:
+            if col == 'UGB':
+                df_merged[col] = 'UGB1'
+            elif col == '% concluído':
+                df_merged[col] = 0.0
+            else:
+                df_merged[col] = pd.NaT
+
+    df_merged['% concluído'] = df_merged['% concluído'].fillna(0)
+    df_merged.dropna(subset=['Empreendimento', 'Etapa'], inplace=True)
+    
+    return df_merged
+
+def criar_dados_exemplo():
+    dados = {
+        'UGB': ['UGB1', 'UGB1', 'UGB1', 'UGB2', 'UGB2', 'UGB1'],
+        'Empreendimento': ['Residencial Alfa', 'Residencial Alfa', 'Residencial Alfa', 'Condomínio Beta', 'Condomínio Beta', 'Projeto Gama'],
+        'Etapa': ['PROSPEC', 'LEGVENDA', 'PULVENDA', 'PROSPEC', 'LEGVENDA', 'PROSPEC'],
+        'Inicio_Prevista': pd.to_datetime(['2024-02-01', '2024-03-01', '2024-04-15', '2024-03-20', '2024-05-01', '2024-01-10']),
+        'Termino_Prevista': pd.to_datetime(['2024-02-28', '2024-04-10', '2024-05-30', '2024-04-28', '2024-06-15', '2024-01-31']),
+        'Inicio_Real': pd.to_datetime(['2024-02-05', '2024-03-03', pd.NaT, '2024-03-25', '2024-05-05', '2024-01-12']),
+        'Termino_Real': pd.to_datetime(['2024-03-02', '2024-04-15', pd.NaT, '2024-05-05', pd.NaT, '2024-02-01']),
+        '% concluído': [100, 100, 40, 100, 85, 100]
+    }
+    return pd.DataFrame(dados)
+
+# --- Interface do Streamlit ---
+
+# Verificar se o popup deve ser exibido
+if show_welcome_screen():
+    st.stop()  # Para a execução do resto do app enquanto o popup está ativo
+
+# --- INÍCIO DA IMPLEMENTAÇÃO DO MENU FLUTUANTE ---
+# CSS customizado
+st.markdown("""
+<style>
+    /* Altera APENAS os checkboxes dos multiselects */
+    div.stMultiSelect div[role="option"] input[type="checkbox"]:checked + div > div:first-child {
+        background-color: #4a0101 !important;
+        border-color: #4a0101 !important;
+    }
+    
+    /* Cor de fundo dos itens selecionados */
+    div.stMultiSelect [aria-selected="true"] {
+        background-color: #f8d7da !important;
+        color: #333 !important;
+        border-radius: 4px;
+    }
+    
+    /* Estilo do "×" de remoção */
+    div.stMultiSelect [aria-selected="true"]::after {
+        color: #4a0101 !important;
+        font-weight: bold;
+    }
+    
+    /* Espaçamento entre os filtros */
+    .stSidebar .stMultiSelect, .stSidebar .stSelectbox, .stSidebar .stRadio {
+        margin-bottom: 1rem;
+    }
+    
+    /* Estilo para botões de navegação */
+    .nav-button-container {
+        position: fixed;
+        right: 20px;
+        top: 20%;
+        transform: translateY(-20%);
+        z-index: 80;
+        background: white;
+        padding: 5px;
+        border-radius: 15px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+            
+    /* Estilo padrão */
+    .nav-link {
+        display: block;
+        background-color: #a6abb5;
+        color: white !important;
+        text-decoration: none !important;
+        border-radius: 10px;
+        padding: 5px 10px;
+        margin: 5px 0;
+        text-align: center;
+        font-weight: bold;
+        font-size: 14px;
+        transition: all 0.3s ease;
+    }
+            
+    /* Estilo para quando selecionado */
+    .nav-link:hover {
+        background-color: #ff4b4b; 
+        transform: scale(1.05);
+    }
+</style>
+""", unsafe_allow_html=True)
+# --- FIM DA IMPLEMENTAÇÃO DO MENU FLUTUANTE ---
+
+st.title("Módulo Vendas")
+
+# Cache para melhorar performance
+@st.cache_data
+def get_unique_values(df, column):
+    """Função para cachear valores únicos de uma coluna"""
+    return sorted(df[column].dropna().unique().tolist())
+
+@st.cache_data
+def filter_dataframe(df, ugb_filter, emp_filter):
+    """Função para cachear filtragem do DataFrame"""
+    if not ugb_filter:
+        return df.iloc[0:0]  # DataFrame vazio se nenhuma UGB selecionada
+    
+    df_filtered = df[df["UGB"].isin(ugb_filter)]
+    
+    if emp_filter:
+        df_filtered = df_filtered[df_filtered["Empreendimento"].isin(emp_filter)]
+    
+    return df_filtered
+
+with st.spinner('Carregando e processando dados...'):
+    df_data = load_data()
+
+if df_data is not None and not df_data.empty:
+    # Logo no sidebar
+    with st.sidebar:
+        st.markdown("<br>", unsafe_allow_html=True)  # Espaço no topo
+        
+        # Centraliza a imagem
+        col1, col2, col3 = st.columns([1,2,1])
+        with col2:
+            try:
+                st.image("logoNova.png", width=200)
+            except:
+                st.write("Logo não encontrada")
+            
+        st.markdown("<br>", unsafe_allow_html=True)  # Espaço abaixo da imagem
+        
+        st.header("Filtros")
+
+        # 1️⃣ Filtro UGB (Componente personalizado)
+        ugb_options = get_unique_values(df_data, "UGB")
+        try:
+            selected_ugb = simple_multiselect_dropdown(
+                label="Filtrar por UGB",
+                options=ugb_options,
+                key="ugb_filter",
+                default_selected=ugb_options
+            )
+        except:
+            selected_ugb = st.multiselect("Filtrar por UGB", ugb_options, default=ugb_options)
+        
+        # 2️⃣ Filtro Empreendimento (Componente personalizado)
+        # Otimização: só calcular opções de empreendimento se UGB foi selecionada
+        if selected_ugb:
+            emp_options = get_unique_values(
+                df_data[df_data["UGB"].isin(selected_ugb)],
+                "Empreendimento"
+            )
+        else:
+            emp_options = []
+            
+        try:
+            selected_emp = simple_multiselect_dropdown(
+                label="Filtrar por Empreendimento",
+                options=emp_options,
+                key="empreendimento_filter",
+                default_selected=emp_options
+            )
+        except:
+            selected_emp = st.multiselect("Filtrar por Empreendimento", emp_options, default=emp_options)
+        
+        # 3️⃣ Filtro Etapa
+        # Usar função cacheada para filtragem
+        df_filtered = filter_dataframe(df_data, selected_ugb, selected_emp)
+        
+        if not df_filtered.empty:
+            etapas_disponiveis = get_unique_values(df_filtered, "Etapa")
+            
+            # Ordenar etapas se sigla_para_nome_completo estiver definido
+            try:
+                etapas_disponiveis = sorted(
+                    etapas_disponiveis,
+                    key=lambda x: list(sigla_para_nome_completo.keys()).index(x) if x in sigla_para_nome_completo else len(sigla_para_nome_completo)
+                )
+            except:
+                pass
+                
+            try:
+                selected_etapas = simple_multiselect_dropdown(
+                    label="Filtrar por Etapa",
+                    options=etapas_disponiveis,
+                    key="etapa_filter",
+                    default_selected=etapas_disponiveis
+                )
+            except:
+                selected_etapas = st.multiselect("Filtrar por Etapa", etapas_disponiveis, default=etapas_disponiveis)
+        else:
+            selected_etapas = []
+
+        # 4️⃣ Filtro de Visualização
+        tipo_visualizacao = st.radio(
+            "Tipo de Visualização:",
+            ["Ambos", "Previsto", "Real"],
+            index=0,
+            key="tipo_visualizacao_radio"
+        )
+
+        # 5️⃣ Filtro de Etapas Não Concluídas
+        filtrar_nao_concluidas = st.checkbox(
+            "Mostrar apenas etapas não concluídas",
+            value=False,
+            key="filtrar_nao_concluidas_checkbox"
+        )
+
+    # Aplicar filtros
+    if selected_ugb and selected_emp and selected_etapas:
+        df_filtered = df_filtered[df_filtered["Etapa"].isin(selected_etapas)]
+    else:
+        df_filtered = pd.DataFrame()
+
+    # Criar abas
+    tab1, tab2 = st.tabs(["📊 Gráfico de Gantt", "📋 Tabela Detalhada"])
+
+    with tab1:
+        st.subheader("Gráfico de Gantt")
+        
+        if df_filtered.empty:
+            st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
+        else:
+            gerar_gantt(df_filtered, tipo_visualizacao, filtrar_nao_concluidas)
+
+    with tab2:
+        st.subheader("Tabela Detalhada")
+
+        if df_filtered.empty:
+            st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
+        else:
+            # Exibir tabela simples
+            df_display = df_filtered.copy()
+            
+            # Formatar datas
+            for col in ['Inicio_Prevista', 'Termino_Prevista', 'Inicio_Real', 'Termino_Real']:
+                if col in df_display.columns:
+                    df_display[col] = df_display[col].dt.strftime('%d/%m/%Y').fillna('-')
+            
+            # Formatar porcentagem
+            if '% concluído' in df_display.columns:
+                df_display['% concluído'] = df_display['% concluído'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "-")
+            
+            # Mapear etapas para nomes completos
+            df_display['Etapa'] = df_display['Etapa'].map(sigla_para_nome_completo).fillna(df_display['Etapa'])
+            
+            st.dataframe(df_display, use_container_width=True)
+
+else:
+    st.error("Não foi possível carregar os dados. Verifique se os arquivos estão disponíveis.")
 

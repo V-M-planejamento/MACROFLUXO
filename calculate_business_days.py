@@ -1,22 +1,21 @@
 import pandas as pd
+import numpy as np
 
 def calculate_business_days(start_date, end_date):
+    """
+    Calcula o número de dias úteis entre duas datas
+    """
     if pd.isna(start_date) or pd.isna(end_date):
-        return pd.NA
-    # Ensure start_date is always earlier than or equal to end_date for bdate_range
-    if start_date > end_date:
-        start_date, end_date = end_date, start_date
-        sign = -1 # Indicate that the original end date was earlier than the start date
-    else:
-        sign = 1
+        return np.nan
     
-    # Generate a business day range and count the number of days
-    # The bdate_range includes both start and end dates if they are business days
-    # So, if start_date == end_date and it's a business day, count is 1
-    # If start_date == end_date and it's a weekend, count is 0
-    business_days = len(pd.bdate_range(start=start_date, end=end_date))
-    
-    # Adjust for the direction of the original date difference
-    return business_days * sign
-
+    try:
+        # Converter para datetime se necessário
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+        
+        # Calcular dias úteis
+        business_days = np.busday_count(start_date.date(), end_date.date())
+        return business_days
+    except:
+        return np.nan
 
