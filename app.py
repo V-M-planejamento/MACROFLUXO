@@ -5,6 +5,7 @@ import matplotlib as mpl
 mpl.use("agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch, Rectangle
+from matplotlib.legend_handler import HandlerTuple
 import matplotlib.dates as mdates
 import matplotlib.gridspec as gridspec
 from datetime import datetime
@@ -451,34 +452,29 @@ def gerar_gantt(df, tipo_visualizacao="Ambos", filtrar_nao_concluidas=False):
         # Caso único empreendimento (com uma ou múltiplas etapas)
         gerar_gantt_individual(df, tipo_visualizacao, df_original=df_original_completo)
 
+# SUBSTITUA NOVAMENTE A FUNÇÃO 'gerar_gantt_comparativo' POR ESTA VERSÃO COMPLETA
+# SUBSTITUA NOVAMENTE A FUNÇÃO 'gerar_gantt_comparativo' POR ESTA
 def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
     """
     Gera um gráfico Gantt comparativo para múltiplos empreendimentos com apenas uma etapa.
-    Ordena os empreendimentos pela data de início e exibe em um único gráfico.
     """
-
     if df.empty:
         return
 
     if df_original is None:
         df_original = df.copy()
 
-    datas_relevantes = [] # Inicialização da variável
-    hoje = pd.Timestamp.now()
+    hoje = pd.Timestamp.now().normalize()
 
     # Ordenação específica para o caso comparativo
     sort_col = "Inicio_Real" if tipo_visualizacao == "Real" else "Inicio_Prevista"
     df = df.sort_values(by=sort_col, ascending=True, na_position="last").reset_index(drop=True)
 
     # Configuração do mapeamento de posições
-    rotulo_para_posicao = {}
-    posicao = 0
-
-    # Para o caso comparativo, uma linha por empreendimento
-    for empreendimento in df["Empreendimento"].unique():
-        rotulo_para_posicao[empreendimento] = posicao
-        posicao += 1
-
+    rotulo_para_posicao = {
+        empreendimento: i
+        for i, empreendimento in enumerate(df["Empreendimento"].unique())
+    }
     df["Posicao"] = df["Empreendimento"].map(rotulo_para_posicao)
     df.dropna(subset=["Posicao"], inplace=True)
 
@@ -488,256 +484,165 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
     # Configuração da figura
     num_linhas = len(rotulo_para_posicao)
     altura_total = max(10, num_linhas * StyleConfig.ALTURA_GANTT_POR_ITEM)
-    figura = plt.figure(
-        figsize=(StyleConfig.LARGURA_TABELA + StyleConfig.LARGURA_GANTT, altura_total)
-    )
-    grade = gridspec.GridSpec(
-        1, 2, width_ratios=[StyleConfig.LARGURA_TABELA, StyleConfig.LARGURA_GANTT], wspace=0.01
-    )
+    figura = plt.figure(figsize=(StyleConfig.LARGURA_TABELA + StyleConfig.LARGURA_GANTT, altura_total))
+    grade = gridspec.GridSpec(1, 2, width_ratios=[StyleConfig.LARGURA_TABELA, StyleConfig.LARGURA_GANTT], wspace=0.01)
 
     eixo_tabela = figura.add_subplot(grade[0], facecolor=StyleConfig.FUNDO_TABELA)
     eixo_gantt = figura.add_subplot(grade[1], sharey=eixo_tabela)
     eixo_tabela.axis("off")
 
-    ALTURA_BARRA = StyleConfig.ALTURA_BARRA_GANTT
-    ESPACAMENTO = 0 if tipo_visualizacao != "Ambos" else StyleConfig.ALTURA_BARRA_GANTT * 0.5
-
-    # Consolidação dos dados
+    # Consolidação dos dados (já remove duplicatas por natureza)
     dados_consolidados = (
         df.groupby("Posicao")
         .agg(
-            {
-                "Empreendimento": "first",
-                "Etapa": "first",
-                "Inicio_Prevista": "min",
-                "Termino_Prevista": "max",
-                "Inicio_Real": "min",
-                "Termino_Real": "max",
-                "% concluído": "max",
-            }
+            Empreendimento=("Empreendimento", "first"),
+            Etapa=("Etapa", "first"),
+            Inicio_Prevista=("Inicio_Prevista", "min"),
+            Termino_Prevista=("Termino_Prevista", "max"),
+            Inicio_Real=("Inicio_Real", "min"),
+            Termino_Real=("Termino_Real", "max"),
+            Percentual_Concluido=("% concluído", "max"),
         )
         .reset_index()
     )
-
-    # Desenho da tabela
+    
+    # Inicializar variáveis fora do laço
+    datas_relevantes = []
+    ALTURA_BARRA = StyleConfig.ALTURA_BARRA_GANTT
+    ESPACAMENTO = 0 if tipo_visualizacao != "Ambos" else StyleConfig.ALTURA_BARRA_GANTT * 0.5
+    
+    # Laço ÚNICO para desenhar TUDO (tabela e gantt)
     for _, linha in dados_consolidados.iterrows():
         y_pos = linha["Posicao"]
-
-        estilo_celula = (
-            StyleConfig.CELULA_PAR
-            if int(y_pos) % 2 == 0
-            else StyleConfig.CELULA_IMPAR
-        )
+        
+        # --- 1. Desenho da Tabela ---
+        estilo_celula = StyleConfig.CELULA_PAR if int(y_pos) % 2 == 0 else StyleConfig.CELULA_IMPAR
         eixo_tabela.add_patch(
-            Rectangle(
-                (0.01, y_pos - 0.5), 0.98, 1.0,
-                facecolor=estilo_celula["facecolor"],
-                edgecolor=estilo_celula["edgecolor"],
-                lw=estilo_celula["lw"],
-            )
+            Rectangle((0.01, y_pos - 0.5), 0.98, 1.0, **estilo_celula)
         )
 
-        # Texto principal: nome do empreendimento
-        eixo_tabela.text(
-            0.04, y_pos - 0.2, linha["Empreendimento"], va="center", ha="left", **StyleConfig.FONTE_ETAPA
-        )
-
-        # Informações de datas e dias úteis
-        dias_uteis_prev = calcular_dias_uteis(
-            linha["Inicio_Prevista"], linha["Termino_Prevista"]
-        )
-        dias_uteis_real = calcular_dias_uteis(
-            linha["Inicio_Real"], linha["Termino_Real"]
-        )
-
+        # Textos da tabela
+        eixo_tabela.text(0.04, y_pos - 0.2, linha["Empreendimento"], va="center", ha="left", **StyleConfig.FONTE_ETAPA)
+        
+        dias_uteis_prev = calcular_dias_uteis(linha["Inicio_Prevista"], linha["Termino_Prevista"])
+        dias_uteis_real = calcular_dias_uteis(linha["Inicio_Real"], linha["Termino_Real"])
         texto_prev = f"Prev: {formatar_data(linha['Inicio_Prevista'])} → {formatar_data(linha['Termino_Prevista'])}-({dias_uteis_prev}d)"
-        texto_real = f"Real: {formatar_data(linha["Inicio_Real"])} → {formatar_data(linha["Termino_Real"])}-({dias_uteis_real}d)"
+        texto_real = f"Real: {formatar_data(linha['Inicio_Real'])} → {formatar_data(linha['Termino_Real'])}-({dias_uteis_real}d)"
+        eixo_tabela.text(0.04, y_pos + 0.05, f"{texto_prev:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS)
+        eixo_tabela.text(0.04, y_pos + 0.28, f"{texto_real:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS)
 
-        eixo_tabela.text(
-            0.04, y_pos + 0.05, f"{texto_prev:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS
-        )
-        eixo_tabela.text(
-            0.04, y_pos + 0.28, f"{texto_real:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS
-        )
-
-        # Indicador de porcentagem com cores
-        percentual = linha["% concluído"]
-        termino_real = linha["Termino_Real"]
-        termino_previsto = linha["Termino_Prevista"]
-
-        cor_texto = "#000000"
-        cor_caixa = estilo_celula["facecolor"]
+        # Indicador de porcentagem
+        percentual = linha["Percentual_Concluido"]
+        termino_real_pct = linha["Termino_Real"]
+        termino_previsto_pct = linha["Termino_Prevista"]
+        cor_texto, cor_caixa = "#000000", estilo_celula["facecolor"]
         if percentual == 100:
-            if pd.notna(termino_real) and pd.notna(termino_previsto):
-                if termino_real < termino_previsto:
-                    cor_texto, cor_caixa = "#2EAF5B", "#e6f5eb"
-                elif termino_real > termino_previsto:
-                    cor_texto, cor_caixa = "#C30202", "#fae6e6"
+            if pd.notna(termino_real_pct) and pd.notna(termino_previsto_pct):
+                if termino_real_pct < termino_previsto_pct: cor_texto, cor_caixa = "#2EAF5B", "#e6f5eb"
+                elif termino_real_pct > termino_previsto_pct: cor_texto, cor_caixa = "#C30202", "#fae6e6"
         elif percentual < 100:
-            if pd.notna(termino_previsto) and (termino_previsto < hoje):
+            if pd.notna(termino_previsto_pct) and (termino_previsto_pct < hoje):
                 cor_texto, cor_caixa = "#A38408", "#faf3d9"
-
-        eixo_tabela.add_patch(
-            Rectangle(
-                (0.78, y_pos - 0.2), 0.2, 0.4,
-                facecolor=cor_caixa,
-                edgecolor="#d1d5db",
-                lw=0.8,
-            )
-        )
+        
+        eixo_tabela.add_patch(Rectangle((0.78, y_pos - 0.2), 0.2, 0.4, facecolor=cor_caixa, edgecolor="#d1d5db", lw=0.8))
         percentual_texto = f"{percentual:.1f}%" if percentual % 1 != 0 else f"{int(percentual)}%"
-        eixo_tabela.text(
-            0.88, y_pos, percentual_texto, va="center", ha="center", color=cor_texto, **StyleConfig.FONTE_PORCENTAGEM
-        )
-        # Determina a fase da etapa atual
-        fase = SETOR.get(linha['Etapa'], "OUTROS")
-        cor_previsto = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("previsto", "#A8C5DA")
-        cor_real = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("real", "#174c66")
+        eixo_tabela.text(0.88, y_pos, percentual_texto, va="center", ha="center", color=cor_texto, **StyleConfig.FONTE_PORCENTAGEM)
 
+        # Variação de término
+        variacao_texto, variacao_cor = calcular_variacao_termino(linha["Termino_Real"], linha["Termino_Prevista"])
+        propriedades_bbox = dict(
+            boxstyle='square,pad=0.2',
+            facecolor=estilo_celula["facecolor"],
+            edgecolor='none',
+            alpha=1
+        )
+        eixo_tabela.text(
+            0.88, y_pos + StyleConfig.OFFSET_VARIACAO_TERMINO, variacao_texto,
+            va="center", ha="center", color=variacao_cor,
+            bbox=propriedades_bbox, zorder=10, **StyleConfig.FONTE_VARIACAO
+        )
+
+        # --- 2. Desenho do Gantt ---
+        fase = GRUPO_POR_ETAPA.get(linha['Etapa'], "OUTROS")
+        cor_previsto = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("previsto", StyleConfig.COR_PREVISTO)
+        cor_real = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("real", StyleConfig.COR_REAL)
+        
         if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(linha['Inicio_Prevista']) and pd.notna(linha['Termino_Prevista']):
-            duracao = (linha['Termino_Prevista'] - linha['Inicio_Prevista']).days + 3
-            eixo_gantt.barh(y=y_pos - ESPACAMENTO, width=duracao, left=linha['Inicio_Prevista'],
-                           height=ALTURA_BARRA, color=cor_previsto, alpha=0.9,
-                           antialiased=False)
+            duracao = (linha['Termino_Prevista'] - linha['Inicio_Prevista']).days + 1
+            eixo_gantt.barh(y=y_pos - ESPACAMENTO, width=duracao, left=linha['Inicio_Prevista'], height=ALTURA_BARRA, color=cor_previsto, alpha=0.9, antialiased=False)
             datas_relevantes.extend([linha['Inicio_Prevista'], linha['Termino_Prevista']])
 
         if tipo_visualizacao in ["Ambos", "Real"] and pd.notna(linha['Inicio_Real']):
-            termino_real = linha['Termino_Real'] if pd.notna(linha['Termino_Real']) else hoje
-            duracao = (termino_real - linha['Inicio_Real']).days + 3
-            eixo_gantt.barh(y=y_pos + ESPACAMENTO, width=duracao, left=linha['Inicio_Real'],
-                           height=ALTURA_BARRA, color=cor_real, alpha=0.9,
-                           antialiased=False)
-            datas_relevantes.extend([linha['Inicio_Real'], termino_real])
-
-        # Variação de término
-        variacao_texto, variacao_cor = calcular_variacao_termino(
-            termino_real, termino_previsto
-        )
-        eixo_tabela.text(
-            0.88, y_pos + StyleConfig.OFFSET_VARIACAO_TERMINO, variacao_texto, va="center", ha="center",
-            color=variacao_cor, **StyleConfig.FONTE_VARIACAO
-        )
-
-    datas_relevantes = []
-    for _, linha in dados_consolidados.iterrows():
-        y_pos = linha["Posicao"]
-
-    ALTURA_BARRA = StyleConfig.ALTURA_BARRA_GANTT
-    ESPACAMENTO = 0 if tipo_visualizacao != "Ambos" else StyleConfig.ALTURA_BARRA_GANTT * 0.5
-    for _, linha in dados_consolidados.iterrows():
-        y_pos = linha["Posicao"]
-
-        if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(
-            linha["Inicio_Prevista"]
-        ) and pd.notna(linha["Termino_Prevista"]):
-            duracao = (linha["Termino_Prevista"] - linha["Inicio_Prevista"]).days + 1
-            eixo_gantt.barh(
-                y=y_pos - ESPACAMENTO,
-                width=duracao,
-                left=linha["Inicio_Prevista"],
-                height=ALTURA_BARRA,
-                color=StyleConfig.COR_PREVISTO,
-                alpha=0.9,
-                antialiased=False,
-            )
-            datas_relevantes.extend([linha["Inicio_Prevista"], linha["Termino_Prevista"]])
-
-        if tipo_visualizacao in ["Ambos", "Real"] and pd.notna(linha["Inicio_Real"]):
-            termino_real = linha["Termino_Real"] if pd.notna(linha["Termino_Real"]) else hoje
-            duracao = (termino_real - linha["Inicio_Real"]).days + 1
-            eixo_gantt.barh(
-                y=y_pos + ESPACAMENTO,
-                width=duracao,
-                left=linha["Inicio_Real"],
-                height=ALTURA_BARRA,
-                color=StyleConfig.COR_REAL,
-                alpha=0.9,
-                antialiased=False,
-            )
-            datas_relevantes.extend([linha["Inicio_Real"], termino_real])
-
+            termino_real_gantt = linha['Termino_Real'] if pd.notna(linha['Termino_Real']) else hoje
+            duracao = (termino_real_gantt - linha['Inicio_Real']).days + 1
+            eixo_gantt.barh(y=y_pos + ESPACAMENTO, width=duracao, left=linha['Inicio_Real'], height=ALTURA_BARRA, color=cor_real, alpha=0.9, antialiased=False)
+            datas_relevantes.extend([linha['Inicio_Real'], termino_real_gantt])
+    
     # Configuração dos eixos e finalização
     if datas_relevantes:
         datas_validas = [pd.Timestamp(d) for d in datas_relevantes if pd.notna(d)]
         if datas_validas:
             data_min_do_grafico = min(datas_validas)
             data_max_do_grafico = max(datas_validas)
-
             data_min_final = min(hoje, data_min_do_grafico)
             limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=90)
-
             eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
-
-    if not rotulo_para_posicao:
-        st.pyplot(figura)
-        plt.close(figura)
-        return
-
+    
     max_pos = max(rotulo_para_posicao.values())
-    eixo_gantt.set_ylim(max_pos + 1, -1)
+    eixo_gantt.set_ylim(max_pos + 0.5, -0.5)
     eixo_gantt.set_yticks([])
 
     for pos in rotulo_para_posicao.values():
         eixo_gantt.axhline(y=pos + 0.5, color="#dcdcdc", linestyle="-", alpha=0.7, linewidth=0.8)
 
-    # Linha "Hoje"
-    limite_esquerdo, limite_direito = eixo_gantt.get_xlim()
-    margem_fixa = pd.Timedelta(days=30)
-    data_fim_projeto = max(
-        [d for d in [df["Termino_Real"].max(), df["Termino_Prevista"].max()] if pd.notna(d)],
-        default=pd.Timestamp.min,
-    )
-
-    if hoje <= data_fim_projeto + margem_fixa:
-        eixo_gantt.axvline(
-            hoje, color=StyleConfig.COR_HOJE, linestyle="--", linewidth=1.5
-        )
-        eixo_gantt.text(
-            hoje,
-            eixo_gantt.get_ylim()[0],
-            "Hoje",
-            color=StyleConfig.COR_HOJE,
-            fontsize=10,
-            ha="center",
-            va="bottom",
-        )
-    else:
-        eixo_gantt.axvline(
-            limite_direito, color=StyleConfig.COR_HOJE, linestyle="--", linewidth=1.5
-        )
-        eixo_gantt.text(
-            limite_direito,
-            eixo_gantt.get_ylim()[1],
-            "Hoje >",
-            color=StyleConfig.COR_HOJE,
-            fontsize=10,
-            ha="right",
-            va="bottom",
-        )
-
-    # Configuração final do gráfico
+    eixo_gantt.axvline(hoje, color=StyleConfig.COR_HOJE, linestyle="--", linewidth=1.5)
+    eixo_gantt.text(hoje, eixo_gantt.get_ylim()[0], "Hoje", color=StyleConfig.COR_HOJE, fontsize=10, ha="center", va="bottom")
+    
     eixo_gantt.grid(axis="x", linestyle="--", alpha=0.6)
     eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    
+    # <-- CORREÇÃO: Formato da data alterado de volta para %m/%y
     eixo_gantt.xaxis.set_major_formatter(mdates.DateFormatter("%m/%y"))
-    plt.setp(eixo_gantt.get_xticklabels(), rotation=90, ha="center")
+    
+    plt.setp(eixo_gantt.get_xticklabels(), rotation=90, ha="right")
 
-    handles_legenda = [
-        Patch(color=StyleConfig.COR_PREVISTO, label="Previsto"),
-        Patch(color=StyleConfig.COR_REAL, label="Real"),
-    ]
+    # Cria os handles em pares para cada fase
+    handles_legenda = []
+    labels_legenda = []
+
+    for fase in StyleConfig.CORES_POR_SETOR:
+        if fase in StyleConfig.CORES_POR_SETOR:
+            prev_patch = Patch(color=StyleConfig.CORES_POR_SETOR[fase]["previsto"])
+            real_patch = Patch(color=StyleConfig.CORES_POR_SETOR[fase]["real"])
+            handles_legenda.append((prev_patch, real_patch))
+            labels_legenda.append(fase)
+
+    # Adiciona a legenda com pares de cores (mantendo posição original)
     eixo_gantt.legend(
         handles=handles_legenda,
-        loc="upper center",
-        bbox_to_anchor=(1.1, 1),
+        labels=labels_legenda,
+        handler_map={tuple: HandlerTuple(ndivide=None)},
+        loc='upper center',
+        bbox_to_anchor=(1.2, 1),  # Posição original ao lado do gráfico
         frameon=False,
         borderaxespad=0.1,
+        fontsize=8,
+        title=" Previsto | Real"
     )
 
-    plt.tight_layout(rect=[0, 0.03, 1, 1])
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
+    figura.suptitle(
+    f"Comparativo da Etapa: {sigla_para_nome_completo.get(df['Etapa'].iloc[0], '')}", 
+    fontsize=14, 
+    weight='bold',
+    ha='left',      # <-- Alinha o texto à esquerda
+    x=0.12,         # <-- Posição horizontal (mais para a esquerda)
+    y=0.90          # <-- Posição vertical (mais para baixo, perto do gráfico)
+)
     st.pyplot(figura)
     plt.close(figura)
 
-
+# gantts individuais 
 def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
     if df.empty:
         return
@@ -745,244 +650,138 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
     if df_original is None:
         df_original = df.copy()
 
-    hoje = pd.Timestamp.now()
-
-    num_empreendimentos = df["Empreendimento"].nunique()
-    num_etapas = df["Etapa"].nunique()
-
+    hoje = pd.Timestamp.now().normalize()
+    
     # Lógica de posicionamento
     rotulo_para_posicao = {}
     posicao = 0
-
-    if num_empreendimentos > 1 and num_etapas == 1:
-        # Para o caso comparativo, a ordem das linhas é definida pela ordenação do DataFrame
-        for rotulo in df["Empreendimento"].unique():
+    empreendimentos_unicos = df["Empreendimento"].unique()
+    for emp_idx, empreendimento in enumerate(empreendimentos_unicos):
+        etapas_do_empreendimento = df[df["Empreendimento"] == empreendimento]["Etapa"].unique()
+        for etapa in etapas_do_empreendimento:
+            rotulo = f"{empreendimento}||{etapa}"
             rotulo_para_posicao[rotulo] = posicao
             posicao += 1
-        df["Posicao"] = df["Empreendimento"].map(rotulo_para_posicao)
-    else:
-        # Para o caso tradicional, a ordem é baseada em como os dados chegam
-        empreendimentos_unicos = df["Empreendimento"].unique()
-        for empreendimento in empreendimentos_unicos:
-            etapas_do_empreendimento = df[df["Empreendimento"] == empreendimento][
-                "Etapa"
-            ].unique()
-            for etapa in etapas_do_empreendimento:
-                rotulo = f"{empreendimento}||{etapa}"
-                rotulo_para_posicao[rotulo] = posicao
-                posicao += 1
-            if len(empreendimentos_unicos) > 1:
-                posicao += StyleConfig.ESPACO_ENTRE_EMPREENDIMENTOS / 2
-        df["Posicao"] = (df["Empreendimento"] + "||" + df["Etapa"]).map(rotulo_para_posicao)
-
+        if len(empreendimentos_unicos) > 1 and emp_idx < len(empreendimentos_unicos) - 1:
+            posicao += StyleConfig.ESPACO_ENTRE_EMPREENDIMENTOS / 2
+    
+    df["Posicao"] = (df["Empreendimento"] + "||" + df["Etapa"]).map(rotulo_para_posicao)
     df.dropna(subset=["Posicao"], inplace=True)
     if df.empty:
         return
 
-    # --- Configuração da Figura ---
-    num_linhas = len(rotulo_para_posicao)
-    altura_total = max(10, num_linhas * StyleConfig.ALTURA_GANTT_POR_ITEM)
-    figura = plt.figure(
-        figsize=(StyleConfig.LARGURA_TABELA + StyleConfig.LARGURA_GANTT, altura_total)
-    )
-    grade = gridspec.GridSpec(
-        1, 2, width_ratios=[StyleConfig.LARGURA_TABELA, StyleConfig.LARGURA_GANTT], wspace=0.01
-    )
+    # Configuração da Figura
+    num_linhas_reais = df["Posicao"].nunique()
+    altura_total = max(10, num_linhas_reais * StyleConfig.ALTURA_GANTT_POR_ITEM)
+    figura = plt.figure(figsize=(StyleConfig.LARGURA_TABELA + StyleConfig.LARGURA_GANTT, altura_total))
+    grade = gridspec.GridSpec(1, 2, width_ratios=[StyleConfig.LARGURA_TABELA, StyleConfig.LARGURA_GANTT], wspace=0.01)
 
     eixo_tabela = figura.add_subplot(grade[0], facecolor=StyleConfig.FUNDO_TABELA)
     eixo_gantt = figura.add_subplot(grade[1], sharey=eixo_tabela)
     eixo_tabela.axis("off")
 
-    # --- Consolidação e Desenho (sem alterações) ---
+    # Consolidação dos dados
     dados_consolidados = (
         df.groupby("Posicao")
         .agg(
-            {
-                "Empreendimento": "first",
-                "Etapa": "first",
-                "Inicio_Prevista": "min",
-                "Termino_Prevista": "max",
-                "Inicio_Real": "min",
-                "Termino_Real": "max",
-                "% concluído": "max",
-            }
+            Empreendimento=("Empreendimento", "first"),
+            Etapa=("Etapa", "first"),
+            Inicio_Prevista=("Inicio_Prevista", "min"),
+            Termino_Prevista=("Termino_Prevista", "max"),
+            Inicio_Real=("Inicio_Real", "min"),
+            Termino_Real=("Termino_Real", "max"),
+            Percentual_Concluido=("% concluído", "max"),
         )
         .reset_index()
     )
-#FONTE_VARIACAO
-    # --- LÓGICA DE CABEÇALHO CORRIGIDA ---
+
+    # Inicializar variáveis fora do laço
+    datas_relevantes = []
+    ALTURA_BARRA = StyleConfig.ALTURA_BARRA_GANTT
+    ESPACAMENTO = 0 if tipo_visualizacao != "Ambos" else StyleConfig.ALTURA_BARRA_GANTT * 0.5
     empreendimento_atual = None
-    for _, linha in dados_consolidados.iterrows():
+    
+    # Laço ÚNICO para desenhar TUDO
+    for i, linha in dados_consolidados.iterrows():
         y_pos = linha["Posicao"]
 
-        # Desenha o cabeçalho do empreendimento QUANDO o nome do empreendimento mudar
-        if not (
-            num_empreendimentos > 1 and num_etapas == 1
-        ) and linha["Empreendimento"] != empreendimento_atual:
+        # --- 1. Desenho da Tabela e Cabeçalhos ---
+        if linha["Empreendimento"] != empreendimento_atual:
             empreendimento_atual = linha["Empreendimento"]
             nome_formatado = empreendimento_atual.replace("CONDOMINIO ", "")
-            # Posição do cabeçalho um pouco acima da primeira tarefa do grupo
             y_cabecalho = y_pos - (StyleConfig.ALTURA_GANTT_POR_ITEM / 2) - 0.2
-            eixo_tabela.text(
-                0.5, y_cabecalho, nome_formatado,
-                va="center", ha="center", bbox=StyleConfig.CABECALHO, **StyleConfig.FONTE_TITULO
-            )
-
-        estilo_celula = (
-            StyleConfig.CELULA_PAR
-            if int(y_pos) % 2 == 0
-            else StyleConfig.CELULA_IMPAR
-        )
+            eixo_tabela.text(0.5, y_cabecalho, nome_formatado, va="center", ha="center", bbox=StyleConfig.CABECALHO, **StyleConfig.FONTE_TITULO)
+        
+        estilo_celula = StyleConfig.CELULA_PAR if i % 2 == 0 else StyleConfig.CELULA_IMPAR
         eixo_tabela.add_patch(
-            Rectangle(
-                (0.01, y_pos - 0.5), 0.98, 1.0,
-                facecolor=estilo_celula["facecolor"],
-                edgecolor=estilo_celula["edgecolor"],
-                lw=estilo_celula["lw"],
-            )
+            Rectangle((0.01, y_pos - 0.5), 0.98, 1.0, **estilo_celula)
         )
+        
+        texto_principal = sigla_para_nome_completo.get(linha["Etapa"], linha["Etapa"])
+        eixo_tabela.text(0.04, y_pos - 0.2, texto_principal, va="center", ha="left", **StyleConfig.FONTE_ETAPA)
 
-        texto_principal = (
-            linha["Empreendimento"]
-            if (num_empreendimentos > 1 and num_etapas == 1)
-            else sigla_para_nome_completo.get(linha["Etapa"], linha["Etapa"])
-        )
-        eixo_tabela.text(
-            0.04, y_pos - 0.2, texto_principal, va="center", ha="left", **StyleConfig.FONTE_ETAPA
-        )
-
-        dias_uteis_prev = calcular_dias_uteis(
-            linha["Inicio_Prevista"], linha["Termino_Prevista"]
-        )
-        dias_uteis_real = calcular_dias_uteis(
-            linha["Inicio_Real"], linha["Termino_Real"]
-        )
-
+        dias_uteis_prev = calcular_dias_uteis(linha["Inicio_Prevista"], linha["Termino_Prevista"])
+        dias_uteis_real = calcular_dias_uteis(linha["Inicio_Real"], linha["Termino_Real"])
         texto_prev = f"Prev: {formatar_data(linha['Inicio_Prevista'])} → {formatar_data(linha['Termino_Prevista'])}-({dias_uteis_prev}d)"
-        texto_real = f"Real: {formatar_data(linha["Inicio_Real"])} → {formatar_data(linha["Termino_Real"])}-({dias_uteis_real}d)"
+        texto_real = f"Real: {formatar_data(linha['Inicio_Real'])} → {formatar_data(linha['Termino_Real'])}-({dias_uteis_real}d)"
+        eixo_tabela.text(0.04, y_pos + 0.05, f"{texto_prev:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS)
+        eixo_tabela.text(0.04, y_pos + 0.28, f"{texto_real:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS)
 
-        eixo_tabela.text(
-            0.04, y_pos + 0.05, f"{texto_prev:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS
-        )
-        eixo_tabela.text(
-            0.04, y_pos + 0.28, f"{texto_real:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS
-        )
-
-        percentual = linha["% concluído"]
-        termino_real = linha["Termino_Real"]
-        termino_previsto = linha["Termino_Prevista"]
-
-        cor_texto = "#000000"
-        cor_caixa = estilo_celula["facecolor"]
+        percentual = linha["Percentual_Concluido"]
+        termino_real_pct = linha["Termino_Real"]
+        termino_previsto_pct = linha["Termino_Prevista"]
+        cor_texto, cor_caixa = "#000000", estilo_celula["facecolor"]
         if percentual == 100:
-            if pd.notna(termino_real) and pd.notna(termino_previsto):
-                if termino_real < termino_previsto:
-                    cor_texto, cor_caixa = "#2EAF5B", "#e6f5eb"
-                elif termino_real > termino_previsto:
-                    cor_texto, cor_caixa = "#C30202", "#fae6e6"
+            if pd.notna(termino_real_pct) and pd.notna(termino_previsto_pct):
+                if termino_real_pct < termino_previsto_pct: cor_texto, cor_caixa = "#2EAF5B", "#e6f5eb"
+                elif termino_real_pct > termino_previsto_pct: cor_texto, cor_caixa = "#C30202", "#fae6e6"
         elif percentual < 100:
-            if pd.notna(termino_real) and (termino_real < hoje):
+            if pd.notna(termino_previsto_pct) and (termino_previsto_pct < hoje):
                 cor_texto, cor_caixa = "#A38408", "#faf3d9"
 
-        eixo_tabela.add_patch(
-            Rectangle(
-                (0.78, y_pos - 0.2), 0.2, 0.4,
-                facecolor=cor_caixa,
-                edgecolor="#d1d5db",
-                lw=0.8,
-            )
-        )
+        eixo_tabela.add_patch(Rectangle((0.78, y_pos - 0.2), 0.2, 0.4, facecolor=cor_caixa, edgecolor="#d1d5db", lw=0.8))
         percentual_texto = f"{percentual:.1f}%" if percentual % 1 != 0 else f"{int(percentual)}%"
+        eixo_tabela.text(0.88, y_pos, percentual_texto, va="center", ha="center", color=cor_texto, **StyleConfig.FONTE_PORCENTAGEM)
+
+        variacao_texto, variacao_cor = calcular_variacao_termino(linha["Termino_Real"], linha["Termino_Prevista"])
+        propriedades_bbox = dict(
+            boxstyle='square,pad=0.2',
+            facecolor=estilo_celula["facecolor"],
+            edgecolor='none',
+            alpha=1
+        )
         eixo_tabela.text(
-            0.88, y_pos, percentual_texto, va="center", ha="center", color=cor_texto, **StyleConfig.FONTE_PORCENTAGEM
+            0.88, y_pos + StyleConfig.OFFSET_VARIACAO_TERMINO, variacao_texto,
+            va="center", ha="center", color=variacao_cor,
+            bbox=propriedades_bbox, zorder=10, **StyleConfig.FONTE_VARIACAO
         )
 
-        # Variação de término
-        variacao_texto, variacao_cor = calcular_variacao_termino(
-            termino_real, termino_previsto
-        )
-        eixo_tabela.text(
-            0.88, y_pos + StyleConfig.OFFSET_VARIACAO_TERMINO, variacao_texto, va="center", ha="center",
-            color=variacao_cor, **StyleConfig.FONTE_VARIACAO
-        )
+        # --- 2. Desenho do Gantt ---
+        fase = GRUPO_POR_ETAPA.get(linha['Etapa'], "OUTROS")
+        cor_previsto = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("previsto", StyleConfig.COR_PREVISTO)
+        cor_real = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("real", StyleConfig.COR_REAL)
 
-    datas_relevantes = []
-    for _, linha in dados_consolidados.iterrows():
-        y_pos = linha["Posicao"]
-        
-        ALTURA_BARRA = StyleConfig.ALTURA_BARRA_GANTT
-        ESPACAMENTO = 0 if tipo_visualizacao != "Ambos" else StyleConfig.ALTURA_BARRA_GANTT * 0.5
+        if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(linha['Inicio_Prevista']) and pd.notna(linha['Termino_Prevista']):
+            duracao = (linha['Termino_Prevista'] - linha['Inicio_Prevista']).days + 1
+            eixo_gantt.barh(y=y_pos - ESPACAMENTO, width=duracao, left=linha['Inicio_Prevista'], height=ALTURA_BARRA, color=cor_previsto, alpha=0.9, antialiased=False)
+            datas_relevantes.extend([linha['Inicio_Prevista'], linha['Termino_Prevista']])
 
-        datas_relevantes = []
-
-        # Itera sobre os dados para criar as barras do gráfico
-        for _, linha in dados_consolidados.iterrows():
-            y_pos = linha["Posicao"]
-
-            # --- Lógica para desenhar as barras do gráfico Gantt ---
-
-            # Desenha a barra de DURAÇÃO PREVISTA
-            if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(linha["Inicio_Prevista"]) and pd.notna(linha["Termino_Prevista"]):
-                duracao = (linha["Termino_Prevista"] - linha["Inicio_Prevista"]).days + 1
-                eixo_gantt.barh(
-                    y=y_pos - ESPACAMENTO,
-                    width=duracao,
-                    left=linha["Inicio_Prevista"],
-                    height=ALTURA_BARRA,
-                    color=StyleConfig.COR_PREVISTO,
-                    alpha=0.9,
-                    antialiased=False,
-                )
-                datas_relevantes.extend([linha["Inicio_Prevista"], linha["Termino_Prevista"]])
-
-            # Desenha a barra de DURAÇÃO REAL
-            if tipo_visualizacao in ["Ambos", "Real"] and pd.notna(linha["Inicio_Real"]):
-                # Se a tarefa não terminou, considera a data de hoje como término para visualização
-                termino_real = linha["Termino_Real"] if pd.notna(linha["Termino_Real"]) else hoje
-                duracao = (termino_real - linha["Inicio_Real"]).days + 1
-                eixo_gantt.barh(
-                    y=y_pos + ESPACAMENTO,
-                    width=duracao,
-                    left=linha["Inicio_Real"],
-                    height=ALTURA_BARRA,
-                    color=StyleConfig.COR_REAL,
-                    alpha=0.9,
-                    antialiased=False,
-                )
-                datas_relevantes.extend([linha["Inicio_Real"], termino_real])
-
-            # OBSERVAÇÃO: Esta parte do código estava no início do seu trecho.
-            # Ela provavelmente pertence ao final do laço 'for', pois utiliza a variável 'y_pos'
-            # e outras que são definidas para cada linha da tabela.
-            # (Assumindo que 'eixo_tabela', 'variacao_texto', etc., estão definidos para cada linha)
-            eixo_tabela.text(
-                0.88, y_pos + StyleConfig.OFFSET_VARIACAO_TERMINO, variacao_texto, va="center", ha="center",
-                color=variacao_cor, **StyleConfig.FONTE_VARIACAO
-            )
-
-        # --- Lógica para ajustar os limites do eixo X (datas) ---
-
-        if datas_relevantes:
-            # Garante que todas as datas sejam Timestamps válidos antes de encontrar min/max
-            datas_validas = [pd.Timestamp(d) for d in datas_relevantes if pd.notna(d)]
-            if datas_validas:
-                data_min_do_grafico = min(datas_validas)
-                data_max_do_grafico = max(datas_validas)
-
-                # Define os limites do gráfico, garantindo que "hoje" esteja visível
-                # e que haja um espaço futuro de 90 dias.
-                data_min_final = min(hoje, data_min_do_grafico)
-                limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=90)
-
-                eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
-
-        # --- Exibição do Gráfico no Streamlit ---
-
-        if not rotulo_para_posicao:
-            st.pyplot(figura)
-            plt.close(figura)
-            return
-
+        if tipo_visualizacao in ["Ambos", "Real"] and pd.notna(linha['Inicio_Real']):
+            termino_real_gantt = linha['Termino_Real'] if pd.notna(linha['Termino_Real']) else hoje
+            duracao = (termino_real_gantt - linha['Inicio_Real']).days + 1
+            eixo_gantt.barh(y=y_pos + ESPACAMENTO, width=duracao, left=linha['Inicio_Real'], height=ALTURA_BARRA, color=cor_real, alpha=0.9, antialiased=False)
+            datas_relevantes.extend([linha['Inicio_Real'], termino_real_gantt])
+    
+    # Configuração dos eixos e finalização
+    if datas_relevantes:
+        datas_validas = [pd.Timestamp(d) for d in datas_relevantes if pd.notna(d)]
+        if datas_validas:
+            data_min_do_grafico = min(datas_validas)
+            data_max_do_grafico = max(datas_validas)
+            data_min_final = min(hoje, data_min_do_grafico)
+            limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=90)
+            eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
+    
     max_pos = max(rotulo_para_posicao.values())
     eixo_gantt.set_ylim(max_pos + 1, -1)
     eixo_gantt.set_yticks([])
@@ -990,98 +789,54 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
     for pos in rotulo_para_posicao.values():
         eixo_gantt.axhline(y=pos + 0.5, color="#dcdcdc", linestyle="-", alpha=0.7, linewidth=0.8)
 
-    limite_esquerdo, limite_direito = eixo_gantt.get_xlim()
-    margem_fixa = pd.Timedelta(days=30)
-    data_fim_projeto = max(
-        [d for d in [df["Termino_Real"].max(), df["Termino_Prevista"].max()] if pd.notna(d)],
-        default=pd.Timestamp.min,
-    )
-
-    if hoje <= data_fim_projeto + margem_fixa:
-        eixo_gantt.axvline(
-            hoje, color=StyleConfig.COR_HOJE, linestyle="--", linewidth=1.5
-        )
+    eixo_gantt.axvline(hoje, color=StyleConfig.COR_HOJE, linestyle="--", linewidth=1.5)
+    eixo_gantt.text(hoje, eixo_gantt.get_ylim()[0], "Hoje", color=StyleConfig.COR_HOJE, fontsize=10, ha="center", va="bottom")
+    
+    empreendimento_principal = df["Empreendimento"].unique()[0]
+    data_meta = obter_data_meta_assinatura(df_original, empreendimento_principal)
+    if data_meta != pd.Timestamp.max:
+        eixo_gantt.axvline(data_meta, color=StyleConfig.COR_META_ASSINATURA, linestyle="--", linewidth=1.7, alpha=0.7)
         eixo_gantt.text(
-            hoje,
-            eixo_gantt.get_ylim()[0],
-            "Hoje",
-            color=StyleConfig.COR_HOJE,
-            fontsize=10,
-            ha="center",
-            va="bottom",
+            data_meta, eixo_gantt.get_ylim()[1] + 0.2, f"Meta Assinatura\n{data_meta.strftime('%d/%m/%y')}",
+            color=StyleConfig.COR_META_ASSINATURA, fontsize=10, ha="center", va="top",
+            bbox=dict(facecolor="white", alpha=0.8, edgecolor=StyleConfig.COR_META_ASSINATURA, boxstyle="round,pad=0.3")
         )
-    else:
-        eixo_gantt.axvline(
-            limite_direito, color=StyleConfig.COR_HOJE, linestyle="--", linewidth=1.5
-        )
-        eixo_gantt.text(
-            limite_direito,
-            eixo_gantt.get_ylim()[1],
-            "Hoje >",
-            color=StyleConfig.COR_HOJE,
-            fontsize=10,
-            ha="right",
-            va="bottom",
-        )
-
-    if num_empreendimentos == 1 and num_etapas > 1:
-        empreendimento = df["Empreendimento"].unique()[0]
-        df_assinatura = df[
-            (df["Empreendimento"] == empreendimento) & (df["Etapa"] == "DEM.MIN")
-        ]  # Use DEM.MIN from your mapping
-        if not df_assinatura.empty:
-            data_meta, tipo_meta = (None, "")
-            if pd.notna(df_assinatura["Inicio_Prevista"].iloc[0]):
-                data_meta, tipo_meta = df_assinatura["Inicio_Prevista"].iloc[0], "Prevista"
-            elif pd.notna(df_assinatura["Inicio_Real"].iloc[0]):
-                data_meta, tipo_meta = df_assinatura["Inicio_Real"].iloc[0], "Real"
-
-            if data_meta is not None:
-                eixo_gantt.axvline(
-                    data_meta,
-                    color=StyleConfig.COR_META_ASSINATURA,
-                    linestyle="--",
-                    linewidth=1.7,
-                    alpha=0.7,
-                )
-                y_texto = eixo_gantt.get_ylim()[1] + 0.2
-                eixo_gantt.text(
-                    data_meta,
-                    y_texto,
-                    f"Meta Assinatura\n{tipo_meta}: {data_meta.strftime("%d/%m/%y")}",
-                    color=StyleConfig.COR_META_ASSINATURA,
-                    fontsize=10,
-                    ha="center",
-                    va="top",
-                    bbox=dict(
-                        facecolor="white",
-                        alpha=0.8,
-                        edgecolor=StyleConfig.COR_META_ASSINATURA,
-                        boxstyle="round,pad=0.5",
-                    ),
-                )
-
+        
     eixo_gantt.grid(axis="x", linestyle="--", alpha=0.6)
     eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-    eixo_gantt.xaxis.set_major_formatter(mdates.DateFormatter("%m/%y"))
-    plt.setp(eixo_gantt.get_xticklabels(), rotation=90, ha="center")
 
-    handles_legenda = [
-        Patch(color=StyleConfig.COR_PREVISTO, label="Previsto"),
-        Patch(color=StyleConfig.COR_REAL, label="Real"),
-    ]
+    # <-- CORREÇÃO: Formato da data alterado de volta para %m/%y
+    eixo_gantt.xaxis.set_major_formatter(mdates.DateFormatter("%m/%y"))
+
+    plt.setp(eixo_gantt.get_xticklabels(), rotation=90, ha="right")
+
+    # Cria os handles em pares para cada fase
+    handles_legenda = []
+    labels_legenda = []
+
+    for fase in StyleConfig.CORES_POR_SETOR:
+        if fase in StyleConfig.CORES_POR_SETOR:
+            prev_patch = Patch(color=StyleConfig.CORES_POR_SETOR[fase]["previsto"])
+            real_patch = Patch(color=StyleConfig.CORES_POR_SETOR[fase]["real"])
+            handles_legenda.append((prev_patch, real_patch))
+            labels_legenda.append(fase)
+
+    # Adiciona a legenda com pares de cores (mantendo posição original)
     eixo_gantt.legend(
         handles=handles_legenda,
-        loc="upper center",
-        bbox_to_anchor=(1.1, 1),
+        labels=labels_legenda,
+        handler_map={tuple: HandlerTuple(ndivide=None)},
+        loc='upper center',
+        bbox_to_anchor=(1.2, 1),  # Posição original ao lado do gráfico
         frameon=False,
         borderaxespad=0.1,
+        fontsize=8,
+        title=" (Previsto | Real)"
     )
-    plt.tight_layout(rect=[0, 0.03, 1, 1])
+
+    plt.tight_layout(rect=[0, 0, 1, 1])
     st.pyplot(figura)
     plt.close(figura)
-
-
 # ========================================================================================================
 # O RESTANTE DO CÓDIGO (LÓGICA DO STREAMLIT)
 # ========================================================================================================
