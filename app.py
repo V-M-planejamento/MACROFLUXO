@@ -210,7 +210,7 @@ class StyleConfig:
         "INFRA": {"previsto": "#b9ddfc", "real": "#003C6C"}, #
         "PRODUÇÃO": {"previsto": "#5E605F", "real": "#121212"}, #
         "NOVOS PRODUTOS": {"previsto": "#9691FD", "real": "#453ECC"}, #
-        "DEMANDA MÍNIMA": {"previsto": "#c6e7c8", "real": "#014606"} #
+        "VENDA": {"previsto": "#c6e7c8", "real": "#014606"} #
     }
 
     @classmethod
