@@ -203,13 +203,14 @@ class StyleConfig:
     OFFSET_VARIACAO_TERMINO = 0.31  # Posição vertical variação
 
     CORES_POR_SETOR = {
-        "PLANEJAMENTO MACROFLUXO": {"previsto": "#ffe1af", "real": "#be5900"},
-        "LIMPEZA 'SUPRESSÃO'": {"previsto": "#b9ddfc", "real": "#003C6C"},
-        "TERRAPLANAGEM": {"previsto": "#ebc7ef", "real": "#63006E"},
-        "INFRA INCIDENTE (SAA E SES)": {"previsto": "#f8cd7c", "real": "#6C3F00"},
-        "PULMÃO": {"previsto": "#bdbdbd", "real": "#3a3a3a"},
-        "RADIER": {"previsto": "#c6e7c8", "real": "#014606"},
-        "DEMANDA MÍNIMA": {"previsto": "#c6e7c8", "real": "#014606"}
+        "PROSPECÇÃO": {"previsto": "#ffdea1", "real": "#6C3F00"}, 
+        "LEGALIZAÇÃO": {"previsto": "#ebc7ef", "real": "#63006E"}, #
+        "PULMÃO": {"previsto": "#bdbdbd", "real": "#5f5f5f"}, #
+        "ENGENHARIA": {"previsto": "#ffe1af", "real": "#be5900"}, #
+        "INFRA": {"previsto": "#b9ddfc", "real": "#003C6C"}, #
+        "PRODUÇÃO": {"previsto": "#5E605F", "real": "#121212"}, #
+        "NOVOS PRODUTOS": {"previsto": "#9691FD", "real": "#453ECC"}, #
+        "DEMANDA MÍNIMA": {"previsto": "#c6e7c8", "real": "#014606"} #
     }
 
     @classmethod
@@ -563,7 +564,7 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
         )
 
         # --- 2. Desenho do Gantt ---
-        fase = GRUPO_POR_ETAPA.get(linha['Etapa'], "OUTROS")
+        fase = SETOR_POR_ETAPA.get(linha['Etapa'], "OUTROS")
         cor_previsto = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("previsto", StyleConfig.COR_PREVISTO)
         cor_real = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("real", StyleConfig.COR_REAL)
         
@@ -757,7 +758,7 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
         )
 
         # --- 2. Desenho do Gantt ---
-        fase = GRUPO_POR_ETAPA.get(linha['Etapa'], "OUTROS")
+        fase = SETOR_POR_ETAPA.get(linha['Etapa'], "OUTROS")
         cor_previsto = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("previsto", StyleConfig.COR_PREVISTO)
         cor_real = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("real", StyleConfig.COR_REAL)
 
@@ -831,7 +832,7 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
         frameon=False,
         borderaxespad=0.1,
         fontsize=8,
-        title=" (Previsto | Real)"
+        title=" Previsto | Real"
     )
 
     plt.tight_layout(rect=[0, 0, 1, 1])
