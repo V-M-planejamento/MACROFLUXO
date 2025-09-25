@@ -10,7 +10,7 @@ import matplotlib.gridspec as gridspec
 from datetime import datetime
 from dropdown_component import simple_multiselect_dropdown
 from popup import show_welcome_screen
-from calculate_business_days import calculate_business_days
+from calculate_business_days import calculate_business_days    
 import traceback
 
 # --- Bloco de Importação de Dados ---
@@ -52,6 +52,48 @@ GRUPOS = {
     "PULMÃO": ["PULMÃO INFRA"],
     "RADIER": ["PL.RADIER", "LEG.RADIER", "PULMÃO RADIER", "RADIER"],
     "DEMANDA MÍNIMA": ["DEMANDA MÍNIMA"],
+}
+
+SETOR = {
+    "PROSPECÇÃO": [
+        "PROSPECÇÃO",
+    ],
+    "LEGALIZAÇÃO": [
+        "LEGALIZAÇÃO PARA VENDA",
+        "LEG.LIMP",
+        "LEG.TER.",
+        "LEG.INFRA"
+    ],
+    "PULMÃO": [
+        "PULMÃO VENDA",
+        "PULMÃO INFRA",
+        "PULMÃO RADIER",
+    ],
+    "ENGENHARIA": [
+        "PL.LIMP",
+        "ENG.LIMP.",
+        "PL.TER.",
+        "ENG. TER.",
+        "PL.INFRA",
+        "ENG. INFRA",
+        "ENG. PAV",
+    ],
+    "INFRA": [
+        "EXECUÇÃO LIMP.",
+        "EXECUÇÃO TER.",
+        "EXECUÇÃO INFRA",
+        "EXECUÇÃO PAV.",
+        "PL.RADIER",
+    ],
+    "PRODUÇÃO": [
+        "RADIER",
+    ],
+    "NOVOS PRODUTOS": [
+        "LEG.RADIER",
+    ],
+    "VENDA": [
+        "DEMANDA MÍNIMA",
+    ],
 }
 
 # --- Mapeamentos e Padronização (MOVIDO PARA CIMA) ---
@@ -125,12 +167,22 @@ for grupo, etapas in GRUPOS.items():
         else:
             GRUPO_POR_ETAPA[etapa] = grupo
 
+# --- Mapa de Setor por Etapa ---
+SETOR_POR_ETAPA = {}
+for setor, etapas in SETOR.items():
+    for etapa in etapas:
+        if etapa in mapeamento_etapas_usuario:
+            sigla = mapeamento_etapas_usuario[etapa] #eixo_tabela
+            SETOR_POR_ETAPA[sigla] = setor
+        else:
+            SETOR_POR_ETAPA[etapa] = setor
+
 # --- Configurações de Estilo ---
 class StyleConfig:
     LARGURA_GANTT = 10
     ALTURA_GANTT_POR_ITEM = 1
     ALTURA_BARRA_GANTT = 0.20
-    LARGURA_TABELA = 4.7
+    LARGURA_TABELA = 5
     COR_PREVISTO = "#A8C5DA"
     COR_REAL = "#174c66"
     COR_HOJE = "red"
@@ -148,6 +200,16 @@ class StyleConfig:
     FUNDO_TABELA = "#f8f9fa"
     ESPACO_ENTRE_EMPREENDIMENTOS = 1.5
     OFFSET_VARIACAO_TERMINO = 0.31  # Posição vertical variação
+
+    CORES_POR_SETOR = {
+        "PLANEJAMENTO MACROFLUXO": {"previsto": "#ffe1af", "real": "#be5900"},
+        "LIMPEZA 'SUPRESSÃO'": {"previsto": "#b9ddfc", "real": "#003C6C"},
+        "TERRAPLANAGEM": {"previsto": "#ebc7ef", "real": "#63006E"},
+        "INFRA INCIDENTE (SAA E SES)": {"previsto": "#f8cd7c", "real": "#6C3F00"},
+        "PULMÃO": {"previsto": "#bdbdbd", "real": "#3a3a3a"},
+        "RADIER": {"previsto": "#c6e7c8", "real": "#014606"},
+        "DEMANDA MÍNIMA": {"previsto": "#c6e7c8", "real": "#014606"}
+    }
 
     @classmethod
     def set_offset_variacao_termino(cls, novo_offset):
@@ -389,18 +451,19 @@ def gerar_gantt(df, tipo_visualizacao="Ambos", filtrar_nao_concluidas=False):
         # Caso único empreendimento (com uma ou múltiplas etapas)
         gerar_gantt_individual(df, tipo_visualizacao, df_original=df_original_completo)
 
-
 def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
     """
     Gera um gráfico Gantt comparativo para múltiplos empreendimentos com apenas uma etapa.
     Ordena os empreendimentos pela data de início e exibe em um único gráfico.
     """
+
     if df.empty:
         return
 
     if df_original is None:
         df_original = df.copy()
 
+    datas_relevantes = [] # Inicialização da variável
     hoje = pd.Timestamp.now()
 
     # Ordenação específica para o caso comparativo
@@ -435,6 +498,9 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
     eixo_tabela = figura.add_subplot(grade[0], facecolor=StyleConfig.FUNDO_TABELA)
     eixo_gantt = figura.add_subplot(grade[1], sharey=eixo_tabela)
     eixo_tabela.axis("off")
+
+    ALTURA_BARRA = StyleConfig.ALTURA_BARRA_GANTT
+    ESPACAMENTO = 0 if tipo_visualizacao != "Ambos" else StyleConfig.ALTURA_BARRA_GANTT * 0.5
 
     # Consolidação dos dados
     dados_consolidados = (
@@ -523,6 +589,25 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
         eixo_tabela.text(
             0.88, y_pos, percentual_texto, va="center", ha="center", color=cor_texto, **StyleConfig.FONTE_PORCENTAGEM
         )
+        # Determina a fase da etapa atual
+        fase = SETOR.get(linha['Etapa'], "OUTROS")
+        cor_previsto = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("previsto", "#A8C5DA")
+        cor_real = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("real", "#174c66")
+
+        if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(linha['Inicio_Prevista']) and pd.notna(linha['Termino_Prevista']):
+            duracao = (linha['Termino_Prevista'] - linha['Inicio_Prevista']).days + 3
+            eixo_gantt.barh(y=y_pos - ESPACAMENTO, width=duracao, left=linha['Inicio_Prevista'],
+                           height=ALTURA_BARRA, color=cor_previsto, alpha=0.9,
+                           antialiased=False)
+            datas_relevantes.extend([linha['Inicio_Prevista'], linha['Termino_Prevista']])
+
+        if tipo_visualizacao in ["Ambos", "Real"] and pd.notna(linha['Inicio_Real']):
+            termino_real = linha['Termino_Real'] if pd.notna(linha['Termino_Real']) else hoje
+            duracao = (termino_real - linha['Inicio_Real']).days + 3
+            eixo_gantt.barh(y=y_pos + ESPACAMENTO, width=duracao, left=linha['Inicio_Real'],
+                           height=ALTURA_BARRA, color=cor_real, alpha=0.9,
+                           antialiased=False)
+            datas_relevantes.extend([linha['Inicio_Real'], termino_real])
 
         # Variação de término
         variacao_texto, variacao_cor = calcular_variacao_termino(
@@ -533,12 +618,14 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
             color=variacao_cor, **StyleConfig.FONTE_VARIACAO
         )
 
-    # Desenho das barras do Gantt
     datas_relevantes = []
     for _, linha in dados_consolidados.iterrows():
         y_pos = linha["Posicao"]
-        ALTURA_BARRA = StyleConfig.ALTURA_BARRA_GANTT
-        ESPACAMENTO = 0 if tipo_visualizacao != "Ambos" else StyleConfig.ALTURA_BARRA_GANTT * 0.5
+
+    ALTURA_BARRA = StyleConfig.ALTURA_BARRA_GANTT
+    ESPACAMENTO = 0 if tipo_visualizacao != "Ambos" else StyleConfig.ALTURA_BARRA_GANTT * 0.5
+    for _, linha in dados_consolidados.iterrows():
+        y_pos = linha["Posicao"]
 
         if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(
             linha["Inicio_Prevista"]
@@ -722,7 +809,7 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
         )
         .reset_index()
     )
-
+#FONTE_VARIACAO
     # --- LÓGICA DE CABEÇALHO CORRIGIDA ---
     empreendimento_atual = None
     for _, linha in dados_consolidados.iterrows():
@@ -810,6 +897,7 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
             0.88, y_pos, percentual_texto, va="center", ha="center", color=cor_texto, **StyleConfig.FONTE_PORCENTAGEM
         )
 
+        # Variação de término
         variacao_texto, variacao_cor = calcular_variacao_termino(
             termino_real, termino_previsto
         )
@@ -821,53 +909,79 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
     datas_relevantes = []
     for _, linha in dados_consolidados.iterrows():
         y_pos = linha["Posicao"]
+        
         ALTURA_BARRA = StyleConfig.ALTURA_BARRA_GANTT
         ESPACAMENTO = 0 if tipo_visualizacao != "Ambos" else StyleConfig.ALTURA_BARRA_GANTT * 0.5
 
-        if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(
-            linha["Inicio_Prevista"]
-        ) and pd.notna(linha["Termino_Prevista"]):
-            duracao = (linha["Termino_Prevista"] - linha["Inicio_Prevista"]).days + 1
-            eixo_gantt.barh(
-                y=y_pos - ESPACAMENTO,
-                width=duracao,
-                left=linha["Inicio_Prevista"],
-                height=ALTURA_BARRA,
-                color=StyleConfig.COR_PREVISTO,
-                alpha=0.9,
-                antialiased=False,
+        datas_relevantes = []
+
+        # Itera sobre os dados para criar as barras do gráfico
+        for _, linha in dados_consolidados.iterrows():
+            y_pos = linha["Posicao"]
+
+            # --- Lógica para desenhar as barras do gráfico Gantt ---
+
+            # Desenha a barra de DURAÇÃO PREVISTA
+            if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(linha["Inicio_Prevista"]) and pd.notna(linha["Termino_Prevista"]):
+                duracao = (linha["Termino_Prevista"] - linha["Inicio_Prevista"]).days + 1
+                eixo_gantt.barh(
+                    y=y_pos - ESPACAMENTO,
+                    width=duracao,
+                    left=linha["Inicio_Prevista"],
+                    height=ALTURA_BARRA,
+                    color=StyleConfig.COR_PREVISTO,
+                    alpha=0.9,
+                    antialiased=False,
+                )
+                datas_relevantes.extend([linha["Inicio_Prevista"], linha["Termino_Prevista"]])
+
+            # Desenha a barra de DURAÇÃO REAL
+            if tipo_visualizacao in ["Ambos", "Real"] and pd.notna(linha["Inicio_Real"]):
+                # Se a tarefa não terminou, considera a data de hoje como término para visualização
+                termino_real = linha["Termino_Real"] if pd.notna(linha["Termino_Real"]) else hoje
+                duracao = (termino_real - linha["Inicio_Real"]).days + 1
+                eixo_gantt.barh(
+                    y=y_pos + ESPACAMENTO,
+                    width=duracao,
+                    left=linha["Inicio_Real"],
+                    height=ALTURA_BARRA,
+                    color=StyleConfig.COR_REAL,
+                    alpha=0.9,
+                    antialiased=False,
+                )
+                datas_relevantes.extend([linha["Inicio_Real"], termino_real])
+
+            # OBSERVAÇÃO: Esta parte do código estava no início do seu trecho.
+            # Ela provavelmente pertence ao final do laço 'for', pois utiliza a variável 'y_pos'
+            # e outras que são definidas para cada linha da tabela.
+            # (Assumindo que 'eixo_tabela', 'variacao_texto', etc., estão definidos para cada linha)
+            eixo_tabela.text(
+                0.88, y_pos + StyleConfig.OFFSET_VARIACAO_TERMINO, variacao_texto, va="center", ha="center",
+                color=variacao_cor, **StyleConfig.FONTE_VARIACAO
             )
-            datas_relevantes.extend([linha["Inicio_Prevista"], linha["Termino_Prevista"]])
 
-        if tipo_visualizacao in ["Ambos", "Real"] and pd.notna(linha["Inicio_Real"]):
-            termino_real = linha["Termino_Real"] if pd.notna(linha["Termino_Real"]) else hoje
-            duracao = (termino_real - linha["Inicio_Real"]).days + 1
-            eixo_gantt.barh(
-                y=y_pos + ESPACAMENTO,
-                width=duracao,
-                left=linha["Inicio_Real"],
-                height=ALTURA_BARRA,
-                color=StyleConfig.COR_REAL,
-                alpha=0.9,
-                antialiased=False,
-            )
-            datas_relevantes.extend([linha["Inicio_Real"], termino_real])
+        # --- Lógica para ajustar os limites do eixo X (datas) ---
 
-    if datas_relevantes:
-        datas_validas = [pd.Timestamp(d) for d in datas_relevantes if pd.notna(d)]
-        if datas_validas:
-            data_min_do_grafico = min(datas_validas)
-            data_max_do_grafico = max(datas_validas)
+        if datas_relevantes:
+            # Garante que todas as datas sejam Timestamps válidos antes de encontrar min/max
+            datas_validas = [pd.Timestamp(d) for d in datas_relevantes if pd.notna(d)]
+            if datas_validas:
+                data_min_do_grafico = min(datas_validas)
+                data_max_do_grafico = max(datas_validas)
 
-            data_min_final = min(hoje, data_min_do_grafico)
-            limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=90)
+                # Define os limites do gráfico, garantindo que "hoje" esteja visível
+                # e que haja um espaço futuro de 90 dias.
+                data_min_final = min(hoje, data_min_do_grafico)
+                limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=90)
 
-            eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
+                eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
 
-    if not rotulo_para_posicao:
-        st.pyplot(figura)
-        plt.close(figura)
-        return
+        # --- Exibição do Gráfico no Streamlit ---
+
+        if not rotulo_para_posicao:
+            st.pyplot(figura)
+            plt.close(figura)
+            return
 
     max_pos = max(rotulo_para_posicao.values())
     eixo_gantt.set_ylim(max_pos + 1, -1)
@@ -963,7 +1077,6 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
         frameon=False,
         borderaxespad=0.1,
     )
-
     plt.tight_layout(rect=[0, 0.03, 1, 1])
     st.pyplot(figura)
     plt.close(figura)
@@ -1163,6 +1276,9 @@ def load_data():
     # Adicionar coluna GRUPO baseada na etapa
     df_merged["GRUPO"] = df_merged["Etapa"].map(GRUPO_POR_ETAPA).fillna("Não especificado")
 
+    # Adicionar coluna SETOR baseada na etapa
+    df_merged["SETOR"] = df_merged["Etapa"].map(SETOR_POR_ETAPA).fillna("Não especificado")
+
     return df_merged
 
 
@@ -1177,41 +1293,6 @@ def criar_dados_exemplo():
             "Condomínio Beta",
             "Projeto Gama",
         ],
-        "Etapa": [
-            "PROSPEC",
-            "LEGVENDA",
-            "PULVENDA",
-            "PROSPEC",
-            "LEGVENDA",
-            "PROSPEC",
-        ],
-        "Inicio_Prevista": pd.to_datetime(
-            [
-                "2024-02-01",
-                "2024-03-01",
-                "2024-04-15",
-                "2024-03-20",
-                "2024-05-01",
-                "2024-01-10",
-            ]
-        ),
-        "Termino_Prevista": pd.to_datetime(
-            [
-                "2024-02-28",
-                "2024-04-10",
-                "2024-05-30",
-                "2024-04-28",
-                "2024-06-15",
-                "2024-01-31",
-            ]
-        ),
-        "Inicio_Real": pd.to_datetime(
-            ["2024-02-05", "2024-03-03", pd.NaT, "2024-03-25", "2024-05-05", "2024-01-12"]
-        ),
-        "Termino_Real": pd.to_datetime(
-            ["2024-03-02", "2024-04-15", pd.NaT, "2024-05-05", pd.NaT, "2024-02-01"]
-        ),
-        "% concluído": [100, 100, 40, 100, 85, 100],
     }
     df_exemplo = pd.DataFrame(dados)
     # Adicionar coluna GRUPO
@@ -1227,7 +1308,7 @@ def get_unique_values(df, column):
 
 
 @st.cache_data
-def filter_dataframe(df, ugb_filter, emp_filter, grupo_filter):
+def filter_dataframe(df, ugb_filter, emp_filter, grupo_filter, setor_filter):
     """
     Função para cachear filtragem do DataFrame (adaptada para grupos)
     """
@@ -1241,6 +1322,9 @@ def filter_dataframe(df, ugb_filter, emp_filter, grupo_filter):
 
     if grupo_filter:
         df_filtered = df_filtered[df_filtered["GRUPO"].isin(grupo_filter)]
+
+    if setor_filter:
+        df_filtered = df_filtered[df_filtered["SETOR"].isin(setor_filter)]
 
     return df_filtered
 
@@ -1322,11 +1406,31 @@ if df_data is not None and not df_data.empty:
             default_selected=grupo_options,
         )
 
+        # 4️⃣ Filtro SETOR (NOVO - similar ao filtro de GRUPO)
+        if selected_ugb:
+            df_temp_setor = df_data[df_data["UGB"].isin(selected_ugb)]
+            if selected_emp:
+                df_temp_setor = df_temp_setor[df_temp_setor["Empreendimento"].isin(selected_emp)]
+            if selected_grupo:
+                df_temp_setor = df_temp_setor[df_temp_setor["GRUPO"].isin(selected_grupo)]
+            setor_options = list(SETOR.keys())
+        else:
+            setor_options = []
+
+        selected_setor = simple_multiselect_dropdown(
+            label="Filtrar por SETOR",
+            options=setor_options,
+            key="setor_filter",
+            default_selected=setor_options,
+        )
+
+
         # 4️⃣ Filtro Etapa (agora depende também do filtro de GRUPO)
         # Aplicar todos os filtros antes de mostrar etapas
         df_temp_filtered = filter_dataframe(
-            df_data, selected_ugb, selected_emp, selected_grupo
+            df_data, selected_ugb, selected_emp, selected_grupo, selected_setor
         )
+
 
         if not df_temp_filtered.empty:
             etapas_disponiveis = get_unique_values(df_temp_filtered, "Etapa")
@@ -1366,7 +1470,8 @@ if df_data is not None and not df_data.empty:
         tipo_visualizacao = st.radio("Mostrar dados:", ("Ambos", "Previsto", "Real"))
 
     # Aplica todos os filtros finais
-    df_filtered = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo)
+    df_filtered = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo, selected_setor)
+
 
     # Aplica o filtro de etapa final
     if selected_etapa_nome != "Todos" and not df_filtered.empty:
@@ -1980,3 +2085,5 @@ if df_data is not None and not df_data.empty:
             </div>""", unsafe_allow_html=True)
 else:
     st.error("❌ Não foi possível carregar ou gerar os dados.")
+
+
