@@ -453,8 +453,6 @@ def gerar_gantt(df, tipo_visualizacao="Ambos", filtrar_nao_concluidas=False):
         # Caso único empreendimento (com uma ou múltiplas etapas)
         gerar_gantt_individual(df, tipo_visualizacao, df_original=df_original_completo)
 
-# SUBSTITUA NOVAMENTE A FUNÇÃO 'gerar_gantt_comparativo' POR ESTA VERSÃO COMPLETA
-# SUBSTITUA NOVAMENTE A FUNÇÃO 'gerar_gantt_comparativo' POR ESTA
 def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
     """
     Gera um gráfico Gantt comparativo para múltiplos empreendimentos com apenas uma etapa.
@@ -492,7 +490,7 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
     eixo_gantt = figura.add_subplot(grade[1], sharey=eixo_tabela)
     eixo_tabela.axis("off")
 
-    # Consolidação dos dados (já remove duplicatas por natureza)
+    # Consolidação dos dados
     dados_consolidados = (
         df.groupby("Posicao")
         .agg(
@@ -521,8 +519,6 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
         eixo_tabela.add_patch(
             Rectangle((0.01, y_pos - 0.5), 0.98, 1.0, **estilo_celula)
         )
-
-        # Textos da tabela
         eixo_tabela.text(0.04, y_pos - 0.2, linha["Empreendimento"], va="center", ha="left", **StyleConfig.FONTE_ETAPA)
         
         dias_uteis_prev = calcular_dias_uteis(linha["Inicio_Prevista"], linha["Termino_Prevista"])
@@ -532,7 +528,6 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
         eixo_tabela.text(0.04, y_pos + 0.05, f"{texto_prev:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS)
         eixo_tabela.text(0.04, y_pos + 0.28, f"{texto_real:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS)
 
-        # Indicador de porcentagem
         percentual = linha["Percentual_Concluido"]
         termino_real_pct = linha["Termino_Real"]
         termino_previsto_pct = linha["Termino_Prevista"]
@@ -549,14 +544,8 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
         percentual_texto = f"{percentual:.1f}%" if percentual % 1 != 0 else f"{int(percentual)}%"
         eixo_tabela.text(0.88, y_pos, percentual_texto, va="center", ha="center", color=cor_texto, **StyleConfig.FONTE_PORCENTAGEM)
 
-        # Variação de término
         variacao_texto, variacao_cor = calcular_variacao_termino(linha["Termino_Real"], linha["Termino_Prevista"])
-        propriedades_bbox = dict(
-            boxstyle='square,pad=0.2',
-            facecolor=estilo_celula["facecolor"],
-            edgecolor='none',
-            alpha=1
-        )
+        propriedades_bbox = dict(boxstyle='square,pad=0.2', facecolor=estilo_celula["facecolor"], edgecolor='none', alpha=1)
         eixo_tabela.text(
             0.88, y_pos + StyleConfig.OFFSET_VARIACAO_TERMINO, variacao_texto,
             va="center", ha="center", color=variacao_cor,
@@ -568,15 +557,23 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
         cor_previsto = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("previsto", StyleConfig.COR_PREVISTO)
         cor_real = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("real", StyleConfig.COR_REAL)
         
-        if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(linha['Inicio_Prevista']) and pd.notna(linha['Termino_Prevista']):
-            duracao = (linha['Termino_Prevista'] - linha['Inicio_Prevista']).days + 1
-            eixo_gantt.barh(y=y_pos - ESPACAMENTO, width=duracao, left=linha['Inicio_Prevista'], height=ALTURA_BARRA, color=cor_previsto, alpha=0.9, antialiased=False)
-            datas_relevantes.extend([linha['Inicio_Prevista'], linha['Termino_Prevista']])
+        # <<< ALTERAÇÃO INICIO: Lógica para barra "Previsto" com duração imaginária
+        if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(linha['Inicio_Prevista']):
+            if pd.notna(linha['Termino_Prevista']):
+                termino_previsto_gantt = linha['Termino_Prevista']
+            else:
+                # Cria uma data de término imaginária de 27 dias para visualização
+                termino_previsto_gantt = linha['Inicio_Prevista'] + pd.Timedelta(days=27)
+
+            duracao_prevista = (termino_previsto_gantt - linha['Inicio_Prevista']).days + 1
+            eixo_gantt.barh(y=y_pos - ESPACAMENTO, width=duracao_prevista, left=linha['Inicio_Prevista'], height=ALTURA_BARRA, color=cor_previsto, alpha=0.9, antialiased=False)
+            datas_relevantes.extend([linha['Inicio_Prevista'], termino_previsto_gantt])
+        # <<< ALTERAÇÃO FIM
 
         if tipo_visualizacao in ["Ambos", "Real"] and pd.notna(linha['Inicio_Real']):
             termino_real_gantt = linha['Termino_Real'] if pd.notna(linha['Termino_Real']) else hoje
-            duracao = (termino_real_gantt - linha['Inicio_Real']).days + 1
-            eixo_gantt.barh(y=y_pos + ESPACAMENTO, width=duracao, left=linha['Inicio_Real'], height=ALTURA_BARRA, color=cor_real, alpha=0.9, antialiased=False)
+            duracao_real = (termino_real_gantt - linha['Inicio_Real']).days + 1
+            eixo_gantt.barh(y=y_pos + ESPACAMENTO, width=duracao_real, left=linha['Inicio_Real'], height=ALTURA_BARRA, color=cor_real, alpha=0.9, antialiased=False)
             datas_relevantes.extend([linha['Inicio_Real'], termino_real_gantt])
     
     # Configuração dos eixos e finalização
@@ -586,9 +583,18 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
             data_min_do_grafico = min(datas_validas)
             data_max_do_grafico = max(datas_validas)
             data_min_final = min(hoje, data_min_do_grafico)
-            limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=90)
+            limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=121)
             eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
-    
+            
+            # <<< ALTERAÇÃO INICIO: Lógica para pular meses em períodos longos
+            duracao_total_dias = (limite_superior - data_min_final).days
+            if duracao_total_dias > (3 * 365):  # Se o período total for maior que 3 anos
+                intervalo_meses = 3
+            else:
+                intervalo_meses = 1
+            eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=intervalo_meses))
+            # <<< ALTERAÇÃO FIM
+
     max_pos = max(rotulo_para_posicao.values())
     eixo_gantt.set_ylim(max_pos + 0.5, -0.5)
     eixo_gantt.set_yticks([])
@@ -600,46 +606,32 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
     eixo_gantt.text(hoje, eixo_gantt.get_ylim()[0], "Hoje", color=StyleConfig.COR_HOJE, fontsize=10, ha="center", va="bottom")
     
     eixo_gantt.grid(axis="x", linestyle="--", alpha=0.6)
-    eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-    
-    # <-- CORREÇÃO: Formato da data alterado de volta para %m/%y
     eixo_gantt.xaxis.set_major_formatter(mdates.DateFormatter("%m/%y"))
-    
-    plt.setp(eixo_gantt.get_xticklabels(), rotation=90, ha="right")
+    plt.setp(eixo_gantt.get_xticklabels(), rotation=90, ha="center")
 
-    # Cria os handles em pares para cada fase
+    # Legenda (sem alterações)
     handles_legenda = []
     labels_legenda = []
-
     for fase in StyleConfig.CORES_POR_SETOR:
         if fase in StyleConfig.CORES_POR_SETOR:
             prev_patch = Patch(color=StyleConfig.CORES_POR_SETOR[fase]["previsto"])
             real_patch = Patch(color=StyleConfig.CORES_POR_SETOR[fase]["real"])
             handles_legenda.append((prev_patch, real_patch))
             labels_legenda.append(fase)
-
-    # Adiciona a legenda com pares de cores (mantendo posição original)
+            
     eixo_gantt.legend(
-        handles=handles_legenda,
-        labels=labels_legenda,
+        handles=handles_legenda, labels=labels_legenda,
         handler_map={tuple: HandlerTuple(ndivide=None)},
-        loc='upper center',
-        bbox_to_anchor=(1.2, 1),  # Posição original ao lado do gráfico
-        frameon=False,
-        borderaxespad=0.1,
-        fontsize=8,
-        title=" Previsto | Real"
+        loc='upper center', bbox_to_anchor=(1.11, 1),
+        frameon=False, borderaxespad=0.1, fontsize=8,
+        title=" PREVISTO | REAL"
     )
 
     plt.tight_layout(rect=[0, 0, 1, 0.98])
     figura.suptitle(
-    f"Comparativo da Etapa: {sigla_para_nome_completo.get(df['Etapa'].iloc[0], '')}", 
-    fontsize=14, 
-    weight='bold',
-    ha='left',      # <-- Alinha o texto à esquerda
-    x=0.12,         # <-- Posição horizontal (mais para a esquerda)
-    y=0.90          # <-- Posição vertical (mais para baixo, perto do gráfico)
-)
+        f"Comparativo da Etapa: {sigla_para_nome_completo.get(df['Etapa'].iloc[0], '')}", 
+        fontsize=14, weight='bold', ha='left', x=0.12, y=0.90
+    )
     st.pyplot(figura)
     plt.close(figura)
 
@@ -715,7 +707,7 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
         
         estilo_celula = StyleConfig.CELULA_PAR if i % 2 == 0 else StyleConfig.CELULA_IMPAR
         eixo_tabela.add_patch(
-            Rectangle((0.01, y_pos - 0.5), 0.98, 1.0, **estilo_celula)
+            Rectangle((0.01, y_pos - 0.5), 0.98, 1.0, **estilo_celula) #data_max_do_grafico
         )
         
         texto_principal = sigla_para_nome_completo.get(linha["Etapa"], linha["Etapa"])
@@ -745,32 +737,35 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
         eixo_tabela.text(0.88, y_pos, percentual_texto, va="center", ha="center", color=cor_texto, **StyleConfig.FONTE_PORCENTAGEM)
 
         variacao_texto, variacao_cor = calcular_variacao_termino(linha["Termino_Real"], linha["Termino_Prevista"])
-        propriedades_bbox = dict(
-            boxstyle='square,pad=0.2',
-            facecolor=estilo_celula["facecolor"],
-            edgecolor='none',
-            alpha=1
-        )
+        propriedades_bbox = dict(boxstyle='square,pad=0.2', facecolor=estilo_celula["facecolor"], edgecolor='none', alpha=1)
         eixo_tabela.text(
             0.88, y_pos + StyleConfig.OFFSET_VARIACAO_TERMINO, variacao_texto,
             va="center", ha="center", color=variacao_cor,
             bbox=propriedades_bbox, zorder=10, **StyleConfig.FONTE_VARIACAO
-        )
+        ) 
 
         # --- 2. Desenho do Gantt ---
         fase = SETOR_POR_ETAPA.get(linha['Etapa'], "OUTROS")
         cor_previsto = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("previsto", StyleConfig.COR_PREVISTO)
         cor_real = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("real", StyleConfig.COR_REAL)
 
-        if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(linha['Inicio_Prevista']) and pd.notna(linha['Termino_Prevista']):
-            duracao = (linha['Termino_Prevista'] - linha['Inicio_Prevista']).days + 1
-            eixo_gantt.barh(y=y_pos - ESPACAMENTO, width=duracao, left=linha['Inicio_Prevista'], height=ALTURA_BARRA, color=cor_previsto, alpha=0.9, antialiased=False)
-            datas_relevantes.extend([linha['Inicio_Prevista'], linha['Termino_Prevista']])
+        # <<< ALTERAÇÃO INICIO: Lógica para barra "Previsto" com duração imaginária
+        if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(linha['Inicio_Prevista']):
+            if pd.notna(linha['Termino_Prevista']):
+                termino_previsto_gantt = linha['Termino_Prevista']
+            else:
+                # Cria uma data de término imaginária de 27 dias para visualização
+                termino_previsto_gantt = linha['Inicio_Prevista'] + pd.Timedelta(days=27)
 
+            duracao_prevista = (termino_previsto_gantt - linha['Inicio_Prevista']).days + 1
+            eixo_gantt.barh(y=y_pos - ESPACAMENTO, width=duracao_prevista, left=linha['Inicio_Prevista'], height=ALTURA_BARRA, color=cor_previsto, alpha=0.9, antialiased=False)
+            datas_relevantes.extend([linha['Inicio_Prevista'], termino_previsto_gantt])
+        # <<< ALTERAÇÃO FIM
+        
         if tipo_visualizacao in ["Ambos", "Real"] and pd.notna(linha['Inicio_Real']):
             termino_real_gantt = linha['Termino_Real'] if pd.notna(linha['Termino_Real']) else hoje
-            duracao = (termino_real_gantt - linha['Inicio_Real']).days + 1
-            eixo_gantt.barh(y=y_pos + ESPACAMENTO, width=duracao, left=linha['Inicio_Real'], height=ALTURA_BARRA, color=cor_real, alpha=0.9, antialiased=False)
+            duracao_real = (termino_real_gantt - linha['Inicio_Real']).days + 1
+            eixo_gantt.barh(y=y_pos + ESPACAMENTO, width=duracao_real, left=linha['Inicio_Real'], height=ALTURA_BARRA, color=cor_real, alpha=0.9, antialiased=False)
             datas_relevantes.extend([linha['Inicio_Real'], termino_real_gantt])
     
     # Configuração dos eixos e finalização
@@ -780,9 +775,18 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
             data_min_do_grafico = min(datas_validas)
             data_max_do_grafico = max(datas_validas)
             data_min_final = min(hoje, data_min_do_grafico)
-            limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=90)
+            limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=180)
             eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
-    
+
+            # <<< ALTERAÇÃO INICIO: Lógica para pular meses em períodos longos
+            duracao_total_dias = (limite_superior - data_min_final).days
+            if duracao_total_dias > (3 * 365):  # Se o período total for maior que 3 anos
+                intervalo_meses = 3
+            else:
+                intervalo_meses = 1
+            eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=intervalo_meses))
+            # <<< ALTERAÇÃO FIM
+
     max_pos = max(rotulo_para_posicao.values())
     eixo_gantt.set_ylim(max_pos + 1, -1)
     eixo_gantt.set_yticks([])
@@ -804,17 +808,12 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
         )
         
     eixo_gantt.grid(axis="x", linestyle="--", alpha=0.6)
-    eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-
-    # <-- CORREÇÃO: Formato da data alterado de volta para %m/%y
     eixo_gantt.xaxis.set_major_formatter(mdates.DateFormatter("%m/%y"))
+    plt.setp(eixo_gantt.get_xticklabels(), rotation=90, ha="center")
 
-    plt.setp(eixo_gantt.get_xticklabels(), rotation=90, ha="right")
-
-    # Cria os handles em pares para cada fase
+    # Legenda (sem alterações)
     handles_legenda = []
     labels_legenda = []
-
     for fase in StyleConfig.CORES_POR_SETOR:
         if fase in StyleConfig.CORES_POR_SETOR:
             prev_patch = Patch(color=StyleConfig.CORES_POR_SETOR[fase]["previsto"])
@@ -822,17 +821,12 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
             handles_legenda.append((prev_patch, real_patch))
             labels_legenda.append(fase)
 
-    # Adiciona a legenda com pares de cores (mantendo posição original)
     eixo_gantt.legend(
-        handles=handles_legenda,
-        labels=labels_legenda,
+        handles=handles_legenda, labels=labels_legenda,
         handler_map={tuple: HandlerTuple(ndivide=None)},
-        loc='upper center',
-        bbox_to_anchor=(1.2, 1),  # Posição original ao lado do gráfico
-        frameon=False,
-        borderaxespad=0.1,
-        fontsize=8,
-        title=" Previsto | Real"
+        loc='upper center', bbox_to_anchor=(1.11, 1),
+        frameon=False, borderaxespad=0.1, fontsize=8,
+        title=" PREVISTO | REAL"
     )
 
     plt.tight_layout(rect=[0, 0, 1, 1])
