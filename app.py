@@ -769,15 +769,6 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
             limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=180)
             eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
 
-            # <<< ALTERAÇÃO INICIO: Lógica para pular meses em períodos longos
-            duracao_total_dias = (limite_superior - data_min_final).days
-            if duracao_total_dias > (3 * 365):  # Se o período total for maior que 3 anos
-                intervalo_meses = 3
-            else:
-                intervalo_meses = 1
-            eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=intervalo_meses))
-            # <<< ALTERAÇÃO FIM
-
     max_pos = max(rotulo_para_posicao.values())
     eixo_gantt.set_ylim(max_pos + 1, -1)
     eixo_gantt.set_yticks([])
