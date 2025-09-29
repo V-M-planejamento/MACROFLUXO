@@ -586,6 +586,8 @@ def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
             limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=121)
             eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
 
+            eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+
     max_pos = max(rotulo_para_posicao.values())
     eixo_gantt.set_ylim(max_pos + 0.5, -0.5)
     eixo_gantt.set_yticks([])
@@ -768,6 +770,10 @@ def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
             data_min_final = min(hoje, data_min_do_grafico)
             limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=180)
             eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
+
+            # <<< ALTERAÇÃO: Intervalo do eixo X fixado novamente para 1 mês
+            eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+
 
     max_pos = max(rotulo_para_posicao.values())
     eixo_gantt.set_ylim(max_pos + 1, -1)
