@@ -1,0 +1,811 @@
+import streamlit as st
+import streamlit.components.v1 as components
+import json
+import datetime
+
+# Configuração da página
+st.set_page_config(
+    page_title="Gantt Chart - Estilo Webix",
+    page_icon="📊",
+    layout="wide"
+)
+
+# Título da aplicação
+st.title("📊 Gráfico de Gantt - Estilo Webix")
+st.markdown("---")
+
+# Dados de exemplo para o gráfico Gantt
+gantt_data = [
+    {
+        "id": "p1", 
+        "name": "PROSPECÇÃO", 
+        "desc": "Desenvolvimento da interface do usuário", 
+        "percent_concluido": 100,
+        "inicio_previsto": "/Date(1725159600000)/", # 2024-09-01
+        "termino_previsto": "/Date(1725937200000)/", # 2024-09-10
+        "inicio_real": "/Date(1725159600000)/", # 2024-09-01
+        "termino_real": "/Date(1725764400000)/", # 2024-09-08
+        "assigned": "João Silva"
+    },
+    {
+        "id": "p2", 
+        "name": "LEGALIZAÇÃO PARA VENDA", 
+        "desc": "Desenvolvimento da API e banco de dados", 
+        "percent_concluido": 75,
+        "inicio_previsto": "/Date(1725505200000)/", # 2024-09-05
+        "termino_previsto": "/Date(1726369200000)/", # 2024-09-15
+        "inicio_real": "/Date(1725591600000)/", # 2024-09-06
+        "termino_real": "/Date(1726282800000)/", # 2024-09-14
+        "assigned": "Maria Santos"
+    },
+    {
+        "id": "p3", 
+        "name": "PULMÃO VENDA", 
+        "desc": "Testes finais e implantação", 
+        "percent_concluido": 45,
+        "inicio_previsto": "/Date(1726110000000)/", # 2024-09-12
+        "termino_previsto": "/Date(1726801200000)/", # 2024-09-20
+        "inicio_real": "/Date(1726196400000)/", # 2024-09-13
+        "termino_real": None, # Tarefa em andamento
+        "assigned": "Pedro Costa"
+    },
+    {
+        "id": "p4", 
+        "name": "PL.LIMP", 
+        "desc": "Planejamento e limpeza", 
+        "percent_concluido": 0,
+        "inicio_previsto": "/Date(1726801200000)/", # 2024-09-20
+        "termino_previsto": "/Date(1727492400000)/", # 2024-09-28
+        "inicio_real": "/Date(1726887600000)/", # 2024-09-21
+        "termino_real": None,
+        "assigned": "Ana Lima"
+    },
+    {
+        "id": "p5", 
+        "name": "LEG.LIMP", 
+        "desc": "Legalização e limpeza", 
+        "percent_concluido": 0,
+        "inicio_previsto": "/Date(1727492400000)/", # 2024-09-28
+        "termino_previsto": "/Date(1728183600000)/", # 2024-10-06
+        "inicio_real": "/Date(1727578800000)/", # 2024-09-29
+        "termino_real": None,
+        "assigned": "Carlos Oliveira"
+    }
+]
+
+gantt_data_json = json.dumps(gantt_data)
+
+# CSS refinado - versão final
+gantt_css = """
+/* Reset e estilos base */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.gantt-container { 
+    width: 100%; 
+    margin: 20px auto; 
+    background-color: #fff; 
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+    font-size: 13px; 
+    border-radius: 8px; 
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1); 
+    overflow: hidden;
+    border: 1px solid #e1e5e9;
+}
+
+/* Container principal do Gantt */
+.fn-gantt { 
+    position: relative; 
+    overflow: hidden; 
+    background-color: #fff; 
+    border-radius: 8px; 
+}
+
+/* Barra de controles superior */
+.gantt-toolbar {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    color: white;
+    font-weight: 500;
+}
+
+.gantt-toolbar .logo {
+    font-size: 18px;
+    font-weight: bold;
+    margin-right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.toolbar-label {
+    font-size: 12px;
+    opacity: 0.9;
+}
+
+.toolbar-select {
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    outline: none;
+}
+
+.toolbar-select option {
+    background: #667eea;
+    color: white;
+}
+
+.toolbar-toggle {
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    outline: none;
+}
+
+.toolbar-toggle:hover {
+    background: rgba(255,255,255,0.3);
+}
+
+.toolbar-toggle.active {
+    background: rgba(255,255,255,0.4);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Container de dados */
+.fn-gantt-data { 
+    position: relative; 
+    overflow: hidden; 
+    min-height: 400px; 
+    display: flex;
+}
+
+/* Painel esquerdo - estruturado em colunas */
+.fn-gantt-leftpanel { 
+    width: 400px; 
+    background-color: #fafbfc; 
+    border-right: 1px solid #e1e5e9; 
+    overflow: hidden; 
+    flex-shrink: 0;
+}
+
+/* Cabeçalho das colunas */
+.gantt-header {
+    display: flex;
+    background: linear-gradient(180deg, #f8f9fa 0%, #f1f3f4 100%);
+    border-bottom: 1px solid #e1e5e9;
+    font-weight: 600;
+    font-size: 12px;
+    color: #5f6368;
+    height: 40px;
+    align-items: center;
+}
+
+.header-col {
+    padding: 0 12px;
+    border-right: 1px solid #e1e5e9;
+    display: flex;
+    align-items: center;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.header-col.title { width: 200px; }
+.header-col.start-date { width: 100px; }
+.header-col.assigned { width: 100px; }
+
+/* Linhas de dados */
+.fn-gantt-rows ul { 
+    list-style: none; 
+    margin: 0; 
+    padding: 0; 
+}
+
+.fn-gantt-rows li { 
+    display: flex;
+    height: 50px; 
+    border-bottom: 1px solid #f1f3f4; 
+    background-color: #fff; 
+    transition: all 0.2s ease;
+    align-items: center;
+    cursor: pointer;
+}
+
+.fn-gantt-rows li:nth-child(even) { 
+    background-color: #fafbfc; 
+}
+
+.fn-gantt-rows li:hover { 
+    background-color: #e8f0fe; 
+    transform: translateX(2px);
+}
+
+/* Colunas de dados */
+.data-col {
+    padding: 0 12px;
+    border-right: 1px solid #f1f3f4;
+    display: flex;
+    align-items: center;
+    font-size: 13px;
+}
+
+.data-col.title { 
+    width: 200px; 
+    font-weight: 500;
+    color: #202124;
+}
+
+.data-col.start-date { 
+    width: 100px; 
+    color: #5f6368;
+    font-size: 12px;
+}
+
+.data-col.assigned { 
+    width: 100px; 
+    color: #5f6368;
+    font-size: 12px;
+}
+
+/* Painel direito - área do gráfico */
+.fn-gantt-rightpanel { 
+    flex: 1;
+    position: relative; 
+    overflow-x: auto; 
+    overflow-y: hidden; 
+    background-color: #fff; 
+}
+
+/* Timeline superior */
+.fn-gantt-timeline { 
+    background: linear-gradient(180deg, #f8f9fa 0%, #f1f3f4 100%); 
+    border-bottom: 1px solid #e1e5e9; 
+    height: 40px; 
+    position: relative; 
+    overflow: hidden; 
+    display: flex;
+    align-items: center;
+}
+
+.timeline-date { 
+    flex: 0 0 50px;
+    text-align: center; 
+    border-right: 1px solid #e1e5e9; 
+    font-size: 11px;
+    font-weight: 500;
+    color: #5f6368;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.timeline-date:hover {
+    background-color: rgba(255,255,255,0.5);
+}
+
+/* Container das barras */
+.fn-gantt-bars ul { 
+    list-style: none; 
+    margin: 0; 
+    padding: 0; 
+    position: relative; 
+    background: repeating-linear-gradient( 
+        90deg, 
+        transparent, 
+        transparent 49px, 
+        #f8f9fa 49px, 
+        #f8f9fa 50px 
+    ); 
+}
+
+.fn-gantt-bars li { 
+    height: 50px; 
+    border-bottom: 1px solid #f1f3f4; 
+    position: relative; 
+    transition: background-color 0.2s ease;
+}
+
+.fn-gantt-bars li:nth-child(even) { 
+    background-color: rgba(250, 251, 252, 0.5); 
+}
+
+.fn-gantt-bars li:hover { 
+    background-color: rgba(232, 240, 254, 0.3); 
+}
+
+/* Barras do Gantt - estilo Webix refinado */
+.fn-gantt-bar { 
+    position: absolute; 
+    height: 26px; 
+    border-radius: 13px; 
+    cursor: pointer; 
+    z-index: 10; 
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12); 
+    top: 50%;
+    transform: translateY(-50%);
+    background: linear-gradient(135deg, var(--bar-color-start), var(--bar-color-end));
+    border: none;
+    overflow: hidden;
+}
+
+.fn-gantt-bar:hover { 
+    transform: translateY(-50%) scale(1.03); 
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2); 
+    z-index: 20;
+}
+
+.fn-gantt-barlabel { 
+    color: #fff; 
+    font-size: 11px; 
+    font-weight: 600; 
+    padding: 0 12px; 
+    white-space: nowrap; 
+    overflow: hidden; 
+    text-overflow: ellipsis; 
+    line-height: 26px; 
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3); 
+    position: relative;
+    z-index: 2;
+}
+
+/* Cores das barras - paleta Webix moderna */
+.gantt-bar-1 { 
+    --bar-color-start: #4ecdc4; 
+    --bar-color-end: #44a08d; 
+}
+
+.gantt-bar-2 { 
+    --bar-color-start: #667eea; 
+    --bar-color-end: #764ba2; 
+}
+
+.gantt-bar-3 { 
+    --bar-color-start: #f093fb; 
+    --bar-color-end: #f5576c; 
+}
+
+.gantt-bar-4 { 
+    --bar-color-start: #4facfe; 
+    --bar-color-end: #00f2fe; 
+}
+
+.gantt-bar-5 { 
+    --bar-color-start: #43e97b; 
+    --bar-color-end: #38f9d7; 
+}
+
+/* Indicador de progresso na barra */
+.progress-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: rgba(255,255,255,0.25);
+    border-radius: 13px;
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1;
+}
+
+/* Tooltip para as barras */
+.gantt-tooltip {
+    position: absolute;
+    background: rgba(0,0,0,0.9);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.2s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.gantt-tooltip.show {
+    opacity: 1;
+}
+
+/* Botões de controle inferiores */
+.gantt-controls { 
+    padding: 15px 20px; 
+    background: linear-gradient(180deg, #f8f9fa 0%, #f1f3f4 100%); 
+    border-top: 1px solid #e1e5e9; 
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.control-btn { 
+    padding: 8px 16px; 
+    background: linear-gradient(135deg, #667eea, #764ba2); 
+    color: white; 
+    border: none; 
+    border-radius: 6px; 
+    cursor: pointer; 
+    font-size: 12px; 
+    font-weight: 500; 
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+    outline: none;
+}
+
+.control-btn:hover { 
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15); 
+}
+
+.control-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Animações */
+@keyframes slideInLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.fn-gantt-rows li {
+    animation: slideInLeft 0.3s ease-out;
+}
+
+.fn-gantt-bar {
+    animation: slideInRight 0.4s ease-out;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .fn-gantt-leftpanel {
+        width: 300px;
+    }
+    
+    .header-col.title, .data-col.title {
+        width: 150px;
+    }
+    
+    .header-col.start-date, .data-col.start-date,
+    .header-col.assigned, .data-col.assigned {
+        width: 75px;
+    }
+    
+    .gantt-toolbar {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    
+    .toolbar-group {
+        gap: 5px;
+    }
+}
+"""
+
+# HTML com JavaScript final limpo
+html_code = f"""
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <title>Gantt Chart - Estilo Webix</title>
+    <style>
+        {gantt_css}
+    </style>
+</head>
+<body>
+    <div class="gantt-container">
+        <!-- Barra de ferramentas superior -->
+        <div class="gantt-toolbar">
+            <div class="logo">📊 Gantt</div>
+            
+            <div class="toolbar-group">
+                <span class="toolbar-label">Scale:</span>
+                <select class="toolbar-select" id="scaleSelect">
+                    <option value="day">day</option>
+                    <option value="week">week</option>
+                    <option value="month">month</option>
+                </select>
+            </div>
+            
+            <div class="toolbar-group">
+                <button class="toolbar-toggle" id="resourcesBtn">📊 Resources diagram</button>
+                <button class="toolbar-toggle" id="criticalBtn">🔴 Critical path</button>
+                <button class="toolbar-toggle" id="resourcesViewBtn">👥 Resources view</button>
+            </div>
+            
+            <div class="toolbar-group" style="margin-left: auto;">
+                <select class="toolbar-select">
+                    <option>Português</option>
+                    <option>English</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- Container principal do Gantt -->
+        <div class="fn-gantt">
+            <div class="fn-gantt-data">
+                <!-- Painel esquerdo com colunas estruturadas -->
+                <div class="fn-gantt-leftpanel">
+                    <div class="gantt-header">
+                        <div class="header-col title">Title</div>
+                        <div class="header-col start-date">Start date</div>
+                        <div class="header-col assigned">Assigned</div>
+                    </div>
+                    <div class="fn-gantt-rows">
+                        <ul></ul>
+                    </div>
+                </div>
+                
+                <!-- Painel direito com timeline e barras -->
+                <div class="fn-gantt-rightpanel">
+                    <div class="fn-gantt-timeline"></div>
+                    <div class="fn-gantt-bars">
+                        <ul></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Controles inferiores -->
+        <div class="gantt-controls">
+            <button class="control-btn setToday">📅 Hoje</button>
+            <button class="control-btn zoomOut">🔍➖ Zoom Out</button>
+            <button class="control-btn zoomIn">🔍➕ Zoom In</button>
+            <button class="control-btn prevDay">⬅️ Anterior</button>
+            <button class="control-btn nextDay">➡️ Próximo</button>
+        </div>
+    </div>
+
+    <!-- Tooltip -->
+    <div class="gantt-tooltip" id="ganttTooltip"></div>
+
+    <script src="https://code.jquery.com/jquery-1.11.0.min.js"></script>
+    <script>
+    (function($) {{
+        "use strict";
+        
+        function parseMsDate(msDateString) {{
+            if (!msDateString) return null;
+            var match = msDateString.match(/\/Date\((\d+)\)\//);
+            if (match && match[1]) {{
+                return new Date(parseInt(match[1]));
+            }}
+            return null;
+        }}
+
+        $.fn.gantt = function(options) {{
+            var settings = $.extend({{ source: [] }}, options);
+            var $element = this;
+            var data = settings.source;
+            var viewStart = new Date();
+            var viewEnd = new Date();
+            var dayWidth = 50;
+            var $tooltip = $('#ganttTooltip');
+            
+            function findDateLimits() {{
+                var allDates = [];
+                for (var i = 0; i < data.length; i++) {{
+                    var task = data[i];
+                    var startPrev = parseMsDate(task.inicio_previsto);
+                    var endPrev = parseMsDate(task.termino_previsto);
+                    var startReal = parseMsDate(task.inicio_real);
+                    var endReal = parseMsDate(task.termino_real);
+                    
+                    if (startPrev) allDates.push(startPrev);
+                    if (endPrev) allDates.push(endPrev);
+                    if (startReal) allDates.push(startReal);
+                    if (endReal) allDates.push(endReal);
+                }}
+                
+                var validDates = allDates.filter(function(date) {{ return date !== null; }});
+                
+                if (validDates.length === 0) {{
+                    minDate = new Date();
+                    maxDate = new Date();
+                }} else {{
+                    minDate = new Date(Math.min.apply(null, validDates));
+                    maxDate = new Date(Math.max.apply(null, validDates));
+                }}
+            }}
+            
+            var minDate, maxDate;
+            findDateLimits();
+
+            minDate.setDate(minDate.getDate() - 5);
+            maxDate.setDate(maxDate.getDate() + 5);
+            viewStart = new Date(minDate);
+            viewEnd = new Date(maxDate);
+            
+            function renderGantt() {{
+                var $leftPanel = $('.fn-gantt-leftpanel .fn-gantt-rows ul');
+                var $rightBars = $('.fn-gantt-bars ul');
+                var $timeline = $('.fn-gantt-timeline');
+                
+                $leftPanel.empty();
+                $rightBars.empty();
+                $timeline.empty();
+                
+                // Renderizar timeline
+                for (var d = new Date(viewStart); d <= viewEnd; d.setDate(d.getDate() + 1)) {{
+                    var dateStr = String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
+                    $timeline.append('<div class="timeline-date">' + dateStr + '</div>');
+                }}
+                
+                // Renderizar tarefas
+                for (var i = 0; i < data.length; i++) {{
+                    var task = data[i];
+                    
+                    // Usar data prevista como padrão, real se disponível
+                    var startDate = parseMsDate(task.inicio_real) || parseMsDate(task.inicio_previsto);
+                    var endDate = parseMsDate(task.termino_real) || parseMsDate(task.termino_previsto);
+                    
+                    // Se não tem data de término real, usar data atual para tarefas em andamento
+                    if (!endDate && parseMsDate(task.inicio_real)) {{
+                        endDate = new Date();
+                    }}
+                    
+                    // Linha do painel esquerdo
+                    var $row = $('<li></li>');
+                    $row.append('<div class="data-col title">' + task.name + '</div>');
+                    $row.append('<div class="data-col start-date">' + formatDate(startDate) + '</div>');
+                    $row.append('<div class="data-col assigned">' + (task.assigned || '-') + '</div>');
+                    $leftPanel.append($row);
+                    
+                    // Barra do gráfico
+                    var $barRow = $('<li></li>');
+                    
+                    if (startDate && endDate) {{
+                        var barStart = (startDate - viewStart) / (1000 * 60 * 60 * 24) * dayWidth;
+                        var barWidth = Math.max((endDate - startDate) / (1000 * 60 * 60 * 24) * dayWidth, 30);
+                        
+                        var $bar = $('<div class="fn-gantt-bar gantt-bar-' + ((i % 5) + 1) + '" style="left: ' + barStart + 'px; width: ' + barWidth + 'px;"></div>');
+                        
+                        // Indicador de progresso
+                        var progressWidth = (task.percent_concluido / 100) * 100;
+                        $bar.append('<div class="progress-indicator" style="width: ' + progressWidth + '%"></div>');
+                        
+                        $bar.append('<div class="fn-gantt-barlabel">' + task.name + '</div>');
+                        
+                        // Tooltip
+                        $bar.on('mouseenter', function(e) {{
+                            var tooltipText = task.name + '<br>Progresso: ' + task.percent_concluido + '%<br>Responsável: ' + (task.assigned || 'N/A');
+                            $tooltip.html(tooltipText).addClass('show');
+                        }});
+                        
+                        $bar.on('mousemove', function(e) {{
+                            $tooltip.css({{
+                                left: e.pageX + 10,
+                                top: e.pageY - 10
+                            }});
+                        }});
+                        
+                        $bar.on('mouseleave', function() {{
+                            $tooltip.removeClass('show');
+                        }});
+                        
+                        $barRow.append($bar);
+                    }}
+                    
+                    $rightBars.append($barRow);
+                }}
+            }}
+            
+            function formatDate(date) {{
+                if (!date) return '-';
+                return String(date.getDate()).padStart(2, '0') + '/' + 
+                       String(date.getMonth() + 1).padStart(2, '0') + '/' + 
+                       date.getFullYear();
+            }}
+
+            renderGantt();
+
+            // Event handlers
+            $('.setToday').on('click', function() {{
+                var today = new Date();
+                viewStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 7);
+                viewEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 14);
+                renderGantt();
+            }});
+            
+            $('.zoomIn').on('click', function() {{ 
+                var days = (viewEnd - viewStart) / (1000 * 60 * 60 * 24);
+                if (days > 7) {{
+                    viewStart.setDate(viewStart.getDate() + 2); 
+                    viewEnd.setDate(viewEnd.getDate() - 2); 
+                    renderGantt(); 
+                }}
+            }});
+            
+            $('.zoomOut').on('click', function() {{ 
+                viewStart.setDate(viewStart.getDate() - 2); 
+                viewEnd.setDate(viewEnd.getDate() + 2); 
+                renderGantt(); 
+            }});
+            
+            $('.prevDay').on('click', function() {{ 
+                viewStart.setDate(viewStart.getDate() - 1); 
+                viewEnd.setDate(viewEnd.getDate() - 1); 
+                renderGantt(); 
+            }});
+            
+            $('.nextDay').on('click', function() {{ 
+                viewStart.setDate(viewStart.getDate() + 1); 
+                viewEnd.setDate(viewEnd.getDate() + 1); 
+                renderGantt(); 
+            }});
+
+            // Toolbar handlers
+            $('.toolbar-toggle').on('click', function() {{
+                $(this).toggleClass('active');
+            }});
+            
+            // Scale handler
+            $('#scaleSelect').on('change', function() {{
+                var scale = $(this).val();
+                if (scale === 'week') {{
+                    dayWidth = 30;
+                }} else if (scale === 'month') {{
+                    dayWidth = 20;
+                }} else {{
+                    dayWidth = 50;
+                }}
+                renderGantt();
+            }});
+        }};
+    }})(jQuery);
+
+    $(document).ready(function() {{
+        $(".fn-gantt").gantt({{
+            source: {gantt_data_json}
+        }});
+    }});
+    </script>
+</body>
+</html>
+"""
+
+# Renderizar o componente HTML no Streamlit
+components.html(html_code, height=700, scrolling=True)
