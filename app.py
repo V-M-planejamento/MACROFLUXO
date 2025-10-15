@@ -8,11 +8,15 @@ from matplotlib.patches import Patch, Rectangle
 from matplotlib.legend_handler import HandlerTuple
 import matplotlib.dates as mdates
 import matplotlib.gridspec as gridspec
-from datetime import datetime
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from dropdown_component import simple_multiselect_dropdown
 from popup import show_welcome_screen
-from calculate_business_days import calculate_business_days    
+from calculate_business_days import calculate_business_days
 import traceback
+import streamlit.components.v1 as components
+import json
+import random
 
 # --- Bloco de Importação de Dados ---
 try:
@@ -23,160 +27,74 @@ except ImportError:
     processar_cronograma = None
     tratar_macrofluxo = None
 
+# --- ORDEM DAS ETAPAS (DEFINIDA PELO USUÁRIO) ---
+ORDEM_ETAPAS_GLOBAL = [
+    "PROSPEC", "LEGVENDA", "PULVENDA", "PL.LIMP", "LEG.LIMP", "ENG.LIMP", "EXECLIMP",
+    "PL.TER", "LEG.TER", "ENG. TER.", "EXECTER", "PL.INFRA", "LEG.INFRA", "ENG.INFRA",
+    "EXECINFRA", "ENG.PAV", "EXEC.PAV", "PUL.INFRA", "PL.RAD", "LEG.RAD", "PUL.RAD",
+    "RAD", "DEM.MIN",
+]
+
 # --- Definição dos Grupos ---
 GRUPOS = {
-    "PLANEJAMENTO MACROFLUXO": [
-        "PROSPECÇÃO",
-        "LEGALIZAÇÃO PARA VENDA",
-        "PULMÃO VENDA",
-    ],
-    "LIMPEZA 'SUPRESSÃO'": [
-        "PL.LIMP",
-        "LEG.LIMP",
-        "ENG. LIMP.",
-        "EXECUÇÃO LIMP.",
-    ],
-    "TERRAPLANAGEM": [
-        "PL.TER.",
-        "LEG.TER.",
-        "ENG. TER.",
-        "EXECUÇÃO TER.",
-    ],
+    "PLANEJAMENTO MACROFLUXO": ["PROSPECÇÃO", "LEGALIZAÇÃO PARA VENDA", "PULMÃO VENDA"],
+    "LIMPEZA 'SUPRESSÃO'": ["PL.LIMP", "LEG.LIMP", "ENG. LIMP.", "EXECUÇÃO LIMP."],
+    "TERRAPLANAGEM": ["PL.TER.", "LEG.TER.", "ENG. TER.", "EXECUÇÃO TER."],
     "INFRA INCIDENTE (SAA E SES)": [
-        "PL.INFRA",
-        "LEG.INFRA",
-        "ENG. INFRA",
-        "EXECUÇÃO INFRA",
-        "ENG. PAV",
-        "EXECUÇÃO PAV.",
+        "PL.INFRA", "LEG.INFRA", "ENG. INFRA", "EXECUÇÃO INFRA", "ENG. PAV", "EXECUÇÃO PAV."
     ],
     "PULMÃO": ["PULMÃO INFRA"],
-    "RADIER": ["PL.RADIER", "LEG.RADIER", "PULMÃO RADIER", "RADIER"],
+    "RADIER": ["PL.RADIER", "", "PULMÃO RADIER", "RADIER"],
     "DEMANDA MÍNIMA": ["DEMANDA MÍNIMA"],
 }
 
 SETOR = {
-    "PROSPECÇÃO": [
-        "PROSPECÇÃO",
-    ],
+    "PROSPECÇÃO": ["PROSPECÇÃO"],
     "LEGALIZAÇÃO": [
-        "LEGALIZAÇÃO PARA VENDA",
-        "LEG.LIMP",
-        "LEG.TER.",
-        "LEG.INFRA"
+        "LEGALIZAÇÃO PARA VENDA", "LEG.LIMP", "LEG.TER.", "LEG.INFRA", "LEG.RADIER"
     ],
-    "PULMÃO": [
-        "PULMÃO VENDA",
-        "PULMÃO INFRA",
-        "PULMÃO RADIER",
-    ],
+    "PULMÃO": ["PULMÃO VENDA", "PULMÃO INFRA", "PULMÃO RADIER"],
     "ENGENHARIA": [
-        "PL.LIMP",
-        "ENG.LIMP.",
-        "PL.TER.",
-        "ENG. TER.",
-        "PL.INFRA",
-        "ENG. INFRA",
-        "ENG. PAV",
+        "PL.LIMP", "ENG. LIMP.", "PL.TER.", "ENG. TER.", "PL.INFRA", "ENG. INFRA", "ENG. PAV"
     ],
     "INFRA": [
-        "EXECUÇÃO LIMP.",
-        "EXECUÇÃO TER.",
-        "EXECUÇÃO INFRA",
-        "EXECUÇÃO PAV.",
-        "PL.RADIER",
+        "EXECUÇÃO LIMP.", "EXECUÇÃO TER.", "EXECUÇÃO INFRA", "EXECUÇÃO PAV."
     ],
-    "PRODUÇÃO": [
-        "RADIER",
-    ],
-    "NOVOS PRODUTOS": [
-        "LEG.RADIER",
-    ],
-    "VENDA": [
-        "DEMANDA MÍNIMA",
-    ],
+    "PRODUÇÃO": ["RADIER"],
+    "NOVOS PRODUTOS": ["PL.RADIER"],
+    "VENDA": ["DEMANDA MÍNIMA"],
 }
 
-# --- Mapeamentos e Padronização (MOVIDO PARA CIMA) ---
-# Mapeamento fornecido pelo usuário
+# --- Mapeamentos e Padronização ---
 mapeamento_etapas_usuario = {
-    "PROSPECÇÃO": "PROSPEC",
-    "LEGALIZAÇÃO PARA VENDA": "LEGVENDA",
-    "PULMÃO VENDA": "PULVENDA",
-    "PL.LIMP": "PL.LIMP",
-    "LEG.LIMP": "LEG.LIMP",
-    "ENG. LIMP.": "ENG.LIMP",
-    "EXECUÇÃO LIMP.": "EXECLIMP",
-    "PL.TER.": "PL.TER",
-    "LEG.TER.": "LEG.TER",
-    "ENG. TER.": "ENG.TER",
-    "EXECUÇÃO TER.": "EXECTER",
-    "PL.INFRA": "PL.INFRA",
-    "LEG.INFRA": "LEG.INFRA",
-    "ENG. INFRA": "ENG.INFRA",
-    "EXECUÇÃO INFRA": "EXECINFRA",
-    "LEG.PAV": "LEG.PAV",
-    "ENG. PAV": "ENG.PAV",
-    "EXECUÇÃO PAV.": "EXEC.PAV",
-    "PULMÃO INFRA": "PUL.INFRA",
-    "PL.RADIER": "PL.RAD",
-    "LEG.RADIER": "LEG.RAD",
-    "RADIER": "RAD",
-    "DEMANDA MÍNIMA": "DEM.MIN",
+    "PROSPECÇÃO": "PROSPEC", "LEGALIZAÇÃO PARA VENDA": "LEGVENDA", "PULMÃO VENDA": "PULVENDA",
+    "PL.LIMP": "PL.LIMP", "LEG.LIMP": "LEG.LIMP", "ENG. LIMP.": "ENG.LIMP",
+    "EXECUÇÃO LIMP.": "EXECLIMP", "PL.TER.": "PL.TER", "LEG.TER.": "LEG.TER",
+    "ENG. TER.": "ENG. TER", "EXECUÇÃO TER.": "EXECTER", "PL.INFRA": "PL.INFRA",
+    "LEG.INFRA": "LEG.INFRA", "ENG. INFRA": "ENG.INFRA", "EXECUÇÃO INFRA": "EXECINFRA",
+    "ENG. PAV": "ENG.PAV", "EXECUÇÃO PAV.": "EXEC.PAV", "PULMÃO INFRA": "PUL.INFRA",
+    "PL.RADIER": "PL.RAD", "LEG.RADIER": "LEG.RAD", "PULMÃO RADIER": "PUL.RAD",
+    "RADIER": "RAD", "DEMANDA MÍNIMA": "DEM.MIN",
 }
 
-# Mapeamento reverso para exibição
 mapeamento_reverso = {v: k for k, v in mapeamento_etapas_usuario.items()}
 
-# Siglas para nomes completos (mantendo compatibilidade com o código original)
 sigla_para_nome_completo = {
-    "PROSPEC": "PROSPECÇÃO",
-    "LEGVENDA": "LEGALIZAÇÃO PARA VENDA",
-    "PULVENDA": "PULMÃO VENDA",
-    "PL.LIMP": "PL.LIMP",
-    "LEG.LIMP": "LEG.LIMP",
-    "ENG.LIMP": "ENG. LIMP.",
-    "EXECLIMP": "EXECUÇÃO LIMP.",
-    "PL.TER": "PL.TER.",
-    "LEG.TER": "LEG.TER.",
-    "ENG.TER": "ENG. TER.",
-    "EXECTER": "EXECUÇÃO TER.",
-    "PL.INFRA": "PL.INFRA",
-    "LEG.INFRA": "LEG.INFRA",
-    "ENG.INFRA": "ENG. INFRA",
-    "EXECINFRA": "EXECUÇÃO INFRA",
-    "LEG.PAV": "LEG.PAV",
-    "ENG.PAV": "ENG. PAV",
-    "EXEC.PAV": "EXECUÇÃO PAV.",
-    "PUL.INFRA": "PULMÃO INFRA",
-    "PL.RAD": "PL.RADIER",
-    "LEG.RAD": "LEG.RADIER",
-    "RAD": "RADIER",
-    "DEM.MIN": "DEMANDA MÍNIMA",
+    "PROSPEC": "PROSPECÇÃO", "LEGVENDA": "LEGALIZAÇÃO PARA VENDA", "PULVENDA": "PULMÃO VENDA",
+    "PL.LIMP": "PL.LIMP", "LEG.LIMP": "LEG.LIMP", "ENG.LIMP": "ENG. LIMP.", "EXECLIMP": "EXECUÇÃO LIMP.",
+    "PL.TER": "PL.TER.", "LEG.TER": "LEG.TER.", "ENG. TER": "ENG. TER.", "EXECTER": "EXECUÇÃO TER.",
+    "PL.INFRA": "PL.INFRA", "LEG.INFRA": "LEG.INFRA", "ENG.INFRA": "ENG. INFRA",
+    "EXECINFRA": "EXECUÇÃO INFRA", "LEG.PAV": "LEG.PAV", "ENG.PAV": "ENG. PAV",
+    "EXEC.PAV": "EXECUÇÃO PAV.", "PUL.INFRA": "PULMÃO INFRA", "PL.RAD": "PL.RADIER",
+    "LEG.RAD": "LEG.RADIER", "PUL.RAD": "PULMÃO RADIER", "RAD": "RADIER", "DEM.MIN": "DEMANDA MÍNIMA",
 }
 
+ORDEM_ETAPAS_NOME_COMPLETO = [sigla_para_nome_completo.get(s, s) for s in ORDEM_ETAPAS_GLOBAL]
 nome_completo_para_sigla = {v: k for k, v in sigla_para_nome_completo.items()}
 
-# --- Mapa de Grupo por Etapa (similar ao FASE_POR_ETAPA) ---
-GRUPO_POR_ETAPA = {}
-for grupo, etapas in GRUPOS.items():
-    for etapa in etapas:
-        # Converter para sigla se necessário
-        if etapa in mapeamento_etapas_usuario:
-            sigla = mapeamento_etapas_usuario[etapa]
-            GRUPO_POR_ETAPA[sigla] = grupo
-        else:
-            GRUPO_POR_ETAPA[etapa] = grupo
+GRUPO_POR_ETAPA = {mapeamento_etapas_usuario.get(etapa, etapa): grupo for grupo, etapas in GRUPOS.items() for etapa in etapas}
+SETOR_POR_ETAPA = {mapeamento_etapas_usuario.get(etapa, etapa): setor for setor, etapas in SETOR.items() for etapa in etapas}
 
-# --- Mapa de Setor por Etapa ---
-SETOR_POR_ETAPA = {}
-for setor, etapas in SETOR.items():
-    for etapa in etapas:
-        if etapa in mapeamento_etapas_usuario:
-            sigla = mapeamento_etapas_usuario[etapa] #eixo_tabela
-            SETOR_POR_ETAPA[sigla] = setor
-        else:
-            SETOR_POR_ETAPA[etapa] = setor
 
 # --- Configurações de Estilo ---
 class StyleConfig:
@@ -200,64 +118,171 @@ class StyleConfig:
     CELULA_IMPAR = {"facecolor": "#f1f3f5", "edgecolor": "#d1d5db", "lw": 0.8}
     FUNDO_TABELA = "#f8f9fa"
     ESPACO_ENTRE_EMPREENDIMENTOS = 1.5
-    OFFSET_VARIACAO_TERMINO = 0.31  # Posição vertical variação
+    OFFSET_VARIACAO_TERMINO = 0.31
 
     CORES_POR_SETOR = {
-        "PROSPECÇÃO": {"previsto": "#ffdea1", "real": "#6C3F00"}, 
-        "LEGALIZAÇÃO": {"previsto": "#ebc7ef", "real": "#63006E"}, #
-        "PULMÃO": {"previsto": "#bdbdbd", "real": "#5f5f5f"}, #
-        "ENGENHARIA": {"previsto": "#ffe1af", "real": "#be5900"}, #
-        "INFRA": {"previsto": "#b9ddfc", "real": "#003C6C"}, #
-        "PRODUÇÃO": {"previsto": "#5E605F", "real": "#121212"}, #
-        "NOVOS PRODUTOS": {"previsto": "#9691FD", "real": "#453ECC"}, #
-        "VENDA": {"previsto": "#c6e7c8", "real": "#014606"} #
+        "PROSPECÇÃO": {"previsto": "#FEEFC4", "real": "#AE8141"},
+        "LEGALIZAÇÃO": {"previsto": "#fadbfe", "real": "#BF08D3"},
+        "PULMÃO": {"previsto": "#E9E8E8", "real": "#535252"},
+        "ENGENHARIA": {"previsto": "#fbe3cf", "real": "#be5900"},
+        "INFRA": {"previsto": "#daebfb", "real": "#125287"},
+        "PRODUÇÃO": {"previsto": "#E1DFDF", "real": "#252424"},
+        "NOVOS PRODUTOS": {"previsto": "#D4D3F9", "real": "#453ECC"},
+        "VENDA": {"previsto": "#dffde1", "real": "#096710"},
+        "Não especificado": {"previsto": "#ffffff", "real": "#FFFFFF"}
     }
 
     @classmethod
     def set_offset_variacao_termino(cls, novo_offset):
-        """
-        Método para alterar o offset vertical do texto da variação de término.
-        
-        Args:
-            novo_offset (float): Novo offset vertical (valor float, e.g., 0.25)
-        """
         cls.OFFSET_VARIACAO_TERMINO = novo_offset
 
+# --- Funções do Novo Gráfico Gantt ---
+
+def calcular_periodo_datas(df, meses_padding_inicio=1, meses_padding_fim=3):
+    if df.empty:
+        hoje = datetime.now()
+        data_min_default = (hoje - relativedelta(months=2)).replace(day=1)
+        data_max_default = (hoje + relativedelta(months=4))
+        data_max_default = (data_max_default.replace(day=1) + relativedelta(months=1)) - timedelta(days=1)
+        return data_min_default, data_max_default
+
+    datas = []
+    colunas_data = ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]
+    for col in colunas_data:
+        if col in df.columns:
+            datas_validas = pd.to_datetime(df[col], errors='coerce').dropna()
+            datas.extend(datas_validas.tolist())
+
+    if not datas:
+        return calcular_periodo_datas(pd.DataFrame())
+
+    data_min_real = min(datas)
+    data_max_real = max(datas)
+
+    data_inicio_final = (data_min_real - relativedelta(months=meses_padding_inicio)).replace(day=1)
+    data_fim_temp = data_max_real + relativedelta(months=meses_padding_fim)
+    data_fim_final = (data_fim_temp.replace(day=1) + relativedelta(months=1)) - timedelta(days=1)
+
+    return data_inicio_final, data_fim_final
+
+def calcular_dias_uteis_novo(data_inicio, data_fim):
+    if pd.isna(data_inicio) or pd.isna(data_fim):
+        return None
+    
+    data_inicio = pd.to_datetime(data_inicio).normalize()
+    data_fim = pd.to_datetime(data_fim).normalize()
+    
+    sinal = 1
+    if data_inicio > data_fim:
+        data_inicio, data_fim = data_fim, data_inicio
+        sinal = -1
+    
+    return np.busday_count(data_inicio.date(), data_fim.date()) * sinal
+
+def obter_data_meta_assinatura_novo(df_empreendimento):
+    df_meta = df_empreendimento[df_empreendimento["Etapa"] == "DEMANDA MÍNIMA"]
+    if df_meta.empty:
+        return None
+    for col in ["Inicio_Prevista", "Inicio_Real", "Termino_Prevista", "Termino_Real"]:
+        if col in df_meta.columns and pd.notna(df_meta[col].iloc[0]):
+            return pd.to_datetime(df_meta[col].iloc[0])
+    return None
+
+def converter_dados_para_gantt(df):
+    if df.empty:
+        return []
+
+    gantt_data = []
+    
+    for empreendimento in df["Empreendimento"].unique():
+        df_emp = df[df["Empreendimento"] == empreendimento].copy()
+        
+        tasks = []
+        df_emp['Etapa'] = pd.Categorical(df_emp['Etapa'], categories=ORDEM_ETAPAS_NOME_COMPLETO, ordered=True)
+        df_emp_sorted = df_emp.sort_values(by='Etapa').reset_index()
+
+        for i, (idx, row) in enumerate(df_emp_sorted.iterrows()):
+            start_date = row.get("Inicio_Prevista")
+            end_date = row.get("Termino_Prevista")
+            start_real = row.get("Inicio_Real")
+            end_real_original = row.get("Termino_Real")
+            progress = row.get("% concluído", 0)
+
+            if pd.isna(start_date): start_date = datetime.now()
+            if pd.isna(end_date): end_date = start_date + timedelta(days=30)
+
+            is_in_progress = False
+            end_real_visual = end_real_original
+            if pd.notna(start_real) and progress < 100 and pd.isna(end_real_original):
+                end_real_visual = datetime.now()
+                is_in_progress = True
+
+            etapa = row.get("Etapa", "UNKNOWN")
+            
+            vd = calcular_dias_uteis_novo(end_date, end_real_original)
+            duracao_prevista_uteis = calcular_dias_uteis_novo(start_date, end_date)
+            duracao_real_uteis = calcular_dias_uteis_novo(start_real, end_real_original)
+            
+            dd = None
+            if duracao_real_uteis is not None and duracao_prevista_uteis is not None:
+                dd = duracao_real_uteis - duracao_prevista_uteis
+            
+            task = {
+                "id": f"t{i}", "name": etapa, "numero_etapa": i + 1,
+                "start_previsto": start_date.strftime("%Y-%m-%d"),
+                "end_previsto": end_date.strftime("%Y-%m-%d"),
+                "start_real": pd.to_datetime(start_real).strftime("%Y-%m-%d") if pd.notna(start_real) else None,
+                "end_real": pd.to_datetime(end_real_visual).strftime("%Y-%m-%d") if pd.notna(end_real_visual) else None,
+                "setor": row.get("SETOR", "Não especificado"),
+                "desc": f"{etapa} - {empreendimento}",
+                "progress": int(progress),
+                "is_in_progress": is_in_progress,
+                "inicio_previsto": start_date.strftime("%d/%m/%y"),
+                "termino_previsto": end_date.strftime("%d/%m/%y"),
+                "inicio_real": pd.to_datetime(start_real).strftime("%d/%m/%y") if pd.notna(start_real) else "N/D",
+                "termino_real": pd.to_datetime(end_real_original).strftime("%d/%m/%y") if pd.notna(end_real_original) else "N/D",
+                "vd": int(vd) if vd is not None else None,
+                "dd": int(dd) if dd is not None else None,
+                "duracao_prevista": int(duracao_prevista_uteis) if duracao_prevista_uteis is not None else None,
+                "duracao_real": int(duracao_real_uteis) if duracao_real_uteis is not None else None
+            }
+            tasks.append(task)
+    
+        data_meta = obter_data_meta_assinatura_novo(df_emp)
+        
+        project = {
+            "id": f"p{len(gantt_data)}", "name": empreendimento,
+            "desc": f"Projeto {empreendimento}", "tasks": tasks,
+            "meta_assinatura_date": data_meta.strftime("%Y-%m-%d") if data_meta else None
+        }
+        gantt_data.append(project)
+    
+    return gantt_data
 
 # --- Funções Utilitárias ---
 def abreviar_nome(nome):
     if pd.isna(nome):
         return nome
-
     nome = nome.replace("CONDOMINIO ", "")
     palavras = nome.split()
-
     if len(palavras) > 3:
         nome = " ".join(palavras[:3])
-
     return nome
-
 
 def converter_porcentagem(valor):
     if pd.isna(valor) or valor == "":
         return 0.0
     if isinstance(valor, str):
-        valor = (
-            "".join(c for c in valor if c.isdigit() or c in [".", ","])
-            .replace(",", ".")
-            .strip()
-        )
-        if not valor:
-            return 0.0
+        valor = "".join(c for c in valor if c.isdigit() or c in [".", ","]).replace(",", ".").strip()
+        if not valor: return 0.0
     try:
-        return float(valor) * 100 if float(valor) <= 1 else float(valor)
+        val_float = float(valor)
+        return val_float * 100 if val_float <= 1 else val_float
     except (ValueError, TypeError):
         return 0.0
 
-
 def formatar_data(data):
     return data.strftime("%d/%m/%y") if pd.notna(data) else "N/D"
-
 
 def calcular_dias_uteis(inicio, fim):
     if pd.notna(inicio) and pd.notna(fim):
@@ -266,633 +291,944 @@ def calcular_dias_uteis(inicio, fim):
         return np.busday_count(data_inicio, data_fim) + 1
     return 0
 
-
 def calcular_variacao_termino(termino_real, termino_previsto):
-    """
-    Calcula a variação entre o término real e o término previsto.
-    Retorna uma tupla (texto_variacao, cor_variacao)
-    """
     if pd.notna(termino_real) and pd.notna(termino_previsto):
         diferenca_dias = calculate_business_days(termino_previsto, termino_real)
-        if pd.isna(diferenca_dias):
-            diferenca_dias = 0  # Lidar com casos em que calculate_business_days retorna NA
-
-        if diferenca_dias > 0:
-            # Atrasado - vermelho
-            return f"V: +{diferenca_dias}d", "#89281d"
-        elif diferenca_dias < 0:
-            # Adiantado - verde
-            return f"V: {diferenca_dias}d", "#0b803c"
-        else:
-            # No prazo - cinza
-            return "V: 0d", "#666666"
+        if pd.isna(diferenca_dias): diferenca_dias = 0
+        if diferenca_dias > 0: return f"V: +{diferenca_dias}d", "#89281d"
+        elif diferenca_dias < 0: return f"V: {diferenca_dias}d", "#0b803c"
+        else: return "V: 0d", "#666666"
     else:
-        # Sem dados suficientes - cinza
         return "V: -", "#666666"
 
-
 def calcular_porcentagem_correta(grupo):
-    if "% concluído" not in grupo.columns:
-        return 0.0
-
+    if "% concluído" not in grupo.columns: return 0.0
     porcentagens = grupo["% concluído"].astype(str).apply(converter_porcentagem)
     porcentagens = porcentagens[(porcentagens >= 0) & (porcentagens <= 100)]
-
-    if len(porcentagens) == 0:
-        return 0.0
-
-    porcentagens_validas = porcentagens[pd.notna(porcentagens)]
-    if len(porcentagens_validas) == 0:
-        return 0.0
+    if porcentagens.empty: return 0.0
+    porcentagens_validas = porcentagens.dropna()
+    if porcentagens_validas.empty: return 0.0
     return porcentagens_validas.mean()
 
-
 def padronizar_etapa(etapa_str):
-    if pd.isna(etapa_str):
-        return "UNKNOWN"
+    if pd.isna(etapa_str): return "UNKNOWN"
     etapa_limpa = str(etapa_str).strip().upper()
-
-    # Primeiro, verifica se já está no formato de sigla
-    if etapa_limpa in sigla_para_nome_completo:
-        return etapa_limpa
-
-    # Depois, verifica se está no mapeamento do usuário
-    if etapa_limpa in mapeamento_etapas_usuario:
-        return mapeamento_etapas_usuario[etapa_limpa]
-
-    # Se não encontrou, retorna UNKNOWN
-    return "UNKNOWN"
+    return mapeamento_etapas_usuario.get(etapa_limpa, etapa_limpa)
 
 
 # --- Funções de Filtragem e Ordenação ---
 def filtrar_etapas_nao_concluidas(df):
-    if df.empty or "% concluído" not in df.columns:
-        return df
-
+    if df.empty or "% concluído" not in df.columns: return df
     df_copy = df.copy()
     df_copy["% concluído"] = df_copy["% concluído"].apply(converter_porcentagem)
-    df_filtrado = df_copy[df_copy["% concluído"] < 100]
-    return df_filtrado
-
+    return df_copy[df_copy["% concluído"] < 100]
 
 def obter_data_meta_assinatura(df_original, empreendimento):
-    df_meta = df_original[
-        (df_original["Empreendimento"] == empreendimento)
-        & (df_original["Etapa"] == "DEM.MIN")
-    ]
-
-    if df_meta.empty:
-        return pd.Timestamp.max
-
-    if pd.notna(df_meta["Termino_Prevista"].iloc[0]):
-        return df_meta["Termino_Prevista"].iloc[0]
-    elif pd.notna(df_meta["Inicio_Prevista"].iloc[0]):
-        return df_meta["Inicio_Prevista"].iloc[0]
-    elif pd.notna(df_meta["Termino_Real"].iloc[0]):
-        return df_meta["Termino_Real"].iloc[0]
-    elif pd.notna(df_meta["Inicio_Real"].iloc[0]):
-        return df_meta["Inicio_Real"].iloc[0]
-    else:
-        return pd.Timestamp.max
-
+    df_meta = df_original[(df_original["Empreendimento"] == empreendimento) & (df_original["Etapa"] == "DEM.MIN")]
+    if df_meta.empty: return pd.Timestamp.max
+    for col in ["Termino_Prevista", "Inicio_Prevista", "Termino_Real", "Inicio_Real"]:
+        if col in df_meta.columns and pd.notna(df_meta[col].iloc[0]): return df_meta[col].iloc[0]
+    return pd.Timestamp.max
 
 def criar_ordenacao_empreendimentos(df_original):
-    empreendimentos_meta = {}
-
-    for empreendimento in df_original["Empreendimento"].unique():
-        data_meta = obter_data_meta_assinatura(df_original, empreendimento)
-        empreendimentos_meta[empreendimento] = data_meta
-
-    empreendimentos_ordenados = sorted(
-        empreendimentos_meta.keys(), key=lambda x: empreendimentos_meta[x]
-    )
-
-    return empreendimentos_ordenados
+    # Use abreviar_nome para consistência com o que é exibido no gráfico
+    empreendimentos_meta = {abreviar_nome(emp): obter_data_meta_assinatura(df_original, emp) for emp in df_original["Empreendimento"].unique()}
+    return sorted(empreendimentos_meta.keys(), key=empreendimentos_meta.get)
 
 
 def aplicar_ordenacao_final(df, empreendimentos_ordenados):
-    if df.empty:
-        return df
-
+    if df.empty: return df
     ordem_empreendimentos = {emp: idx for idx, emp in enumerate(empreendimentos_ordenados)}
     df["ordem_empreendimento"] = df["Empreendimento"].map(ordem_empreendimentos)
-
-    ordem_etapas = {etapa: idx for idx, etapa in enumerate(sigla_para_nome_completo.keys())}
+    ordem_etapas = {etapa: idx for idx, etapa in enumerate(ORDEM_ETAPAS_GLOBAL)}
     df["ordem_etapa"] = df["Etapa"].map(ordem_etapas).fillna(len(ordem_etapas))
-
-    df_ordenado = df.sort_values(["ordem_empreendimento", "ordem_etapa"]).drop(
-        ["ordem_empreendimento", "ordem_etapa"], axis=1
-    )
-
+    df_ordenado = df.sort_values(["ordem_empreendimento", "ordem_etapa"]).drop(["ordem_empreendimento", "ordem_etapa"], axis=1)
     return df_ordenado.reset_index(drop=True)
 
+# --- NOVAS FUNÇÕES DE GANTT ---
 
-# --- Funções de Geração do Gráfico ---
-def gerar_gantt(df, tipo_visualizacao="Ambos", filtrar_nao_concluidas=False):
+def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
+    df_gantt = df.copy()
+    if "Empreendimento" in df_gantt.columns:
+        df_gantt["Empreendimento"] = df_gantt["Empreendimento"].apply(abreviar_nome)
+    
+    for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
+        if col in df_gantt.columns:
+            df_gantt[col] = pd.to_datetime(df_gantt[col], errors="coerce")
+
+    if "% concluído" not in df_gantt.columns: df_gantt["% concluído"] = 0
+    df_gantt["% concluído"] = df_gantt["% concluído"].fillna(0).apply(converter_porcentagem)
+
+    df_gantt_agg = df_gantt.groupby(['Empreendimento', 'Etapa']).agg(
+        Inicio_Prevista=('Inicio_Prevista', 'min'),
+        Termino_Prevista=('Termino_Prevista', 'max'),
+        Inicio_Real=('Inicio_Real', 'min'),
+        Termino_Real=('Termino_Real', 'max'),
+        **{'% concluído': ('% concluído', 'max')},
+        SETOR=('SETOR', 'first')
+    ).reset_index()
+    
+    df_gantt_agg["Etapa"] = df_gantt_agg["Etapa"].map(sigla_para_nome_completo).fillna(df_gantt_agg["Etapa"])
+    
+    gantt_data = converter_dados_para_gantt(df_gantt_agg)
+    
+    if not gantt_data:
+        st.warning("Nenhum dado válido para o Gantt após a conversão.")
+        return
+
+    empreendimentos_ordenados = criar_ordenacao_empreendimentos(df_original_para_ordenacao)
+    project_dict = {project['name']: project for project in gantt_data}
+    
+    for empreendimento_nome in empreendimentos_ordenados:
+        if empreendimento_nome not in project_dict: continue
+        
+        project = project_dict[empreendimento_nome]
+
+        df_projeto_especifico = df_gantt_agg[df_gantt_agg["Empreendimento"] == empreendimento_nome]
+        data_min_proj, data_max_proj = calcular_periodo_datas(df_projeto_especifico)
+        total_meses_proj = ((data_max_proj.year - data_min_proj.year) * 12) + (data_max_proj.month - data_min_proj.month) + 1
+
+        st.markdown(f"### {project['name']}")
+        num_tasks = len(project["tasks"])
+        altura_gantt = max(400, num_tasks * 35 + 150) 
+        
+        gantt_html = f"""
+            <!DOCTYPE html>
+            <html lang="pt-BR">
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <style>
+                    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                    html, body {{ width: 100%; height: 100%; font-family: 'Segoe UI', sans-serif; background-color: #f5f5f5; color: #333; overflow: hidden; }}
+                    .gantt-container {{ width: 100%; height: 100%; background-color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; display: flex; flex-direction: column; }}
+                    .gantt-main {{ display: flex; flex: 1; position: relative; overflow: hidden; }}
+                    .gantt-sidebar {{ width: 250px; background-color: #f8f9fa; border-right: 2px solid #e2e8f0; flex-shrink: 0; overflow-y: auto; z-index: 10; }}
+                    .sidebar-header {{ background: linear-gradient(135deg, #4a5568, #2d3748); color: white; padding: 12px 15px; font-weight: 600; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 11; height: 60px; display: flex; align-items: center; font-size: 14px; }}
+                    .sidebar-row {{ padding: 6px 10px; border-bottom: 1px solid #e2e8f0; background-color: white; transition: background-color 0.2s ease; height: 35px; display: flex; align-items: center; justify-content: space-between; }}
+                    .sidebar-row:hover {{ background-color: #f1f5f9; }}
+                    .sidebar-row:nth-child(even) {{ background-color: #f8f9fa; }}
+                    .sidebar-row:nth-child(even):hover {{ background-color: #e2e8f0; }}
+                    .row-left {{ flex: 1; display: flex; flex-direction: column; justify-content: center; }}
+                    .row-title {{ font-weight: 600; color: #2d3748; font-size: 11px; margin-bottom: 2px; }}
+                    .row-dates {{ font-size: 8px; color: #4a5568; line-height: 1.2; }}
+                    .row-status {{ width: 55px; height: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 4px; font-size: 8px; font-weight: 600; margin-left: 8px; text-align: center; }}
+                    .status-complete {{ background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }}
+                    .status-progress {{ background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; }}
+                    .status-pending {{ background-color: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }}
+                    .status-percentage {{ font-size: 10px; font-weight: 700; }}
+                    .status-variation {{ font-size: 6px; margin-top: 1px; line-height: 1; }}
+                    .gantt-chart {{ flex: 1; overflow: auto; position: relative; background-color: white; user-select: none; cursor: grab; }}
+                    .gantt-chart.active {{ cursor: grabbing; }}
+                    .chart-container {{ position: relative; min-width: {total_meses_proj * 30}px; }}
+                    .chart-header {{ background: linear-gradient(135deg, #4a5568, #2d3748); color: white; height: 60px; position: sticky; top: 0; z-index: 9; display: flex; flex-direction: column; }}
+                    .year-header {{ height: 30px; display: flex; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.2); }}
+                    .year-section {{ text-align: center; font-weight: 600; font-size: 12px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.1); height: 100%; }}
+                    .month-header {{ height: 30px; display: flex; align-items: center; }}
+                    .month-cell {{ width: 30px; height: 30px; border-right: 1px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 500; }}
+                    .chart-body {{ position: relative; padding-top: 0; }}
+                    .gantt-row {{ position: relative; height: 35px; border-bottom: 1px solid #e2e8f0; background-color: white; }}
+                    .gantt-row:nth-child(even) {{ background-color: #f8f9fa; }}
+                    .gantt-bar {{ position: absolute; height: 18px; top: 8px; border-radius: 3px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                    .gantt-bar:hover {{ transform: translateY(-1px) scale(1.01); box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 10 !important; }}
+                    
+                    /* --- Regra Geral de Sobreposição --- */
+                    .gantt-bar.previsto {{ z-index: 7; }}
+                    .gantt-bar.real {{ z-index: 8; }}
+                    .gantt-bar-overlap {{
+                        position: absolute;
+                        height: 18px;
+                        top: 8px;
+                        background-image: linear-gradient(45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%, transparent 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25) 75%, transparent 75%, transparent);
+                        background-size: 8px 8px;
+                        z-index: 9;
+                        pointer-events: none;
+                        border-radius: 3px;
+                    }}
+                    /* --- Fim da Regra --- */
+
+                    /* --- Formatação barra --- */
+                    .bar-label {{ font-size: 8px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }}
+                    .gantt-bar.real .bar-label {{ color: white; }}
+                    .gantt-bar.previsto .bar-label {{ color: #6C6C6C; }}
+                    .tooltip {{ position: fixed; background-color: #2d3748; color: white; padding: 6px 10px; border-radius: 4px; font-size: 11px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none; opacity: 0; transition: opacity 0.2s ease; max-width: 220px; }}
+                    .tooltip.show {{ opacity: 1; }}
+                    .today-line {{ position: absolute; top: 60px; bottom: 0; width: 2px; background-color: #e53e3e; z-index: 5; box-shadow: 0 0 4px rgba(229, 62, 62, 0.6); }}
+                    .month-divider {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #cbd5e0; z-index: 4; pointer-events: none; }}
+                    .month-divider.first {{ background-color: #4a5568; width: 2px; }}
+                    .fullscreen-btn {{ position: absolute; top: 10px; right: 10px; background: rgba(255, 255, 255, 0.9); border: none; border-radius: 4px; padding: 8px 12px; font-size: 14px; cursor: pointer; z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.2s ease; display: flex; align-items: center; gap: 5px; }}
+                    .fullscreen-btn:hover {{ background: white; box-shadow: 0 4px 8px rgba(0,0,0,0.3); transform: translateY(-1px); }}
+                    .meta-line {{ position: absolute; top: 60px; bottom: 0; width: 2px; border-left: 2px dashed #8e44ad; z-index: 5; box-shadow: 0 0 4px rgba(142, 68, 173, 0.6); }}
+                    .meta-line-label {{ position: absolute; top: 65px; background-color: #8e44ad; color: white; padding: 2px 5px; border-radius: 4px; font-size: 9px; font-weight: 600; white-space: nowrap; z-index: 8; transform: translateX(-50%); }}
+                </style>
+            </head>
+            <body>
+                <div class="gantt-container" id="gantt-container-{project["id"]}">
+                    <button class="fullscreen-btn" id="fullscreen-btn-{project["id"]}"><span>📺</span> <span>Tela Cheia</span></button>
+                    <div class="gantt-main">
+                        <div class="gantt-sidebar"><div class="sidebar-header">{project["name"]}</div><div id="sidebar-content-{project["id"]}"></div></div>
+                        <div class="gantt-chart">
+                            <div class="chart-container" id="chart-container-{project["id"]}">
+                                <div class="chart-header"><div class="year-header" id="year-header-{project["id"]}"></div><div class="month-header" id="month-header-{project["id"]}"></div></div>
+                                <div class="chart-body" id="chart-body-{project["id"]}"></div>
+                                <div class="today-line" id="today-line-{project["id"]}"></div>
+                                <div class="meta-line" id="meta-line-{project["id"]}"></div>
+                                <div class="meta-line-label" id="meta-line-label-{project["id"]}"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tooltip" id="tooltip-{project["id"]}"></div>
+                </div>
+                <script>
+                    const coresPorSetor_{project["id"]} = {json.dumps(StyleConfig.CORES_POR_SETOR)};
+                    const projectData_{project["id"]} = {json.dumps([project])};
+                    const dataMinStr_{project["id"]} = '{data_min_proj.strftime("%Y-%m-%d")}';
+                    const dataMaxStr_{project["id"]} = '{data_max_proj.strftime("%Y-%m-%d")}';
+                    const totalMeses_{project["id"]} = {total_meses_proj};
+                    const PIXELS_PER_MONTH = 30;
+
+                    function parseDate(dateStr) {{
+                        if (!dateStr) return null;
+                        const [year, month, day] = dateStr.split('-').map(Number);
+                        return new Date(Date.UTC(year, month - 1, day));
+                    }}
+
+                    function initGantt_{project["id"]}() {{
+                        renderSidebar_{project["id"]}();
+                        renderHeader_{project["id"]}();
+                        renderChart_{project["id"]}();
+                        renderMonthDividers_{project["id"]}();
+                        setupEventListeners_{project["id"]}();
+                        positionTodayLine_{project["id"]}();
+                        positionMetaLine_{project["id"]}();
+                    }}
+
+                    function renderSidebar_{project["id"]}() {{
+                        const sidebarContent = document.getElementById('sidebar-content-{project["id"]}');
+                        let html = '';
+                        projectData_{project["id"]}[0].tasks.forEach(task => {{
+                            let statusClass = 'status-pending', statusText = '0%', variationText = '';
+                            if (task.progress === 100) {{ statusClass = 'status-complete'; statusText = '100%'; let vdDisplay = task.vd !== null ? `VD: ${{task.vd > 0 ? '+' : ''}}${{task.vd}}d` : 'VD: -'; variationText = `${{vdDisplay}}`; }}
+                            else if (task.progress > 0) {{ statusClass = 'status-progress'; statusText = `${{task.progress}}%`; }}
+                            let datesText = `Prev: ${{task.inicio_previsto}} &rarr; ${{task.termino_previsto}} (${{task.duracao_prevista === null ? '-' : task.duracao_prevista + 'd'}})`;
+                            if (task.inicio_real) {{ datesText += `<br>Real: ${{task.inicio_real}} &rarr; ${{task.termino_real || 'N/D'}} (${{task.duracao_real === null ? '-' : task.duracao_real + 'd'}})`; }}
+                            else {{ datesText += `<br>Real: N/D &rarr; N/D`; }}
+                            html += `<div class="sidebar-row"><div class="row-left"><div class="row-title">${{task.numero_etapa}}. ${{task.name}}</div><div class="row-dates">${{datesText}}</div></div><div class="row-status ${{statusClass}}"><div class="status-percentage">${{statusText}}</div><div class="status-variation">${{variationText}}</div></div></div>`;
+                        }});
+                        sidebarContent.innerHTML = html;
+                    }}
+                    
+                    function renderHeader_{project["id"]}() {{
+                        const yearHeader = document.getElementById('year-header-{project["id"]}');
+                        const monthHeader = document.getElementById('month-header-{project["id"]}');
+                        let yearHtml = '', monthHtml = '';
+                        const yearsData = [];
+                        let currentDate = parseDate(dataMinStr_{project["id"]});
+                        const dataMax = parseDate(dataMaxStr_{project["id"]});
+                        let currentYear = -1, monthsInCurrentYear = 0;
+
+                        while (currentDate <= dataMax) {{
+                            const year = currentDate.getUTCFullYear();
+                            if (year !== currentYear) {{
+                                if (currentYear !== -1) yearsData.push({{ year: currentYear, count: monthsInCurrentYear }});
+                                currentYear = year;
+                                monthsInCurrentYear = 0;
+                            }}
+                            const monthNumber = String(currentDate.getUTCMonth() + 1).padStart(2, '0');
+                            monthHtml += `<div class="month-cell">${{monthNumber}}</div>`;
+                            monthsInCurrentYear++;
+                            currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
+                        }}
+                        if (currentYear !== -1) yearsData.push({{ year: currentYear, count: monthsInCurrentYear }});
+                        yearsData.forEach(data => {{
+                            const yearWidth = data.count * PIXELS_PER_MONTH;
+                            yearHtml += `<div class="year-section" style="width: ${{yearWidth}}px">${{data.year}}</div>`;
+                        }});
+                        yearHeader.innerHTML = yearHtml;
+                        monthHeader.innerHTML = monthHtml;
+                    }}
+                    
+                    /* --- CÓDIGO CORRIGIDO COM NOVA LÓGICA DE SOBREPOSIÇÃO --- */
+                    function renderChart_{project["id"]}() {{
+                        const chartBody = document.getElementById('chart-body-{project["id"]}');
+                        let html = '';
+                        projectData_{project["id"]}[0].tasks.forEach(task => {{ html += `<div class="gantt-row" data-task-id="${{task.id}}"></div>`; }});
+                        chartBody.innerHTML = html;
+
+                        projectData_{project["id"]}[0].tasks.forEach(task => {{
+                            const row = chartBody.querySelector(`[data-task-id="${{task.id}}"]`);
+                            if (!row) return;
+
+                            // 1. Cria e anexa a barra 'previsto'
+                            const barPrevisto = createBar_{project["id"]}(task, 'previsto');
+                            row.appendChild(barPrevisto);
+
+                            // 2. Cria e anexa a barra 'real' se existir
+                            let barReal = null;
+                            if (task.start_real && task.end_real) {{
+                                barReal = createBar_{project["id"]}(task, 'real');
+                                row.appendChild(barReal);
+                            }}
+
+                            // 3. Aplica a Regra de Exceção para a sobreposição
+                            if (barReal) {{ // Apenas se a barra real existir
+                                const s_prev = parseDate(task.start_previsto);
+                                const e_prev = parseDate(task.end_previsto);
+                                const s_real = parseDate(task.start_real);
+                                const e_real = parseDate(task.end_real);
+
+                                // Se 'Previsto' está totalmente contido em 'Real', inverte o z-index
+                                if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{
+                                    barPrevisto.style.zIndex = '8'; // Traz a barra 'previsto' para frente
+                                    barReal.style.zIndex = '7';     // Envia a barra 'real' para trás
+                                }}
+                                // Caso contrário, a regra do CSS padrão é mantida (real na frente)
+                            }}
+
+                            // 4. Renderiza a hachura de sobreposição por cima de tudo
+                            renderOverlapBar_{project["id"]}(task, row);
+                        }});
+                    }}
+
+                    function createBar_{project["id"]}(task, tipo) {{
+                        const startDate = parseDate(tipo === 'previsto' ? task.start_previsto : task.start_real);
+                        const endDate = parseDate(tipo === 'previsto' ? task.end_previsto : task.end_real);
+                        if (!startDate || !endDate) return document.createElement('div');
+
+                        const left = getPosition_{project["id"]}(startDate);
+                        const width = getPosition_{project["id"]}(endDate) - left + (PIXELS_PER_MONTH / 30);
+
+                        const bar = document.createElement('div');
+                        bar.className = `gantt-bar ${{tipo}}`;
+                        
+                        const coresSetor = coresPorSetor_{project["id"]}[task.setor];
+                        const corDefault = tipo === 'previsto' ? '#cccccc' : '#888888';
+                        let corBarra = corDefault;
+                        if (coresSetor) {{
+                            corBarra = tipo === 'previsto' ? (coresSetor.previsto || corDefault) : (coresSetor.real || corDefault);
+                        }}
+
+                        bar.style.backgroundColor = corBarra;
+                        bar.style.left = `${{left}}px`;
+                        bar.style.width = `${{width}}px`;
+                        
+                        const barLabel = document.createElement('span');
+                        barLabel.className = 'bar-label';
+                        barLabel.textContent = `${{task.name}} (${{task.progress}}%)`;
+                        bar.appendChild(barLabel);
+
+                        bar.addEventListener('mousemove', e => showTooltip_{project["id"]}(e, task, tipo));
+                        bar.addEventListener('mouseout', () => hideTooltip_{project["id"]}());
+                        return bar;
+                    }}
+
+                    function renderOverlapBar_{project["id"]}(task, row) {{
+                        if (!task.start_real || !task.end_real) return;
+
+                        const s_prev = parseDate(task.start_previsto);
+                        const e_prev = parseDate(task.end_previsto);
+                        const s_real = parseDate(task.start_real);
+                        const e_real = parseDate(task.end_real);
+
+                        const overlap_start = new Date(Math.max(s_prev, s_real));
+                        const overlap_end = new Date(Math.min(e_prev, e_real));
+
+                        if (overlap_start < overlap_end) {{
+                            const left = getPosition_{project["id"]}(overlap_start);
+                            const width = getPosition_{project["id"]}(overlap_end) - left + (PIXELS_PER_MONTH / 30);
+                            
+                            if (width > 0) {{
+                                const overlapBar = document.createElement('div');
+                                overlapBar.className = 'gantt-bar-overlap';
+                                overlapBar.style.left = `${{left}}px`;
+                                overlapBar.style.width = `${{width}}px`;
+                                row.appendChild(overlapBar);
+                            }}
+                        }}
+                    }}
+                    /* --- FIM DA CORREÇÃO --- */
+
+                    function getPosition_{project["id"]}(date) {{
+                        if (!date) return 0;
+                        const chartStart = parseDate(dataMinStr_{project["id"]});
+                        const offsetDays = (date - chartStart) / (1000 * 60 * 60 * 24);
+                        return offsetDays * (PIXELS_PER_MONTH / 30);
+                    }}
+
+                    function positionTodayLine_{project["id"]}() {{
+                        const todayLine = document.getElementById('today-line-{project["id"]}');
+                        const today = new Date();
+                        const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+                        const chartStart = parseDate(dataMinStr_{project["id"]});
+                        const chartEnd = parseDate(dataMaxStr_{project["id"]});
+                        if (todayUTC >= chartStart && todayUTC <= chartEnd) {{
+                            const offset = getPosition_{project["id"]}(todayUTC);
+                            todayLine.style.left = `${{offset}}px`;
+                            todayLine.style.display = 'block';
+                        }} else {{
+                            todayLine.style.display = 'none';
+                        }}
+                    }}
+
+                    function positionMetaLine_{project["id"]}() {{
+                        const metaLine = document.getElementById('meta-line-{project["id"]}');
+                        const metaLabel = document.getElementById('meta-line-label-{project["id"]}');
+                        const metaDateStr = projectData_{project["id"]}[0].meta_assinatura_date;
+                        if (!metaDateStr) {{ metaLine.style.display = 'none'; metaLabel.style.display = 'none'; return; }}
+                        const metaDate = parseDate(metaDateStr);
+                        const chartStart = parseDate(dataMinStr_{project["id"]});
+                        const chartEnd = parseDate(dataMaxStr_{project["id"]});
+                        if (metaDate >= chartStart && metaDate <= chartEnd) {{
+                            const offset = getPosition_{project["id"]}(metaDate);
+                            metaLine.style.left = `${{offset}}px`;
+                            metaLabel.style.left = `${{offset}}px`;
+                            metaLine.style.display = 'block';
+                            metaLabel.style.display = 'block';
+                            metaLabel.textContent = `Meta: ${{metaDate.toLocaleDateString('pt-BR', {{day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC'}})}}`;
+                        }} else {{
+                            metaLine.style.display = 'none';
+                            metaLabel.style.display = 'none';
+                        }}
+                    }}
+                    
+                    function showTooltip_{project["id"]}(e, task, tipo) {{
+                        const tooltip = document.getElementById('tooltip-{project["id"]}');
+                        let content = `<b>${{task.name}}</b><br>`;
+                        if (tipo === 'previsto') {{
+                            content += `Previsto: ${{task.inicio_previsto}} - ${{task.termino_previsto}}<br>Duração: ${{task.duracao_prevista ?? '-'}}d`;
+                        }} else {{
+                            content += `Real: ${{task.inicio_real}} - ${{task.termino_real}}<br>Duração: ${{task.duracao_real ?? '-'}}d<br>Variação Término: ${{task.vd ?? '-'}}d`;
+                        }}
+                        content += `<br><b>Progresso: ${{task.progress}}%</b>`;
+                        tooltip.innerHTML = content;
+                        tooltip.classList.add('show');
+                        const containerRect = document.getElementById('gantt-container-{project["id"]}').getBoundingClientRect();
+                        tooltip.style.left = `${{e.clientX - containerRect.left + 15}}px`;
+                        tooltip.style.top = `${{e.clientY - containerRect.top + 15}}px`;
+                    }}
+
+                    function hideTooltip_{project["id"]}() {{
+                        document.getElementById('tooltip-{project["id"]}').classList.remove('show');
+                    }}
+
+                    function renderMonthDividers_{project["id"]}() {{
+                        const chartContainer = document.getElementById('chart-container-{project["id"]}');
+                        chartContainer.querySelectorAll('.month-divider, .month-divider-label').forEach(el => el.remove());
+                        let currentDate = parseDate(dataMinStr_{project["id"]});
+                        const dataMax = parseDate(dataMaxStr_{project["id"]});
+                        while (currentDate <= dataMax) {{
+                            const left = getPosition_{project["id"]}(currentDate);
+                            const divider = document.createElement('div');
+                            divider.className = 'month-divider';
+                            if (currentDate.getUTCMonth() === 0) divider.classList.add('first');
+                            divider.style.left = `${{left}}px`;
+                            chartContainer.appendChild(divider);
+                            currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
+                        }}
+                    }}
+
+                    function setupEventListeners_{project["id"]}() {{
+                        const ganttChart = document.querySelector(`#gantt-container-{project["id"]} .gantt-chart`);
+                        const sidebar = document.querySelector(`#gantt-container-{project["id"]} .gantt-sidebar`);
+                        const fullscreenBtn = document.getElementById('fullscreen-btn-{project["id"]}');
+                        if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreen_{project["id"]}());
+                        if (ganttChart && sidebar) {{
+                            ganttChart.addEventListener('scroll', () => {{ sidebar.scrollTop = ganttChart.scrollTop; }});
+                            sidebar.addEventListener('scroll', () => {{ ganttChart.scrollTop = sidebar.scrollTop; }});
+                            let isDown = false, startX, scrollLeft;
+                            ganttChart.addEventListener('mousedown', (e) => {{ isDown = true; ganttChart.classList.add('active'); startX = e.pageX - ganttChart.offsetLeft; scrollLeft = ganttChart.scrollLeft; }});
+                            ganttChart.addEventListener('mouseleave', () => {{ isDown = false; ganttChart.classList.remove('active'); }});
+                            ganttChart.addEventListener('mouseup', () => {{ isDown = false; ganttChart.classList.remove('active'); }});
+                            ganttChart.addEventListener('mousemove', (e) => {{
+                                if (!isDown) return;
+                                e.preventDefault();
+                                const x = e.pageX - ganttChart.offsetLeft;
+                                const walk = (x - startX) * 2;
+                                ganttChart.scrollLeft = scrollLeft - walk;
+                            }});
+                        }}
+                    }}
+                    
+                    function toggleFullscreen_{project["id"]}() {{
+                        const container = document.getElementById('gantt-container-{project["id"]}');
+                        if (!document.fullscreenElement) {{ container.requestFullscreen().catch(err => alert(`Erro: ${{err.message}}`)); }}
+                        else {{ document.exitFullscreen(); }}
+                    }}
+
+                    initGantt_{project["id"]}();
+                </script>
+            </body>
+            </html>
+        """
+        components.html(gantt_html, height=altura_gantt, scrolling=True)
+        st.info(f"📊 {project['name']}: {len(project['tasks'])} tarefas | Período: {data_min_proj.strftime('%d/%m/%Y')} - {data_max_proj.strftime('%d/%m/%Y')}")
+        col_a, col_b, col_c, col_d = st.columns(4)
+        with col_a: st.metric("Tarefas", len(project["tasks"]))
+        with col_b: st.metric("Concluídas", len([t for t in project["tasks"] if t["progress"] == 100]))
+        with col_c: st.metric("Em Andamento", len([t for t in project["tasks"] if 0 < t["progress"] < 100]))
+        with col_d: st.metric("Com Dados Reais", len([t for t in project["tasks"] if t["start_real"]]))
+        st.markdown("---")
+
+def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
+    etapa_sigla = df['Etapa'].iloc[0]
+    etapa_nome_completo = sigla_para_nome_completo.get(etapa_sigla, etapa_sigla)
+
+    df_gantt = df.copy()
+    df_gantt["Empreendimento"] = df_gantt["Empreendimento"].apply(abreviar_nome)
+    
+    for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
+        if col in df_gantt.columns:
+            df_gantt[col] = pd.to_datetime(df_gantt[col], errors="coerce")
+
+    if "% concluído" not in df_gantt.columns: df_gantt["% concluído"] = 0
+    df_gantt["% concluído"] = df_gantt["% concluído"].fillna(0).apply(converter_porcentagem)
+
+    df_gantt_agg = df_gantt.groupby('Empreendimento').agg(
+        Inicio_Prevista=('Inicio_Prevista', 'min'),
+        Termino_Prevista=('Termino_Prevista', 'max'),
+        Inicio_Real=('Inicio_Real', 'min'),
+        Termino_Real=('Termino_Real', 'max'),
+        **{'% concluído': ('% concluído', 'max')},
+        SETOR=('SETOR', 'first')
+    ).reset_index()
+
+    empreendimentos_ordenados = criar_ordenacao_empreendimentos(df_original_para_ordenacao)
+    
+    df_gantt_agg['ordem_empreendimento'] = pd.Categorical(
+        df_gantt_agg['Empreendimento'],
+        categories=empreendimentos_ordenados,
+        ordered=True
+    )
+    df_gantt_agg = df_gantt_agg.sort_values(by='ordem_empreendimento').reset_index(drop=True)
+
+    tasks = []
+    for i, row in df_gantt_agg.iterrows():
+        start_date = row.get("Inicio_Prevista")
+        end_date = row.get("Termino_Prevista")
+        start_real = row.get("Inicio_Real")
+        end_real_original = row.get("Termino_Real")
+        progress = row.get("% concluído", 0)
+
+        if pd.isna(start_date): start_date = datetime.now()
+        if pd.isna(end_date): end_date = start_date + timedelta(days=30)
+
+        end_real_visual = end_real_original
+        if pd.notna(start_real) and progress < 100 and pd.isna(end_real_original):
+            end_real_visual = datetime.now()
+
+        vd = calcular_dias_uteis_novo(end_date, end_real_original)
+        duracao_prevista_uteis = calcular_dias_uteis_novo(start_date, end_date)
+        duracao_real_uteis = calcular_dias_uteis_novo(start_real, end_real_original)
+
+        task = {
+            "id": f"t{i}", "name": row["Empreendimento"], "numero_etapa": i + 1,
+            "start_previsto": start_date.strftime("%Y-%m-%d"),
+            "end_previsto": end_date.strftime("%Y-%m-%d"),
+            "start_real": pd.to_datetime(start_real).strftime("%Y-%m-%d") if pd.notna(start_real) else None,
+            "end_real": pd.to_datetime(end_real_visual).strftime("%Y-%m-%d") if pd.notna(end_real_visual) else None,
+            "setor": row.get("SETOR", "Não especificado"),
+            "desc": f"{row['Empreendimento']} - {etapa_nome_completo}",
+            "progress": int(progress),
+            "is_in_progress": False, 
+            "inicio_previsto": start_date.strftime("%d/%m/%y"),
+            "termino_previsto": end_date.strftime("%d/%m/%y"),
+            "inicio_real": pd.to_datetime(start_real).strftime("%d/%m/%y") if pd.notna(start_real) else "N/D",
+            "termino_real": pd.to_datetime(end_real_original).strftime("%d/%m/%y") if pd.notna(end_real_original) else "N/D",
+            "vd": int(vd) if vd is not None else None,
+            "dd": None, 
+            "duracao_prevista": int(duracao_prevista_uteis) if duracao_prevista_uteis is not None else None,
+            "duracao_real": int(duracao_real_uteis) if duracao_real_uteis is not None else None
+        }
+        tasks.append(task)
+
+    project = {
+        "id": "p_consolidated",
+        "name": f"Comparativo: {etapa_nome_completo}",
+        "tasks": tasks,
+        "meta_assinatura_date": None
+    }
+
+    data_min_proj, data_max_proj = calcular_periodo_datas(df_gantt_agg)
+    total_meses_proj = ((data_max_proj.year - data_min_proj.year) * 12) + (data_max_proj.month - data_min_proj.month) + 1
+    num_tasks = len(project["tasks"])
+    altura_gantt = max(400, num_tasks * 35 + 150)
+    
+    gantt_html = f"""
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                html, body {{ width: 100%; height: 100%; font-family: 'Segoe UI', sans-serif; background-color: #f5f5f5; color: #333; overflow: hidden; }}
+                .gantt-container {{ width: 100%; height: 100%; background-color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; display: flex; flex-direction: column; }}
+                .gantt-main {{ display: flex; flex: 1; position: relative; overflow: hidden; }}
+                .gantt-sidebar {{ width: 250px; background-color: #f8f9fa; border-right: 2px solid #e2e8f0; flex-shrink: 0; overflow-y: auto; z-index: 10; }}
+                .sidebar-header {{ background: linear-gradient(135deg, #4a5568, #2d3748); color: white; padding: 12px 15px; font-weight: 600; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 11; height: 60px; display: flex; align-items: center; font-size: 14px; }}
+                .sidebar-row {{ padding: 6px 10px; border-bottom: 1px solid #e2e8f0; background-color: white; transition: background-color 0.2s ease; height: 35px; display: flex; align-items: center; justify-content: space-between; }}
+                .sidebar-row:hover {{ background-color: #f1f5f9; }}
+                .sidebar-row:nth-child(even) {{ background-color: #f8f9fa; }}
+                .sidebar-row:nth-child(even):hover {{ background-color: #e2e8f0; }}
+                .row-left {{ flex: 1; display: flex; flex-direction: column; justify-content: center; }}
+                .row-title {{ font-weight: 600; color: #2d3748; font-size: 11px; margin-bottom: 2px; }}
+                .row-dates {{ font-size: 8px; color: #4a5568; line-height: 1.2; }}
+                .row-status {{ width: 55px; height: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 4px; font-size: 8px; font-weight: 600; margin-left: 8px; text-align: center; }}
+                .status-complete {{ background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }}
+                .status-progress {{ background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; }}
+                .status-pending {{ background-color: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }}
+                .status-percentage {{ font-size: 10px; font-weight: 700; }}
+                .status-variation {{ font-size: 6px; margin-top: 1px; line-height: 1; }}
+                .gantt-chart {{ flex: 1; overflow: auto; position: relative; background-color: white; user-select: none; cursor: grab; }}
+                .gantt-chart.active {{ cursor: grabbing; }}
+                .chart-container {{ position: relative; min-width: {total_meses_proj * 30}px; }}
+                .chart-header {{ background: linear-gradient(135deg, #4a5568, #2d3748); color: white; height: 60px; position: sticky; top: 0; z-index: 9; display: flex; flex-direction: column; }}
+                .year-header {{ height: 30px; display: flex; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.2); }}
+                .year-section {{ text-align: center; font-weight: 600; font-size: 12px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.1); height: 100%; }}
+                .month-header {{ height: 30px; display: flex; align-items: center; }}
+                .month-cell {{ width: 30px; height: 30px; border-right: 1px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 500; }}
+                .chart-body {{ position: relative; padding-top: 0; }}
+                .gantt-row {{ position: relative; height: 35px; border-bottom: 1px solid #e2e8f0; background-color: white; }}
+                .gantt-row:nth-child(even) {{ background-color: #f8f9fa; }}
+                .gantt-bar {{ position: absolute; height: 18px; top: 8px; border-radius: 3px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                .gantt-bar:hover {{ transform: translateY(-1px) scale(1.01); box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 10 !important; }}
+                
+                /* --- Regra Geral de Sobreposição --- */
+                .gantt-bar.previsto {{ z-index: 7; }}
+                .gantt-bar.real {{ z-index: 8; }}
+                .gantt-bar-overlap {{
+                    position: absolute;
+                    height: 18px;
+                    top: 8px;
+                    background-image: linear-gradient(45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%, transparent 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25) 75%, transparent 75%, transparent);
+                    background-size: 8px 8px;
+                    z-index: 9;
+                    pointer-events: none;
+                    border-radius: 3px;
+                }}
+                /* --- Fim da Regra --- */
+
+                /* --- Formatação barra --- */
+                    .bar-label {{ font-size: 8px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }}
+                    .gantt-bar.real .bar-label {{ color: white; }}
+                    .gantt-bar.previsto .bar-label {{ color: #6C6C6C; }}
+                .tooltip {{ position: fixed; background-color: #2d3748; color: white; padding: 6px 10px; border-radius: 4px; font-size: 11px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none; opacity: 0; transition: opacity 0.2s ease; max-width: 220px; }}
+                .tooltip.show {{ opacity: 1; }}
+                .today-line {{ position: absolute; top: 60px; bottom: 0; width: 2px; background-color: #e53e3e; z-index: 5; box-shadow: 0 0 4px rgba(229, 62, 62, 0.6); }}
+                .month-divider {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #cbd5e0; z-index: 4; pointer-events: none; }}
+                .month-divider.first {{ background-color: #4a5568; width: 2px; }}
+                .fullscreen-btn {{ position: absolute; top: 10px; right: 10px; background: rgba(255, 255, 255, 0.9); border: none; border-radius: 4px; padding: 8px 12px; font-size: 14px; cursor: pointer; z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.2s ease; display: flex; align-items: center; gap: 5px; }}
+                .fullscreen-btn:hover {{ background: white; box-shadow: 0 4px 8px rgba(0,0,0,0.3); transform: translateY(-1px); }}
+            </style>
+        </head> 
+        <body>
+            <div class="gantt-container" id="gantt-container-{project["id"]}">
+                <button class="fullscreen-btn" id="fullscreen-btn-{project["id"]}"><span>📺</span> <span>Tela Cheia</span></button>
+                <div class="gantt-main">
+                    <div class="gantt-sidebar"><div class="sidebar-header">{project["name"]}</div><div id="sidebar-content-{project["id"]}"></div></div>
+                    <div class="gantt-chart">
+                        <div class="chart-container" id="chart-container-{project["id"]}">
+                            <div class="chart-header"><div class="year-header" id="year-header-{project["id"]}"></div><div class="month-header" id="month-header-{project["id"]}"></div></div>
+                            <div class="chart-body" id="chart-body-{project["id"]}"></div>
+                            <div class="today-line" id="today-line-{project["id"]}"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="tooltip" id="tooltip-{project["id"]}"></div>
+            </div>
+            <script>
+                const coresPorSetor_{project["id"]} = {json.dumps(StyleConfig.CORES_POR_SETOR)};
+                const projectData_{project["id"]} = {json.dumps([project])};
+                const dataMinStr_{project["id"]} = '{data_min_proj.strftime("%Y-%m-%d")}';
+                const dataMaxStr_{project["id"]} = '{data_max_proj.strftime("%Y-%m-%d")}';
+                const totalMeses_{project["id"]} = {total_meses_proj};
+                const PIXELS_PER_MONTH = 30;
+
+                function parseDate(dateStr) {{
+                    if (!dateStr) return null;
+                    const [year, month, day] = dateStr.split('-').map(Number);
+                    return new Date(Date.UTC(year, month - 1, day));
+                }}
+
+                function initGantt_{project["id"]}() {{
+                    renderSidebar_{project["id"]}();
+                    renderHeader_{project["id"]}();
+                    renderChart_{project["id"]}();
+                    renderMonthDividers_{project["id"]}();
+                    setupEventListeners_{project["id"]}();
+                    positionTodayLine_{project["id"]}();
+                }}
+
+                function renderSidebar_{project["id"]}() {{
+                    const sidebarContent = document.getElementById('sidebar-content-{project["id"]}');
+                    let html = '';
+                    projectData_{project["id"]}[0].tasks.forEach(task => {{
+                        let statusClass = 'status-pending', statusText = '0%', variationText = '';
+                        if (task.progress === 100) {{ statusClass = 'status-complete'; statusText = '100%'; let vdDisplay = task.vd !== null ? `VD: ${{task.vd > 0 ? '+' : ''}}${{task.vd}}d` : 'VD: -'; variationText = `${{vdDisplay}}`; }}
+                        else if (task.progress > 0) {{ statusClass = 'status-progress'; statusText = `${{task.progress}}%`; }}
+                        let datesText = `Prev: ${{task.inicio_previsto}} &rarr; ${{task.termino_previsto}} (${{task.duracao_prevista === null ? '-' : task.duracao_prevista + 'd'}})`;
+                        if (task.inicio_real) {{ datesText += `<br>Real: ${{task.inicio_real}} &rarr; ${{task.termino_real || 'N/D'}} (${{task.duracao_real === null ? '-' : task.duracao_real + 'd'}})`; }}
+                        else {{ datesText += `<br>Real: N/D &rarr; N/D`; }}
+                        html += `<div class="sidebar-row"><div class="row-left"><div class="row-title">${{task.numero_etapa}}. ${{task.name}}</div><div class="row-dates">${{datesText}}</div></div><div class="row-status ${{statusClass}}"><div class="status-percentage">${{statusText}}</div><div class="status-variation">${{variationText}}</div></div></div>`;
+                    }});
+                    sidebarContent.innerHTML = html;
+                }}
+                
+                function renderHeader_{project["id"]}() {{
+                    const yearHeader = document.getElementById('year-header-{project["id"]}');
+                    const monthHeader = document.getElementById('month-header-{project["id"]}');
+                    let yearHtml = '', monthHtml = '';
+                    const yearsData = [];
+                    let currentDate = parseDate(dataMinStr_{project["id"]});
+                    const dataMax = parseDate(dataMaxStr_{project["id"]});
+                    let currentYear = -1, monthsInCurrentYear = 0;
+
+                    while (currentDate <= dataMax) {{
+                        const year = currentDate.getUTCFullYear();
+                        if (year !== currentYear) {{
+                            if (currentYear !== -1) yearsData.push({{ year: currentYear, count: monthsInCurrentYear }});
+                            currentYear = year;
+                            monthsInCurrentYear = 0;
+                        }}
+                        const monthNumber = String(currentDate.getUTCMonth() + 1).padStart(2, '0');
+                        monthHtml += `<div class="month-cell">${{monthNumber}}</div>`;
+                        monthsInCurrentYear++;
+                        currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
+                    }}
+                    if (currentYear !== -1) yearsData.push({{ year: currentYear, count: monthsInCurrentYear }});
+                    yearsData.forEach(data => {{
+                        const yearWidth = data.count * PIXELS_PER_MONTH;
+                        yearHtml += `<div class="year-section" style="width: ${{yearWidth}}px">${{data.year}}</div>`;
+                    }});
+                    yearHeader.innerHTML = yearHtml;
+                    monthHeader.innerHTML = monthHtml;
+                }}
+
+                /* --- CÓDIGO CORRIGIDO COM NOVA LÓGICA DE SOBREPOSIÇÃO --- */
+                function renderChart_{project["id"]}() {{
+                    const chartBody = document.getElementById('chart-body-{project["id"]}');
+                    let html = '';
+                    projectData_{project["id"]}[0].tasks.forEach(task => {{ html += `<div class="gantt-row" data-task-id="${{task.id}}"></div>`; }});
+                    chartBody.innerHTML = html;
+
+                    projectData_{project["id"]}[0].tasks.forEach(task => {{
+                        const row = chartBody.querySelector(`[data-task-id="${{task.id}}"]`);
+                        if (!row) return;
+
+                        // 1. Cria e anexa a barra 'previsto'
+                        const barPrevisto = createBar_{project["id"]}(task, 'previsto');
+                        row.appendChild(barPrevisto);
+
+                        // 2. Cria e anexa a barra 'real' se existir
+                        let barReal = null;
+                        if (task.start_real && task.end_real) {{
+                            barReal = createBar_{project["id"]}(task, 'real');
+                            row.appendChild(barReal);
+                        }}
+
+                        // 3. Aplica a Regra de Exceção para a sobreposição
+                        if (barReal) {{ // Apenas se a barra real existir
+                            const s_prev = parseDate(task.start_previsto);
+                            const e_prev = parseDate(task.end_previsto);
+                            const s_real = parseDate(task.start_real);
+                            const e_real = parseDate(task.end_real);
+
+                            // Se 'Previsto' está totalmente contido em 'Real', inverte o z-index
+                            if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{
+                                barPrevisto.style.zIndex = '8'; // Traz a barra 'previsto' para frente
+                                barReal.style.zIndex = '7';     // Envia a barra 'real' para trás
+                            }}
+                            // Caso contrário, a regra do CSS padrão é mantida (real na frente)
+                        }}
+
+                        // 4. Renderiza a hachura de sobreposição por cima de tudo
+                        renderOverlapBar_{project["id"]}(task, row);
+                    }});
+                }}
+
+                function createBar_{project["id"]}(task, tipo) {{
+                    const startDate = parseDate(tipo === 'previsto' ? task.start_previsto : task.start_real);
+                    const endDate = parseDate(tipo === 'previsto' ? task.end_previsto : task.end_real);
+                    if (!startDate || !endDate) return document.createElement('div');
+
+                    const left = getPosition_{project["id"]}(startDate);
+                    const width = getPosition_{project["id"]}(endDate) - left + (PIXELS_PER_MONTH / 30);
+
+                    const bar = document.createElement('div');
+                    bar.className = `gantt-bar ${{tipo}}`;
+                    
+                    const coresSetor = coresPorSetor_{project["id"]}[task.setor];
+                    const corDefault = tipo === 'previsto' ? '#cccccc' : '#888888';
+                    let corBarra = corDefault;
+
+                    if (coresSetor) {{
+                        corBarra = tipo === 'previsto' ? (coresSetor.previsto || corDefault) : (coresSetor.real || corDefault);
+                    }}
+                    bar.style.backgroundColor = corBarra;
+                    bar.style.left = `${{left}}px`;
+                    bar.style.width = `${{width}}px`;
+                    
+                    const barLabel = document.createElement('span');
+                    barLabel.className = 'bar-label';
+                    barLabel.textContent = `${{task.name}} (${{task.progress}}%)`;
+                    bar.appendChild(barLabel);
+
+                    bar.addEventListener('mousemove', e => showTooltip_{project["id"]}(e, task, tipo));
+                    bar.addEventListener('mouseout', () => hideTooltip_{project["id"]}());
+                    return bar;
+                }}
+
+                function renderOverlapBar_{project["id"]}(task, row) {{
+                    if (!task.start_real || !task.end_real) return;
+
+                    const s_prev = parseDate(task.start_previsto);
+                    const e_prev = parseDate(task.end_previsto);
+                    const s_real = parseDate(task.start_real);
+                    const e_real = parseDate(task.end_real);
+
+                    const overlap_start = new Date(Math.max(s_prev, s_real));
+                    const overlap_end = new Date(Math.min(e_prev, e_real));
+
+                    if (overlap_start < overlap_end) {{
+                        const left = getPosition_{project["id"]}(overlap_start);
+                        const width = getPosition_{project["id"]}(overlap_end) - left + (PIXELS_PER_MONTH / 30);
+                        
+                        if (width > 0) {{
+                            const overlapBar = document.createElement('div');
+                            overlapBar.className = 'gantt-bar-overlap';
+                            overlapBar.style.left = `${{left}}px`;
+                            overlapBar.style.width = `${{width}}px`;
+                            row.appendChild(overlapBar);
+                        }}
+                    }}
+                }}
+                /* --- FIM DA CORREÇÃO --- */
+
+                function getPosition_{project["id"]}(date) {{
+                    if (!date) return 0;
+                    const chartStart = parseDate(dataMinStr_{project["id"]});
+                    const offsetDays = (date - chartStart) / (1000 * 60 * 60 * 24);
+                    return offsetDays * (PIXELS_PER_MONTH / 30);
+                }}
+
+                function positionTodayLine_{project["id"]}() {{
+                    const todayLine = document.getElementById('today-line-{project["id"]}');
+                    const today = new Date();
+                    const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+                    const chartStart = parseDate(dataMinStr_{project["id"]});
+                    const chartEnd = parseDate(dataMaxStr_{project["id"]});
+                    if (todayUTC >= chartStart && todayUTC <= chartEnd) {{
+                        const offset = getPosition_{project["id"]}(todayUTC);
+                        todayLine.style.left = `${{offset}}px`;
+                        todayLine.style.display = 'block';
+                    }} else {{
+                        todayLine.style.display = 'none';
+                    }}
+                }}
+
+                function showTooltip_{project["id"]}(e, task, tipo) {{
+                    const tooltip = document.getElementById('tooltip-{project["id"]}');
+                    let content = `<b>${{task.name}}</b><br>`;
+                    if (tipo === 'previsto') {{
+                        content += `Previsto: ${{task.inicio_previsto}} - ${{task.termino_previsto}}<br>Duração: ${{task.duracao_prevista ?? '-'}}d`;
+                    }} else {{
+                        content += `Real: ${{task.inicio_real}} - ${{task.termino_real}}<br>Duração: ${{task.duracao_real ?? '-'}}d<br>Variação Término: ${{task.vd ?? '-'}}d`;
+                    }}
+                    content += `<br><b>Progresso: ${{task.progress}}%</b>`;
+                    tooltip.innerHTML = content;
+                    tooltip.classList.add('show');
+                    const containerRect = document.getElementById('gantt-container-{project["id"]}').getBoundingClientRect();
+                    tooltip.style.left = `${{e.clientX - containerRect.left + 15}}px`;
+                    tooltip.style.top = `${{e.clientY - containerRect.top + 15}}px`;
+                }} 
+
+                function hideTooltip_{project["id"]}() {{
+                    document.getElementById('tooltip-{project["id"]}').classList.remove('show');
+                }}
+
+                function renderMonthDividers_{project["id"]}() {{
+                    const chartContainer = document.getElementById('chart-container-{project["id"]}');
+                    chartContainer.querySelectorAll('.month-divider, .month-divider-label').forEach(el => el.remove());
+                    let currentDate = parseDate(dataMinStr_{project["id"]});
+                    const dataMax = parseDate(dataMaxStr_{project["id"]});
+                    while (currentDate <= dataMax) {{
+                        const left = getPosition_{project["id"]}(currentDate);
+                        const divider = document.createElement('div');
+                        divider.className = 'month-divider';
+                        if (currentDate.getUTCMonth() === 0) divider.classList.add('first');
+                        divider.style.left = `${{left}}px`;
+                        chartContainer.appendChild(divider);
+                        currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
+                    }}
+                }}
+
+                function setupEventListeners_{project["id"]}() {{
+                    const ganttChart = document.querySelector(`#gantt-container-{project["id"]} .gantt-chart`);
+                    const sidebar = document.querySelector(`#gantt-container-{project["id"]} .gantt-sidebar`);
+                    const fullscreenBtn = document.getElementById('fullscreen-btn-{project["id"]}');
+                    if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreen_{project["id"]}());
+                    if (ganttChart && sidebar) {{
+                        ganttChart.addEventListener('scroll', () => {{ sidebar.scrollTop = ganttChart.scrollTop; }});
+                        sidebar.addEventListener('scroll', () => {{ ganttChart.scrollTop = sidebar.scrollTop; }});
+                        let isDown = false, startX, scrollLeft;
+                        ganttChart.addEventListener('mousedown', (e) => {{ isDown = true; ganttChart.classList.add('active'); startX = e.pageX - ganttChart.offsetLeft; scrollLeft = ganttChart.scrollLeft; }});
+                        ganttChart.addEventListener('mouseleave', () => {{ isDown = false; ganttChart.classList.remove('active'); }});
+                        ganttChart.addEventListener('mouseup', () => {{ isDown = false; ganttChart.classList.remove('active'); }});
+                        ganttChart.addEventListener('mousemove', (e) => {{
+                            if (!isDown) return;
+                            e.preventDefault();
+                            const x = e.pageX - ganttChart.offsetLeft;
+                            const walk = (x - startX) * 2;
+                            ganttChart.scrollLeft = scrollLeft - walk;
+                        }});
+                    }}
+                }}
+                
+                function toggleFullscreen_{project["id"]}() {{
+                    const container = document.getElementById('gantt-container-{project["id"]}');
+                    if (!document.fullscreenElement) {{ container.requestFullscreen().catch(err => alert(`Erro: ${{err.message}}`)); }}
+                    else {{ document.exitFullscreen(); }}
+                }}
+
+                initGantt_{project["id"]}();
+            </script>
+        </body>
+        </html>
+    """
+    components.html(gantt_html, height=altura_gantt, scrolling=True)
+
+# --- FUNÇÃO PRINCIPAL DE GANTT (DISPATCHER) ---
+def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_ordenacao):
     if df.empty:
         st.warning("Sem dados disponíveis para exibir o Gantt.")
         return
 
-    plt.rcParams["figure.dpi"] = 150
-    plt.rcParams["savefig.dpi"] = 150
+    etapas_unicas_no_df = df['Etapa'].unique()
+    is_single_etapa_view = len(etapas_unicas_no_df) == 1
 
-    df_original_completo = df.copy()
-
-    if "Empreendimento" in df.columns:
-        df["Empreendimento"] = df["Empreendimento"].apply(abreviar_nome)
-        df_original_completo["Empreendimento"] = df_original_completo[
-            "Empreendimento"
-        ].apply(abreviar_nome)
-
-    if "% concluído" in df.columns:
-        df_porcentagem = (
-            df.groupby(["Empreendimento", "Etapa"])
-            .apply(calcular_porcentagem_correta)
-            .reset_index(name="%_corrigido")
-        )
-        df = pd.merge(df, df_porcentagem, on=["Empreendimento", "Etapa"], how="left")
-        df["% concluído"] = df["%_corrigido"].fillna(0)
-        df.drop("%_corrigido", axis=1, inplace=True)
+    if is_single_etapa_view:
+        st.info("Exibindo visão comparativa para a etapa selecionada.")
+        gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao)
     else:
-        df["% concluído"] = 0.0
+        gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao)
 
-    for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
-            df_original_completo[col] = pd.to_datetime(df_original_completo[col], errors="coerce")
-
-    empreendimentos_ordenados = criar_ordenacao_empreendimentos(df_original_completo)
-
-    if filtrar_nao_concluidas:
-        df = filtrar_etapas_nao_concluidas(df)
-
-    df = aplicar_ordenacao_final(df, empreendimentos_ordenados)
-
-    if df.empty:
-        st.warning("Sem dados disponíveis para exibir o Gantt após a filtragem.")
-        return
-
-    num_empreendimentos = df["Empreendimento"].nunique()
-    num_etapas = df["Etapa"].nunique()
-
-    # REGRA ESPECÍFICA: Quando há múltiplos empreendimentos e apenas uma etapa
-    if num_empreendimentos > 1 and num_etapas == 1:
-        # Para este caso especial, geramos apenas UM gráfico comparativo
-        gerar_gantt_comparativo(df, tipo_visualizacao, df_original_completo)
-    elif num_empreendimentos > 1 and num_etapas > 1:
-        # Caso tradicional: múltiplos empreendimentos com múltiplas etapas
-        for empreendimento in empreendimentos_ordenados:
-            if empreendimento in df["Empreendimento"].unique():
-                df_filtrado = df[df["Empreendimento"] == empreendimento]
-                df_original_filtrado = df_original_completo[
-                    df_original_completo["Empreendimento"] == empreendimento
-                ]
-
-                gerar_gantt_individual(df_filtrado, tipo_visualizacao, df_original=df_original_filtrado)
-    else:
-        # Caso único empreendimento (com uma ou múltiplas etapas)
-        gerar_gantt_individual(df, tipo_visualizacao, df_original=df_original_completo)
-
-def gerar_gantt_comparativo(df, tipo_visualizacao="Ambos", df_original=None):
-    """
-    Gera um gráfico Gantt comparativo para múltiplos empreendimentos com apenas uma etapa.
-    """
-    if df.empty:
-        return
-
-    if df_original is None:
-        df_original = df.copy()
-
-    hoje = pd.Timestamp.now().normalize()
-
-    # Ordenação específica para o caso comparativo
-    sort_col = "Inicio_Real" if tipo_visualizacao == "Real" else "Inicio_Prevista"
-    df = df.sort_values(by=sort_col, ascending=True, na_position="last").reset_index(drop=True)
-
-    # Configuração do mapeamento de posições
-    rotulo_para_posicao = {
-        empreendimento: i
-        for i, empreendimento in enumerate(df["Empreendimento"].unique())
-    }
-    df["Posicao"] = df["Empreendimento"].map(rotulo_para_posicao)
-    df.dropna(subset=["Posicao"], inplace=True)
-
-    if df.empty:
-        return
-
-    # Configuração da figura
-    num_linhas = len(rotulo_para_posicao)
-    altura_total = max(10, num_linhas * StyleConfig.ALTURA_GANTT_POR_ITEM)
-    figura = plt.figure(figsize=(StyleConfig.LARGURA_TABELA + StyleConfig.LARGURA_GANTT, altura_total))
-    grade = gridspec.GridSpec(1, 2, width_ratios=[StyleConfig.LARGURA_TABELA, StyleConfig.LARGURA_GANTT], wspace=0.01)
-
-    eixo_tabela = figura.add_subplot(grade[0], facecolor=StyleConfig.FUNDO_TABELA)
-    eixo_gantt = figura.add_subplot(grade[1], sharey=eixo_tabela)
-    eixo_tabela.axis("off")
-
-    # Consolidação dos dados
-    dados_consolidados = (
-        df.groupby("Posicao")
-        .agg(
-            Empreendimento=("Empreendimento", "first"),
-            Etapa=("Etapa", "first"),
-            Inicio_Prevista=("Inicio_Prevista", "min"),
-            Termino_Prevista=("Termino_Prevista", "max"),
-            Inicio_Real=("Inicio_Real", "min"),
-            Termino_Real=("Termino_Real", "max"),
-            Percentual_Concluido=("% concluído", "max"),
-        )
-        .reset_index()
-    )
-    
-    # Inicializar variáveis fora do laço
-    datas_relevantes = []
-    ALTURA_BARRA = StyleConfig.ALTURA_BARRA_GANTT
-    ESPACAMENTO = 0 if tipo_visualizacao != "Ambos" else StyleConfig.ALTURA_BARRA_GANTT * 0.5
-    
-    # Laço ÚNICO para desenhar TUDO (tabela e gantt)
-    for _, linha in dados_consolidados.iterrows():
-        y_pos = linha["Posicao"]
-        
-        # --- 1. Desenho da Tabela ---
-        estilo_celula = StyleConfig.CELULA_PAR if int(y_pos) % 2 == 0 else StyleConfig.CELULA_IMPAR
-        eixo_tabela.add_patch(
-            Rectangle((0.01, y_pos - 0.5), 0.98, 1.0, **estilo_celula)
-        )
-        eixo_tabela.text(0.04, y_pos - 0.2, linha["Empreendimento"], va="center", ha="left", **StyleConfig.FONTE_ETAPA)
-        
-        dias_uteis_prev = calcular_dias_uteis(linha["Inicio_Prevista"], linha["Termino_Prevista"])
-        dias_uteis_real = calcular_dias_uteis(linha["Inicio_Real"], linha["Termino_Real"])
-        texto_prev = f"Prev: {formatar_data(linha['Inicio_Prevista'])} → {formatar_data(linha['Termino_Prevista'])}-({dias_uteis_prev}d)"
-        texto_real = f"Real: {formatar_data(linha['Inicio_Real'])} → {formatar_data(linha['Termino_Real'])}-({dias_uteis_real}d)"
-        eixo_tabela.text(0.04, y_pos + 0.05, f"{texto_prev:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS)
-        eixo_tabela.text(0.04, y_pos + 0.28, f"{texto_real:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS)
-
-        percentual = linha["Percentual_Concluido"]
-        termino_real_pct = linha["Termino_Real"]
-        termino_previsto_pct = linha["Termino_Prevista"]
-        cor_texto, cor_caixa = "#000000", estilo_celula["facecolor"]
-        if percentual == 100:
-            if pd.notna(termino_real_pct) and pd.notna(termino_previsto_pct):
-                if termino_real_pct < termino_previsto_pct: cor_texto, cor_caixa = "#2EAF5B", "#e6f5eb"
-                elif termino_real_pct > termino_previsto_pct: cor_texto, cor_caixa = "#C30202", "#fae6e6"
-        elif percentual < 100:
-            if pd.notna(termino_previsto_pct) and (termino_previsto_pct < hoje):
-                cor_texto, cor_caixa = "#A38408", "#faf3d9"
-        
-        eixo_tabela.add_patch(Rectangle((0.78, y_pos - 0.2), 0.2, 0.4, facecolor=cor_caixa, edgecolor="#d1d5db", lw=0.8))
-        percentual_texto = f"{percentual:.1f}%" if percentual % 1 != 0 else f"{int(percentual)}%"
-        eixo_tabela.text(0.88, y_pos, percentual_texto, va="center", ha="center", color=cor_texto, **StyleConfig.FONTE_PORCENTAGEM)
-
-        variacao_texto, variacao_cor = calcular_variacao_termino(linha["Termino_Real"], linha["Termino_Prevista"])
-        propriedades_bbox = dict(boxstyle='square,pad=0.2', facecolor=estilo_celula["facecolor"], edgecolor='none', alpha=1)
-        eixo_tabela.text(
-            0.88, y_pos + StyleConfig.OFFSET_VARIACAO_TERMINO, variacao_texto,
-            va="center", ha="center", color=variacao_cor,
-            bbox=propriedades_bbox, zorder=10, **StyleConfig.FONTE_VARIACAO
-        )
-
-        # --- 2. Desenho do Gantt ---
-        fase = SETOR_POR_ETAPA.get(linha['Etapa'], "OUTROS")
-        cor_previsto = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("previsto", StyleConfig.COR_PREVISTO)
-        cor_real = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("real", StyleConfig.COR_REAL)
-        
-        # <<< ALTERAÇÃO INICIO: Lógica para barra "Previsto" com duração imaginária
-        if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(linha['Inicio_Prevista']):
-            if pd.notna(linha['Termino_Prevista']):
-                termino_previsto_gantt = linha['Termino_Prevista']
-            else:
-                # Cria uma data de término imaginária de 27 dias para visualização
-                termino_previsto_gantt = linha['Inicio_Prevista'] + pd.Timedelta(days=27)
-
-            duracao_prevista = (termino_previsto_gantt - linha['Inicio_Prevista']).days + 1
-            eixo_gantt.barh(y=y_pos - ESPACAMENTO, width=duracao_prevista, left=linha['Inicio_Prevista'], height=ALTURA_BARRA, color=cor_previsto, alpha=0.9, antialiased=False)
-            datas_relevantes.extend([linha['Inicio_Prevista'], termino_previsto_gantt])
-        # <<< ALTERAÇÃO FIM
-
-        if tipo_visualizacao in ["Ambos", "Real"] and pd.notna(linha['Inicio_Real']):
-            termino_real_gantt = linha['Termino_Real'] if pd.notna(linha['Termino_Real']) else hoje
-            duracao_real = (termino_real_gantt - linha['Inicio_Real']).days + 1
-            eixo_gantt.barh(y=y_pos + ESPACAMENTO, width=duracao_real, left=linha['Inicio_Real'], height=ALTURA_BARRA, color=cor_real, alpha=0.9, antialiased=False)
-            datas_relevantes.extend([linha['Inicio_Real'], termino_real_gantt])
-    
-    # Configuração dos eixos e finalização
-    if datas_relevantes:
-        datas_validas = [pd.Timestamp(d) for d in datas_relevantes if pd.notna(d)]
-        if datas_validas:
-            data_min_do_grafico = min(datas_validas)
-            data_max_do_grafico = max(datas_validas)
-            data_min_final = min(hoje, data_min_do_grafico)
-            limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=121)
-            eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
-
-            eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-
-    max_pos = max(rotulo_para_posicao.values())
-    eixo_gantt.set_ylim(max_pos + 0.5, -0.5)
-    eixo_gantt.set_yticks([])
-
-    for pos in rotulo_para_posicao.values():
-        eixo_gantt.axhline(y=pos + 0.5, color="#dcdcdc", linestyle="-", alpha=0.7, linewidth=0.8)
-
-    eixo_gantt.axvline(hoje, color=StyleConfig.COR_HOJE, linestyle="--", linewidth=1.5)
-    eixo_gantt.text(hoje, eixo_gantt.get_ylim()[0], "Hoje", color=StyleConfig.COR_HOJE, fontsize=10, ha="center", va="bottom")
-    
-    eixo_gantt.grid(axis="x", linestyle="--", alpha=0.6)
-    eixo_gantt.xaxis.set_major_formatter(mdates.DateFormatter("%m/%y"))
-    plt.setp(eixo_gantt.get_xticklabels(), rotation=90, ha="center")
-
-    # Legenda (sem alterações)
-    handles_legenda = []
-    labels_legenda = []
-    for fase in StyleConfig.CORES_POR_SETOR:
-        if fase in StyleConfig.CORES_POR_SETOR:
-            prev_patch = Patch(color=StyleConfig.CORES_POR_SETOR[fase]["previsto"])
-            real_patch = Patch(color=StyleConfig.CORES_POR_SETOR[fase]["real"])
-            handles_legenda.append((prev_patch, real_patch))
-            labels_legenda.append(fase)
-            
-    eixo_gantt.legend(
-        handles=handles_legenda, labels=labels_legenda,
-        handler_map={tuple: HandlerTuple(ndivide=None)},
-        loc='upper center', bbox_to_anchor=(1.11, 1),
-        frameon=False, borderaxespad=0.1, fontsize=8,
-        title=" PREVISTO | REAL"
-    )
-
-    plt.tight_layout(rect=[0, 0, 1, 0.98])
-    figura.suptitle(
-        f"Comparativo da Etapa: {sigla_para_nome_completo.get(df['Etapa'].iloc[0], '')}", 
-        fontsize=14, weight='bold', ha='left', x=0.12, y=0.90
-    )
-    st.pyplot(figura)
-    plt.close(figura)
-
-# gantts individuais 
-def gerar_gantt_individual(df, tipo_visualizacao="Ambos", df_original=None):
-    if df.empty:
-        return
-
-    if df_original is None:
-        df_original = df.copy()
-
-    hoje = pd.Timestamp.now().normalize()
-    
-    # Lógica de posicionamento
-    rotulo_para_posicao = {}
-    posicao = 0
-    empreendimentos_unicos = df["Empreendimento"].unique()
-    for emp_idx, empreendimento in enumerate(empreendimentos_unicos):
-        etapas_do_empreendimento = df[df["Empreendimento"] == empreendimento]["Etapa"].unique()
-        for etapa in etapas_do_empreendimento:
-            rotulo = f"{empreendimento}||{etapa}"
-            rotulo_para_posicao[rotulo] = posicao
-            posicao += 1
-        if len(empreendimentos_unicos) > 1 and emp_idx < len(empreendimentos_unicos) - 1:
-            posicao += StyleConfig.ESPACO_ENTRE_EMPREENDIMENTOS / 2
-    
-    df["Posicao"] = (df["Empreendimento"] + "||" + df["Etapa"]).map(rotulo_para_posicao)
-    df.dropna(subset=["Posicao"], inplace=True)
-    if df.empty:
-        return
-
-    # Configuração da Figura
-    num_linhas_reais = df["Posicao"].nunique()
-    altura_total = max(10, num_linhas_reais * StyleConfig.ALTURA_GANTT_POR_ITEM)
-    figura = plt.figure(figsize=(StyleConfig.LARGURA_TABELA + StyleConfig.LARGURA_GANTT, altura_total))
-    grade = gridspec.GridSpec(1, 2, width_ratios=[StyleConfig.LARGURA_TABELA, StyleConfig.LARGURA_GANTT], wspace=0.01)
-
-    eixo_tabela = figura.add_subplot(grade[0], facecolor=StyleConfig.FUNDO_TABELA)
-    eixo_gantt = figura.add_subplot(grade[1], sharey=eixo_tabela)
-    eixo_tabela.axis("off")
-
-    # Consolidação dos dados
-    dados_consolidados = (
-        df.groupby("Posicao")
-        .agg(
-            Empreendimento=("Empreendimento", "first"),
-            Etapa=("Etapa", "first"),
-            Inicio_Prevista=("Inicio_Prevista", "min"),
-            Termino_Prevista=("Termino_Prevista", "max"),
-            Inicio_Real=("Inicio_Real", "min"),
-            Termino_Real=("Termino_Real", "max"),
-            Percentual_Concluido=("% concluído", "max"),
-        )
-        .reset_index()
-    )
-
-    # Inicializar variáveis fora do laço
-    datas_relevantes = []
-    ALTURA_BARRA = StyleConfig.ALTURA_BARRA_GANTT
-    ESPACAMENTO = 0 if tipo_visualizacao != "Ambos" else StyleConfig.ALTURA_BARRA_GANTT * 0.5
-    empreendimento_atual = None
-    
-    # Laço ÚNICO para desenhar TUDO
-    for i, linha in dados_consolidados.iterrows():
-        y_pos = linha["Posicao"]
-
-        # --- 1. Desenho da Tabela e Cabeçalhos ---
-        if linha["Empreendimento"] != empreendimento_atual:
-            empreendimento_atual = linha["Empreendimento"]
-            nome_formatado = empreendimento_atual.replace("CONDOMINIO ", "")
-            y_cabecalho = y_pos - (StyleConfig.ALTURA_GANTT_POR_ITEM / 2) - 0.2
-            eixo_tabela.text(0.5, y_cabecalho, nome_formatado, va="center", ha="center", bbox=StyleConfig.CABECALHO, **StyleConfig.FONTE_TITULO)
-        
-        estilo_celula = StyleConfig.CELULA_PAR if i % 2 == 0 else StyleConfig.CELULA_IMPAR
-        eixo_tabela.add_patch(
-            Rectangle((0.01, y_pos - 0.5), 0.98, 1.0, **estilo_celula) #data_max_do_grafico
-        )
-        
-        texto_principal = sigla_para_nome_completo.get(linha["Etapa"], linha["Etapa"])
-        eixo_tabela.text(0.04, y_pos - 0.2, texto_principal, va="center", ha="left", **StyleConfig.FONTE_ETAPA)
-
-        dias_uteis_prev = calcular_dias_uteis(linha["Inicio_Prevista"], linha["Termino_Prevista"])
-        dias_uteis_real = calcular_dias_uteis(linha["Inicio_Real"], linha["Termino_Real"])
-        texto_prev = f"Prev: {formatar_data(linha['Inicio_Prevista'])} → {formatar_data(linha['Termino_Prevista'])}-({dias_uteis_prev}d)"
-        texto_real = f"Real: {formatar_data(linha['Inicio_Real'])} → {formatar_data(linha['Termino_Real'])}-({dias_uteis_real}d)"
-        eixo_tabela.text(0.04, y_pos + 0.05, f"{texto_prev:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS)
-        eixo_tabela.text(0.04, y_pos + 0.28, f"{texto_real:<32}", va="center", ha="left", **StyleConfig.FONTE_DATAS)
-
-        percentual = linha["Percentual_Concluido"]
-        termino_real_pct = linha["Termino_Real"]
-        termino_previsto_pct = linha["Termino_Prevista"]
-        cor_texto, cor_caixa = "#000000", estilo_celula["facecolor"]
-        if percentual == 100:
-            if pd.notna(termino_real_pct) and pd.notna(termino_previsto_pct):
-                if termino_real_pct < termino_previsto_pct: cor_texto, cor_caixa = "#2EAF5B", "#e6f5eb"
-                elif termino_real_pct > termino_previsto_pct: cor_texto, cor_caixa = "#C30202", "#fae6e6"
-        elif percentual < 100:
-            if pd.notna(termino_previsto_pct) and (termino_previsto_pct < hoje):
-                cor_texto, cor_caixa = "#A38408", "#faf3d9"
-
-        eixo_tabela.add_patch(Rectangle((0.78, y_pos - 0.2), 0.2, 0.4, facecolor=cor_caixa, edgecolor="#d1d5db", lw=0.8))
-        percentual_texto = f"{percentual:.1f}%" if percentual % 1 != 0 else f"{int(percentual)}%"
-        eixo_tabela.text(0.88, y_pos, percentual_texto, va="center", ha="center", color=cor_texto, **StyleConfig.FONTE_PORCENTAGEM)
-
-        variacao_texto, variacao_cor = calcular_variacao_termino(linha["Termino_Real"], linha["Termino_Prevista"])
-        propriedades_bbox = dict(boxstyle='square,pad=0.2', facecolor=estilo_celula["facecolor"], edgecolor='none', alpha=1)
-        eixo_tabela.text(
-            0.88, y_pos + StyleConfig.OFFSET_VARIACAO_TERMINO, variacao_texto,
-            va="center", ha="center", color=variacao_cor,
-            bbox=propriedades_bbox, zorder=10, **StyleConfig.FONTE_VARIACAO
-        ) 
-
-        # --- 2. Desenho do Gantt ---
-        fase = SETOR_POR_ETAPA.get(linha['Etapa'], "OUTROS")
-        cor_previsto = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("previsto", StyleConfig.COR_PREVISTO)
-        cor_real = StyleConfig.CORES_POR_SETOR.get(fase, {}).get("real", StyleConfig.COR_REAL)
-
-        # <<< ALTERAÇÃO INICIO: Lógica para barra "Previsto" com duração imaginária
-        if tipo_visualizacao in ["Ambos", "Previsto"] and pd.notna(linha['Inicio_Prevista']):
-            if pd.notna(linha['Termino_Prevista']):
-                termino_previsto_gantt = linha['Termino_Prevista']
-            else:
-                # Cria uma data de término imaginária de 27 dias para visualização
-                termino_previsto_gantt = linha['Inicio_Prevista'] + pd.Timedelta(days=27)
-
-            duracao_prevista = (termino_previsto_gantt - linha['Inicio_Prevista']).days + 1
-            eixo_gantt.barh(y=y_pos - ESPACAMENTO, width=duracao_prevista, left=linha['Inicio_Prevista'], height=ALTURA_BARRA, color=cor_previsto, alpha=0.9, antialiased=False)
-            datas_relevantes.extend([linha['Inicio_Prevista'], termino_previsto_gantt])
-        # <<< ALTERAÇÃO FIM
-        
-        if tipo_visualizacao in ["Ambos", "Real"] and pd.notna(linha['Inicio_Real']):
-            termino_real_gantt = linha['Termino_Real'] if pd.notna(linha['Termino_Real']) else hoje
-            duracao_real = (termino_real_gantt - linha['Inicio_Real']).days + 1
-            eixo_gantt.barh(y=y_pos + ESPACAMENTO, width=duracao_real, left=linha['Inicio_Real'], height=ALTURA_BARRA, color=cor_real, alpha=0.9, antialiased=False)
-            datas_relevantes.extend([linha['Inicio_Real'], termino_real_gantt])
-    
-    # Configuração dos eixos e finalização
-    if datas_relevantes:
-        datas_validas = [pd.Timestamp(d) for d in datas_relevantes if pd.notna(d)]
-        if datas_validas:
-            data_min_do_grafico = min(datas_validas)
-            data_max_do_grafico = max(datas_validas)
-            data_min_final = min(hoje, data_min_do_grafico)
-            limite_superior = max(hoje, data_max_do_grafico) + pd.Timedelta(days=180)
-            eixo_gantt.set_xlim(left=data_min_final - pd.Timedelta(days=5), right=limite_superior)
-
-            # <<< ALTERAÇÃO: Intervalo do eixo X fixado novamente para 1 mês
-            eixo_gantt.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-
-
-    max_pos = max(rotulo_para_posicao.values())
-    eixo_gantt.set_ylim(max_pos + 1, -1)
-    eixo_gantt.set_yticks([])
-
-    for pos in rotulo_para_posicao.values():
-        eixo_gantt.axhline(y=pos + 0.5, color="#dcdcdc", linestyle="-", alpha=0.7, linewidth=0.8)
-
-    eixo_gantt.axvline(hoje, color=StyleConfig.COR_HOJE, linestyle="--", linewidth=1.5)
-    eixo_gantt.text(hoje, eixo_gantt.get_ylim()[0], "Hoje", color=StyleConfig.COR_HOJE, fontsize=10, ha="center", va="bottom")
-    
-    empreendimento_principal = df["Empreendimento"].unique()[0]
-    data_meta = obter_data_meta_assinatura(df_original, empreendimento_principal)
-    if data_meta != pd.Timestamp.max:
-        eixo_gantt.axvline(data_meta, color=StyleConfig.COR_META_ASSINATURA, linestyle="--", linewidth=1.7, alpha=0.7)
-        eixo_gantt.text(
-            data_meta, eixo_gantt.get_ylim()[1] + 0.2, f"Meta Assinatura\n{data_meta.strftime('%d/%m/%y')}",
-            color=StyleConfig.COR_META_ASSINATURA, fontsize=10, ha="center", va="top",
-            bbox=dict(facecolor="white", alpha=0.8, edgecolor=StyleConfig.COR_META_ASSINATURA, boxstyle="round,pad=0.3")
-        )
-        
-    eixo_gantt.grid(axis="x", linestyle="--", alpha=0.6)
-    eixo_gantt.xaxis.set_major_formatter(mdates.DateFormatter("%m/%y"))
-    plt.setp(eixo_gantt.get_xticklabels(), rotation=90, ha="center")
-
-    # Legenda (sem alterações)
-    handles_legenda = []
-    labels_legenda = []
-    for fase in StyleConfig.CORES_POR_SETOR:
-        if fase in StyleConfig.CORES_POR_SETOR:
-            prev_patch = Patch(color=StyleConfig.CORES_POR_SETOR[fase]["previsto"])
-            real_patch = Patch(color=StyleConfig.CORES_POR_SETOR[fase]["real"])
-            handles_legenda.append((prev_patch, real_patch))
-            labels_legenda.append(fase)
-
-    eixo_gantt.legend(
-        handles=handles_legenda, labels=labels_legenda,
-        handler_map={tuple: HandlerTuple(ndivide=None)},
-        loc='upper center', bbox_to_anchor=(1.11, 1),
-        frameon=False, borderaxespad=0.1, fontsize=8,
-        title=" PREVISTO | REAL"
-    )
-
-    plt.tight_layout(rect=[0, 0, 1, 1])
-    st.pyplot(figura)
-    plt.close(figura)
-# ========================================================================================================
-# O RESTANTE DO CÓDIGO (LÓGICA DO STREAMLIT)
-# ========================================================================================================
+# O restante do seu código Streamlit...
 
 st.set_page_config(layout="wide", page_title="Dashboard de Gantt Comparativo")
-# Verificar se o popup deve ser exibido
 if show_welcome_screen():
-    st.stop()  # Para a execução do resto do app enquanto o popup está ativo
+    st.stop()
 
-# --- INÍCIO DA IMPLEMENTAÇÃO DO MENU FLUTUANTE ---
-# CSS customizado
 st.markdown("""
 <style>
-    /* Altera APENAS os checkboxes dos multiselects */
-    div.stMultiSelect div[role="option"] input[type="checkbox"]:checked + div > div:first-child {
-        background-color: #4a0101 !important;
-        border-color: #4a0101 !important;
-    }
-    
-    /* Cor de fundo dos itens selecionados */
-    div.stMultiSelect [aria-selected="true"] {
-        background-color: #f8d7da !important;
-        color: #333 !important;
-        border-radius: 4px;
-    }
-    
-    /* Estilo do "×" de remoção */
-    div.stMultiSelect [aria-selected="true"]::after {
-        color: #4a0101 !important;
-        font-weight: bold;
-    }
-    
-    /* Espaçamento entre os filtros */
-    .stSidebar .stMultiSelect, .stSidebar .stSelectbox, .stSidebar .stRadio {
-        margin-bottom: 1rem;
-    }
-    
-    /* Estilo para botões de navegação */
-    .nav-button-container {
-        position: fixed;
-        right: 20px;
-        top: 20%;
-        transform: translateY(-20%);
-        z-index: 80;
-        background: white;
-        padding: 5px;
-        border-radius: 15px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }
-            
-    /* Estilo padrão */
-    .nav-link {
-        display: block;
-        background-color: #a6abb5;
-        color: white !important;
-        text-decoration: none !important;
-        border-radius: 10px;
-        padding: 5px 10px;
-        margin: 5px 0;
-        text-align: center;
-        font-weight: bold;
-        font-size: 14px;
-        transition: all 0.3s ease;
-    }
-            
-    /* Estilo para quando selecionado */
-    .nav-link:hover {
-        background-color: #ff4b4b; 
-        transform: scale(1.05);
-    }
+    div.stMultiSelect div[role="option"] input[type="checkbox"]:checked + div > div:first-child { background-color: #4a0101 !important; border-color: #4a0101 !important; }
+    div.stMultiSelect [aria-selected="true"] { background-color: #f8d7da !important; color: #333 !important; border-radius: 4px; }
+    div.stMultiSelect [aria-selected="true"]::after { color: #4a0101 !important; font-weight: bold; }
+    .stSidebar .stMultiSelect, .stSidebar .stSelectbox, .stSidebar .stRadio { margin-bottom: 1rem; }
+    .nav-button-container { position: fixed; right: 20px; top: 20%; transform: translateY(-20%); z-index: 80; background: white; padding: 5px; border-radius: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+    .nav-link { display: block; background-color: #a6abb5; color: white !important; text-decoration: none !important; border-radius: 10px; padding: 5px 10px; margin: 5px 0; text-align: center; font-weight: bold; font-size: 14px; transition: all 0.3s ease; }
+    .nav-link:hover { background-color: #ff4b4b; transform: scale(1.05); }
 </style>
 """, unsafe_allow_html=True)
-# --- FIM DA IMPLEMENTAÇÃO DO MENU FLUTUANTE ---
 
 @st.cache_data
 def load_data():
@@ -905,31 +1241,15 @@ def load_data():
             if df_real_resultado is not None and not df_real_resultado.empty:
                 df_real = df_real_resultado.copy()
                 df_real["Etapa"] = df_real["Etapa"].apply(padronizar_etapa)
-                df_real = df_real.rename(
-                    columns={"EMP": "Empreendimento", "%_Concluido": "% concluído"}
-                )
+                df_real = df_real.rename(columns={"EMP": "Empreendimento", "%_Concluido": "% concluído"})
                 if "% concluído" in df_real.columns:
-                    df_real["% concluído"] = df_real["% concluído"].apply(
-                        converter_porcentagem
-                    )
-                df_real_pivot = (
-                    df_real.pivot_table(
-                        index=["Empreendimento", "Etapa", "% concluído"],
-                        columns="Inicio_Fim",
-                        values="Valor",
-                        aggfunc="first",
-                    )
-                    .reset_index()
-                )
+                    df_real["% concluído"] = df_real["% concluído"].apply(converter_porcentagem)
+                df_real_pivot = df_real.pivot_table(index=["Empreendimento", "Etapa", "% concluído"], columns="Inicio_Fim", values="Valor", aggfunc="first").reset_index()
                 df_real_pivot.columns.name = None
                 if "INICIO" in df_real_pivot.columns:
-                    df_real_pivot = df_real_pivot.rename(
-                        columns={"INICIO": "Inicio_Real"}
-                    )
+                    df_real_pivot = df_real_pivot.rename(columns={"INICIO": "Inicio_Real"})
                 if "TERMINO" in df_real_pivot.columns:
-                    df_real_pivot = df_real_pivot.rename(
-                        columns={"TERMINO": "Termino_Real"}
-                    )
+                    df_real_pivot = df_real_pivot.rename(columns={"TERMINO": "Termino_Real"})
                 df_real = df_real_pivot
             else:
                 df_real = pd.DataFrame()
@@ -943,45 +1263,44 @@ def load_data():
             if df_previsto_resultado is not None and not df_previsto_resultado.empty:
                 df_previsto = df_previsto_resultado.copy()
                 df_previsto["Etapa"] = df_previsto["Etapa"].apply(padronizar_etapa)
-                df_previsto = df_previsto.rename(
-                    columns={"EMP": "Empreendimento", "UGB": "UGB"}
-                )
-                df_previsto_pivot = (
-                    df_previsto.pivot_table(
-                        index=["UGB", "Empreendimento", "Etapa"],
-                        columns="Inicio_Fim",
-                        values="Valor",
-                        aggfunc="first",
-                    )
-                    .reset_index()
-                )
+                df_previsto = df_previsto.rename(columns={"EMP": "Empreendimento", "UGB": "UGB"})
+                df_previsto_pivot = df_previsto.pivot_table(index=["UGB", "Empreendimento", "Etapa"], columns="Inicio_Fim", values="Valor", aggfunc="first").reset_index()
                 df_previsto_pivot.columns.name = None
                 if "INICIO" in df_previsto_pivot.columns:
-                    df_previsto_pivot = df_previsto_pivot.rename(
-                        columns={"INICIO": "Inicio_Prevista"}
-                    )
+                    df_previsto_pivot = df_previsto_pivot.rename(columns={"INICIO": "Inicio_Prevista"})
                 if "TERMINO" in df_previsto_pivot.columns:
-                    df_previsto_pivot = df_previsto_pivot.rename(
-                        columns={"TERMINO": "Termino_Prevista"}
-                    )
+                    df_previsto_pivot = df_previsto_pivot.rename(columns={"TERMINO": "Termino_Prevista"})
                 df_previsto = df_previsto_pivot
             else:
                 df_previsto = pd.DataFrame()
         except Exception as e:
             st.warning(f"Erro ao carregar dados previstos: {e}")
             df_previsto = pd.DataFrame()
-
+            
     if df_real.empty and df_previsto.empty:
         st.warning("Nenhuma fonte de dados carregada. Usando dados de exemplo.")
         return criar_dados_exemplo()
 
+    etapas_base_oficial = set(sigla_para_nome_completo.keys())
+    etapas_nos_dados = set()
+    if not df_real.empty:
+        etapas_nos_dados.update(df_real["Etapa"].unique())
+    if not df_previsto.empty:
+        etapas_nos_dados.update(df_previsto["Etapa"].unique())
+
+    etapas_nao_mapeadas = etapas_nos_dados - etapas_base_oficial
+    
+    if "UNKNOWN" in etapas_nao_mapeadas:
+         etapas_nao_mapeadas.remove("UNKNOWN")
+
+    if etapas_nao_mapeadas:
+        with st.sidebar.expander("⚠️ Alerta de Dados"):
+            st.warning("As seguintes etapas foram encontradas nos dados, mas não são reconhecidas. Verifique a ortografia no arquivo de origem:")
+            for etapa in sorted(list(etapas_nao_mapeadas)):
+                st.code(etapa)
+
     if not df_real.empty and not df_previsto.empty:
-        df_merged = pd.merge(
-            df_previsto,
-            df_real[["Empreendimento", "Etapa", "Inicio_Real", "Termino_Real", "% concluído"]],
-            on=["Empreendimento", "Etapa"],
-            how="outer",
-        )
+        df_merged = pd.merge(df_previsto, df_real[["Empreendimento", "Etapa", "Inicio_Real", "Termino_Real", "% concluído"]], on=["Empreendimento", "Etapa"], how="outer")
     elif not df_previsto.empty:
         df_merged = df_previsto.copy()
         df_merged["% concluído"] = 0.0
@@ -992,259 +1311,109 @@ def load_data():
     else:
         return criar_dados_exemplo()
 
-    for col in [
-        "UGB",
-        "Inicio_Prevista",
-        "Termino_Prevista",
-        "Inicio_Real",
-        "Termino_Real",
-        "% concluído",
-    ]:
+    for col in ["UGB", "Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real", "% concluído"]:
         if col not in df_merged.columns:
-            if col == "UGB":
-                df_merged[col] = "UGB1"
-            elif col == "% concluído":
-                df_merged[col] = 0.0
-            else:
-                df_merged[col] = pd.NaT
+            df_merged[col] = pd.NaT if "data" in col else ("UGB1" if col == "UGB" else 0.0)
 
     df_merged["% concluído"] = df_merged["% concluído"].fillna(0)
     df_merged.dropna(subset=["Empreendimento", "Etapa"], inplace=True)
 
-    # Adicionar coluna GRUPO baseada na etapa
     df_merged["GRUPO"] = df_merged["Etapa"].map(GRUPO_POR_ETAPA).fillna("Não especificado")
-
-    # Adicionar coluna SETOR baseada na etapa
     df_merged["SETOR"] = df_merged["Etapa"].map(SETOR_POR_ETAPA).fillna("Não especificado")
 
     return df_merged
 
-
 def criar_dados_exemplo():
     dados = {
         "UGB": ["UGB1", "UGB1", "UGB1", "UGB2", "UGB2", "UGB1"],
-        "Empreendimento": [
-            "Residencial Alfa",
-            "Residencial Alfa",
-            "Residencial Alfa",
-            "Condomínio Beta",
-            "Condomínio Beta",
-            "Projeto Gama",
-        ],
+        "Empreendimento": ["Residencial Alfa", "Residencial Alfa", "Residencial Alfa", "Condomínio Beta", "Condomínio Beta", "Projeto Gama"],
+        "Etapa": ["PROSPEC", "LEGVENDA", "PL.LIMP", "PROSPEC", "LEGVENDA", "PROSPEC"],
+        "Inicio_Prevista": pd.to_datetime(["2024-01-01", "2024-02-15", "2024-04-01", "2024-01-20", "2024-03-10", "2024-05-01"]),
+        "Termino_Prevista": pd.to_datetime(["2024-02-14", "2024-03-31", "2024-05-15", "2024-03-09", "2024-04-30", "2024-06-15"]),
+        "Inicio_Real": pd.to_datetime(["2024-01-05", "2024-02-20", pd.NaT, "2024-01-22", "2024-03-15", pd.NaT]),
+        "Termino_Real": pd.to_datetime(["2024-02-18", pd.NaT, pd.NaT, "2024-03-12", pd.NaT, pd.NaT]),
+        "% concluído": [100, 50, 0, 100, 25, 0],
     }
     df_exemplo = pd.DataFrame(dados)
-    # Adicionar coluna GRUPO
     df_exemplo["GRUPO"] = df_exemplo["Etapa"].map(GRUPO_POR_ETAPA).fillna("PLANEJAMENTO MACROFLUXO")
+    df_exemplo["SETOR"] = df_exemplo["Etapa"].map(SETOR_POR_ETAPA).fillna("PROSPECÇÃO")
     return df_exemplo
 
-
-# --- Funções de Cache para Performance ---
 @st.cache_data
 def get_unique_values(df, column):
-    """Função para cachear valores únicos de uma coluna"""
     return sorted(df[column].dropna().unique().tolist())
-
 
 @st.cache_data
 def filter_dataframe(df, ugb_filter, emp_filter, grupo_filter, setor_filter):
-    """
-    Função para cachear filtragem do DataFrame (adaptada para grupos)
-    """
     if not ugb_filter:
-        return df.iloc[0:0]  # DataFrame vazio se nenhuma UGB selecionada
-
+        return df.iloc[0:0]
     df_filtered = df[df["UGB"].isin(ugb_filter)]
-
     if emp_filter:
         df_filtered = df_filtered[df_filtered["Empreendimento"].isin(emp_filter)]
-
     if grupo_filter:
         df_filtered = df_filtered[df_filtered["GRUPO"].isin(grupo_filter)]
-
     if setor_filter:
         df_filtered = df_filtered[df_filtered["SETOR"].isin(setor_filter)]
-
     return df_filtered
 
-
-if show_welcome_screen():
-    st.stop()
-
-st.markdown(
-    """
-<style>
-    div.stMultiSelect div[role="option"] input[type="checkbox"]:checked + div > div:first-child { background-color: #4a0101 !important; border-color: #4a0101 !important; }
-    div.stMultiSelect [aria-selected="true"] { background-color: #f8d7da !important; color: #333 !important; border-radius: 4px; }
-    div.stMultiSelect [aria-selected="true"]::after { color: #4a0101 !important; font-weight: bold; }
-    .stSidebar .stMultiSelect, .stSidebar .stSelectbox, .stSidebar .stRadio { margin-bottom: 1rem; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-# Carregamento dos dados
 with st.spinner("Carregando e processando dados..."):
     df_data = load_data()
 
 if df_data is not None and not df_data.empty:
-     # Logo no sidebar
     with st.sidebar:
-        st.markdown("<br>", unsafe_allow_html=True)  # Espaço no topo
-
-        # Centraliza a imagem
+        st.markdown("<br>", unsafe_allow_html=True)
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            try:
-                st.image("logoNova.png", width=200)
-            except FileNotFoundError:
-                st.warning(
-                    "Logo não encontrada. Verifique se o arquivo 'logoNova.png' está no diretório correto.")
+            st.image("logoNova.png", width=200)
 
-        # 1️⃣ Filtro UGB
         ugb_options = get_unique_values(df_data, "UGB")
-        selected_ugb = simple_multiselect_dropdown(
-            label="Filtrar por UGB",
-            options=ugb_options,
-            key="ugb_filter",
-            default_selected=ugb_options,
-        )
+        selected_ugb = simple_multiselect_dropdown(label="Filtrar por UGB", options=ugb_options, key="ugb_filter", default_selected=ugb_options)
 
-        # 2️⃣ Filtro Empreendimento
-        if selected_ugb:
-            emp_options = get_unique_values(
-                df_data[df_data["UGB"].isin(selected_ugb)], "Empreendimento"
-            )
-        else:
-            emp_options = []
+        emp_options = get_unique_values(df_data[df_data["UGB"].isin(selected_ugb)], "Empreendimento") if selected_ugb else []
+        selected_emp = simple_multiselect_dropdown(label="Filtrar por Empreendimento", options=emp_options, key="empreendimento_filter", default_selected=emp_options)
 
-        selected_emp = simple_multiselect_dropdown(
-            label="Filtrar por Empreendimento",
-            options=emp_options,
-            key="empreendimento_filter",
-            default_selected=emp_options,
-        )
+        df_temp = df_data[df_data["UGB"].isin(selected_ugb)]
+        if selected_emp:
+            df_temp = df_temp[df_temp["Empreendimento"].isin(selected_emp)]
+        grupo_options = get_unique_values(df_temp, "GRUPO")
+        selected_grupo = simple_multiselect_dropdown(label="Filtrar por GRUPO", options=grupo_options, key="grupo_filter", default_selected=grupo_options)
 
-        # 3️⃣ Filtro GRUPO (NOVO - igual ao filtro de FASE)
-        if selected_ugb:
-            # Primeiro filtra por UGB
-            df_temp = df_data[df_data["UGB"].isin(selected_ugb)]
+        df_temp_setor = df_data[df_data["UGB"].isin(selected_ugb)]
+        if selected_emp:
+            df_temp_setor = df_temp_setor[df_temp_setor["Empreendimento"].isin(selected_emp)]
+        if selected_grupo:
+            df_temp_setor = df_temp_setor[df_temp_setor["GRUPO"].isin(selected_grupo)]
+        setor_options = list(SETOR.keys())
+        selected_setor = simple_multiselect_dropdown(label="Filtrar por SETOR", options=setor_options, key="setor_filter", default_selected=setor_options)
 
-            # Depois filtra por Empreendimento se houver seleção
-            if selected_emp:
-                df_temp = df_temp[df_temp["Empreendimento"].isin(selected_emp)]
-
-            grupo_options = get_unique_values(df_temp, "GRUPO")
-        else:
-            grupo_options = []
-
-        selected_grupo = simple_multiselect_dropdown(
-            label="Filtrar por GRUPO",
-            options=grupo_options,
-            key="grupo_filter",
-            default_selected=grupo_options,
-        )
-
-        # 4️⃣ Filtro SETOR (NOVO - similar ao filtro de GRUPO)
-        if selected_ugb:
-            df_temp_setor = df_data[df_data["UGB"].isin(selected_ugb)]
-            if selected_emp:
-                df_temp_setor = df_temp_setor[df_temp_setor["Empreendimento"].isin(selected_emp)]
-            if selected_grupo:
-                df_temp_setor = df_temp_setor[df_temp_setor["GRUPO"].isin(selected_grupo)]
-            setor_options = list(SETOR.keys())
-        else:
-            setor_options = []
-
-        selected_setor = simple_multiselect_dropdown(
-            label="Filtrar por SETOR",
-            options=setor_options,
-            key="setor_filter",
-            default_selected=setor_options,
-        )
-
-
-        # 4️⃣ Filtro Etapa (agora depende também do filtro de GRUPO)
-        # Aplicar todos os filtros antes de mostrar etapas
-        df_temp_filtered = filter_dataframe(
-            df_data, selected_ugb, selected_emp, selected_grupo, selected_setor
-        )
-
-
+        df_temp_filtered = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo, selected_setor)
         if not df_temp_filtered.empty:
             etapas_disponiveis = get_unique_values(df_temp_filtered, "Etapa")
-
-            # Ordenar etapas se sigla_para_nome_completo estiver definido
-            try:
-                etapas_disponiveis = sorted(
-                    etapas_disponiveis,
-                    key=lambda x:
-                        list(sigla_para_nome_completo.keys()).index(x)
-                        if x in sigla_para_nome_completo
-                        else 99,
-                )
-                etapas_para_exibir = ["Todos"] + [
-                    sigla_para_nome_completo.get(e, e) for e in etapas_disponiveis
-                ]
-            except NameError:
-                # Se sigla_para_nome_completo não estiver definido, usar as etapas como estão
-                etapas_para_exibir = ["Todos"] + etapas_disponiveis
+            etapas_ordenadas = [etapa for etapa in ORDEM_ETAPAS_GLOBAL if etapa in etapas_disponiveis]
+            etapas_para_exibir = ["Todos"] + [sigla_para_nome_completo.get(e, e) for e in etapas_ordenadas]
         else:
             etapas_para_exibir = ["Todos"]
+        selected_etapa_nome = st.selectbox("Filtrar por Etapa", options=etapas_para_exibir)
 
-        selected_etapa_nome = st.selectbox(
-            "Filtrar por Etapa", options=etapas_para_exibir
-        )
-
-        # 5️⃣ Filtro de etapas não concluídas
         st.markdown("---")
-        filtrar_nao_concluidas = st.checkbox(
-            "Etapas não concluídas",
-            value=False,
-            help="Quando marcado, mostra apenas etapas com menos de 100% de conclusão",
-        )
-
-        # 6️⃣ Opção de visualização
+        filtrar_nao_concluidas = st.checkbox("Etapas não concluídas", value=False, help="Quando marcado, mostra apenas etapas com menos de 100% de conclusão")
         st.markdown("---")
         tipo_visualizacao = st.radio("Mostrar dados:", ("Ambos", "Previsto", "Real"))
 
-    # Aplica todos os filtros finais
     df_filtered = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo, selected_setor)
 
-
-    # Aplica o filtro de etapa final
+    # Lógica do filtro de etapa única
     if selected_etapa_nome != "Todos" and not df_filtered.empty:
-        try:
-            sigla_selecionada = nome_completo_para_sigla.get(
-                selected_etapa_nome, selected_etapa_nome
-            )
-            df_filtered = df_filtered[df_filtered["Etapa"] == sigla_selecionada]
-        except NameError:
-            # Se nome_completo_para_sigla não estiver definido, usar o nome como está
-            df_filtered = df_filtered[df_filtered["Etapa"] == selected_etapa_nome]
+        sigla_selecionada = nome_completo_para_sigla.get(selected_etapa_nome, selected_etapa_nome)
+        df_filtered = df_filtered[df_filtered["Etapa"] == sigla_selecionada]
 
-    # APLICAR NOVO FILTRO: Etapas não concluídas
     if filtrar_nao_concluidas and not df_filtered.empty:
         df_filtered = filtrar_etapas_nao_concluidas(df_filtered)
 
-        # Mostrar informação sobre o filtro aplicado
-        if not df_filtered.empty:
-            total_etapas_nao_concluidas = len(df_filtered)
-            st.sidebar.success(f"✅ Mostrando {total_etapas_nao_concluidas} etapas não concluídas")
-        else:
-            st.sidebar.info("ℹ️ Todas as etapas estão 100% concluídas")
-
-    # Interface principal
     st.title("Macrofluxo")
-
-    # Navegação por abas
     tab1, tab2 = st.tabs(["Gráfico de Gantt", "Tabelão Horizontal"])
-
-#=============================================================================================================
-
-    # --- Início do Bloco de Código Fornecido ---
+ 
     with tab1:
-        # --- INÍCIO DA IMPLEMENTAÇÃO DO MENU FLUTUANTE ---
-        # Botões de navegação simples usando HTML com âncoras
         st.markdown("""
         <div class="nav-button-container">
             <a href="#inicio" class="nav-link">↑</a>
@@ -1252,48 +1421,37 @@ if df_data is not None and not df_data.empty:
         </div>
         """, unsafe_allow_html=True)
         
-        # Âncora para o início
         st.markdown('<div id="inicio"></div>', unsafe_allow_html=True)
-        # --- FIM DA IMPLEMENTAÇÃO DO MENU FLUTUANTE ---
 
         st.subheader("Gantt Comparativo")
         if df_filtered.empty:
             st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
         else:
-            # Passa o parâmetro filtrar_nao_concluidas para a função de Gantt
-            gerar_gantt(df_filtered.copy(), tipo_visualizacao, filtrar_nao_concluidas)
+            # A chamada principal agora passa o df_data original para manter a ordenação consistente
+            gerar_gantt(df_filtered.copy(), tipo_visualizacao, filtrar_nao_concluidas, df_data)
 
-        # --- INÍCIO DA IMPLEMENTAÇÃO DO MENU FLUTUANTE ---
-        # Âncora para a tabela
         st.markdown('<div id="visao-detalhada"></div>', unsafe_allow_html=True)
-        # --- FIM DA IMPLEMENTAÇÃO DO MENU FLUTUANTE ---
         
         st.subheader("Visão Detalhada por Empreendimento")
         if df_filtered.empty:
             st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
         else:
-            # --- INÍCIO DA LÓGICA CORRIGIDA ---
             df_detalhes = df_filtered.copy()
             
-            # 1. Obter a ordem correta dos empreendimentos ANTES de qualquer filtro.
-            # A ordenação é baseada na data da meta de assinatura (etapa 'M').
             empreendimentos_ordenados_por_meta = criar_ordenacao_empreendimentos(df_data)
             
-            # 2. Aplicar o filtro de "não concluídas" se estiver ativo.
             if filtrar_nao_concluidas:
                 df_detalhes = filtrar_etapas_nao_concluidas(df_detalhes)
 
-            # Se após o filtro o dataframe ficar vazio, exibe um aviso.
             if df_detalhes.empty:
                 st.info("ℹ️ Nenhuma etapa não concluída encontrada para os filtros selecionados.")
             else:
                 hoje = pd.Timestamp.now().normalize()
 
-                # Conversão de colunas de data
                 for col in ['Inicio_Prevista', 'Termino_Prevista', 'Inicio_Real', 'Termino_Real']:
-                    df_detalhes[col] = pd.to_datetime(df_detalhes[col], errors='coerce')
+                    if col in df_detalhes.columns:
+                        df_detalhes[col] = pd.to_datetime(df_detalhes[col], errors='coerce')
 
-                # Agregação de dados por empreendimento e etapa
                 df_agregado = df_detalhes.groupby(['Empreendimento', 'Etapa']).agg(
                     Inicio_Prevista=('Inicio_Prevista', 'min'),
                     Termino_Prevista=('Termino_Prevista', 'max'),
@@ -1302,24 +1460,19 @@ if df_data is not None and not df_data.empty:
                     Percentual_Concluido=('% concluído', 'max') if '% concluído' in df_detalhes.columns else ('% concluído', lambda x: 0)
                 ).reset_index()
 
-                # Converte percentual para o formato 0-100, se necessário
                 if '% concluído' in df_detalhes.columns and not df_agregado.empty and df_agregado['Percentual_Concluido'].max() <= 1:
                     df_agregado['Percentual_Concluido'] *= 100
 
-                # Cálculo da variação de término
                 df_agregado['Var. Term'] = df_agregado.apply(
                     lambda row: calculate_business_days(row['Termino_Prevista'], row['Termino_Real']), axis=1
                 )
                 
-                # 3. Aplicar a ordenação dos empreendimentos baseada na meta
-                # Isso garante que a ordem dos blocos de empreendimento seja consistente.
                 df_agregado['ordem_empreendimento'] = pd.Categorical(
                     df_agregado['Empreendimento'],
                     categories=empreendimentos_ordenados_por_meta,
                     ordered=True
                 )
                 
-                # 4. Ordenar o dataframe final, respeitando a ordem dos empreendimentos e, em seguida, a ordem das etapas.
                 ordem_etapas = list(sigla_para_nome_completo.keys())
                 df_agregado['Etapa_Ordem'] = df_agregado['Etapa'].apply(lambda x: ordem_etapas.index(x) if x in ordem_etapas else len(ordem_etapas))
                 
@@ -1327,7 +1480,6 @@ if df_data is not None and not df_data.empty:
 
                 st.write("---")
 
-                # A lógica de exibição da tabela (hierárquica ou horizontal) permanece a mesma
                 etapas_unicas = df_ordenado['Etapa'].unique()
                 usar_layout_horizontal = len(etapas_unicas) == 1
 
@@ -1338,10 +1490,9 @@ if df_data is not None and not df_data.empty:
                     tabela_para_processar['Etapa'] = tabela_para_processar['Etapa'].map(sigla_para_nome_completo)
                     tabela_final_lista.append(tabela_para_processar)
                 else:
-                    # Agrupa por 'ordem_empreendimento' para manter a ordem correta
                     for _, grupo in df_ordenado.groupby('ordem_empreendimento', sort=False):
                         if grupo.empty:
-                            continue # Pula para o próximo grupo se estiver vazio
+                            continue
 
                         empreendimento = grupo['Empreendimento'].iloc[0]
                         
@@ -1367,7 +1518,6 @@ if df_data is not None and not df_data.empty:
                 else:
                     tabela_final = pd.concat(tabela_final_lista, ignore_index=True)
 
-                    # A função de estilo e a exibição final permanecem as mesmas
                     def aplicar_estilo(df_para_estilo, layout_horizontal):
                         if df_para_estilo.empty:
                             return df_para_estilo.style
@@ -1375,7 +1525,7 @@ if df_data is not None and not df_data.empty:
                         def estilo_linha(row):
                             style = [''] * len(row)
                             
-                            if not layout_horizontal and 'Empreendimento / Etapa' in row and str(row['Empreendimento / Etapa']).startswith('📂'):
+                            if not layout_horizontal and 'Empreendimento / Etapa' in row.index and str(row['Empreendimento / Etapa']).startswith('📂'):
                                 style = ['font-weight: 500; color: #000000; background-color: #F0F2F6; border-left: 4px solid #000000; padding-left: 10px;'] * len(row)
                                 for i in range(1, len(style)):
                                     style[i] = "background-color: #F0F2F6;"
@@ -1448,36 +1598,29 @@ if df_data is not None and not df_data.empty:
                     
                     st.markdown(tabela_estilizada.to_html(), unsafe_allow_html=True)
 
-#========================================================================================================
-
     with tab2:
         st.subheader("Tabelão Horizontal")
 
         if df_filtered.empty:
             st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
         else:
-            # --- DATA PREPARATION ---
             df_detalhes = df_filtered.copy()
             
-            # CORREÇÃO: Aplicar filtragem de etapas não concluídas se necessário
             if filtrar_nao_concluidas:
                 df_detalhes = filtrar_etapas_nao_concluidas(df_detalhes)
             
             hoje = pd.Timestamp.now().normalize()
 
-            # Column renaming and cleaning
             df_detalhes = df_detalhes.rename(columns={
                 'Termino_prevista': 'Termino_Prevista',
                 'Termino_real': 'Termino_Real'
             })
             
-            # Date conversion
             for col in ['Inicio_Prevista', 'Termino_Prevista', 'Inicio_Real', 'Termino_Real']:
                 if col in df_detalhes.columns:
                     df_detalhes[col] = df_detalhes[col].replace('-', pd.NA)
                     df_detalhes[col] = pd.to_datetime(df_detalhes[col], errors='coerce')
 
-            # Completion validation
             df_detalhes['Conclusao_Valida'] = False
             if '% concluído' in df_detalhes.columns:
                 mask = (
@@ -1488,7 +1631,6 @@ if df_data is not None and not df_data.empty:
                 )
                 df_detalhes.loc[mask, 'Conclusao_Valida'] = True
 
-            # --- SORTING OPTIONS ---
             st.write("---")
             col1, col2 = st.columns(2)
             
@@ -1515,24 +1657,20 @@ if df_data is not None and not df_data.empty:
                     key="ordem_radio"
                 )
 
-            # NOVA ABORDAGEM: Ordenar ANTES da agregação para preservar ordem cronológica
             ordem_etapas_completas = list(sigla_para_nome_completo.keys())
             df_detalhes['Etapa_Ordem'] = df_detalhes['Etapa'].apply(
                 lambda x: ordem_etapas_completas.index(x) if x in ordem_etapas_completas else len(ordem_etapas_completas)
             )
             
-            # Para ordenações por data, ordenar os dados originais primeiro
             if classificar_por in ['Data de Início Previsto (Mais antiga)', 'Data de Término Previsto (Mais recente)']:
                 coluna_data = 'Inicio_Prevista' if 'Início' in classificar_por else 'Termino_Prevista'
                 
-                # Ordenar os dados originais pela data escolhida
                 df_detalhes_ordenado = df_detalhes.sort_values(
                     by=[coluna_data, 'UGB', 'Empreendimento', 'Etapa'],
                     ascending=[ordem == 'Crescente', True, True, True],
                     na_position='last'
                 )
                 
-                # Criar um mapeamento de ordem para UGB/Empreendimento baseado na primeira ocorrência
                 ordem_ugb_emp = df_detalhes_ordenado.groupby(['UGB', 'Empreendimento']).first().reset_index()
                 ordem_ugb_emp = ordem_ugb_emp.sort_values(
                     by=coluna_data,
@@ -1541,14 +1679,12 @@ if df_data is not None and not df_data.empty:
                 )
                 ordem_ugb_emp['ordem_index'] = range(len(ordem_ugb_emp))
                 
-                # Mapear a ordem de volta para os dados originais
                 df_detalhes = df_detalhes.merge(
                     ordem_ugb_emp[['UGB', 'Empreendimento', 'ordem_index']],
                     on=['UGB', 'Empreendimento'],
                     how='left'
                 )
                 
-            # --- DATA AGGREGATION ---
             agg_dict = {
                 'Inicio_Prevista': ('Inicio_Prevista', 'min'),
                 'Termino_Prevista': ('Termino_Prevista', 'max'),
@@ -1562,30 +1698,23 @@ if df_data is not None and not df_data.empty:
                 if not df_detalhes.empty and df_detalhes['% concluído'].max() <= 1:
                     df_detalhes['% concluído'] *= 100
 
-            # Adicionar ordem_index à agregação se existir
             if 'ordem_index' in df_detalhes.columns:
                 agg_dict['ordem_index'] = ('ordem_index', 'first')
 
-            # Aggregate data
             df_agregado = df_detalhes.groupby(['UGB', 'Empreendimento', 'Etapa']).agg(**agg_dict).reset_index()
             
-            # Calculate variation
             df_agregado['Var. Term'] = df_agregado.apply(lambda row: calculate_business_days(row['Termino_Prevista'], row['Termino_Real']), axis=1)
 
-            # Adicionar Etapa_Ordem
             df_agregado['Etapa_Ordem'] = df_agregado['Etapa'].apply(
                 lambda x: ordem_etapas_completas.index(x) if x in ordem_etapas_completas else len(ordem_etapas_completas)
             )
 
-            # Aplicar ordenação baseada na escolha do usuário
             if classificar_por in ['Data de Início Previsto (Mais antiga)', 'Data de Término Previsto (Mais recente)']:
-                # Para ordenações por data, usar a ordem_index criada anteriormente
                 df_ordenado = df_agregado.sort_values(
                     by=['ordem_index', 'UGB', 'Empreendimento', 'Etapa_Ordem'],
                     ascending=[True, True, True, True]
                 )
             else:
-                # Para outras ordenações, usar o método original
                 df_ordenado = df_agregado.sort_values(
                     by=opcoes_classificacao[classificar_por],
                     ascending=(ordem == 'Crescente')
@@ -1593,7 +1722,6 @@ if df_data is not None and not df_data.empty:
             
             st.write("---")
 
-            # --- PIVOT TABLE CREATION ---
             df_pivot = df_ordenado.pivot_table(
                 index=['UGB', 'Empreendimento'],
                 columns='Etapa',
@@ -1601,7 +1729,6 @@ if df_data is not None and not df_data.empty:
                 aggfunc='first'
             )
 
-            # Column ordering for pivot table
             etapas_existentes_no_pivot = df_pivot.columns.get_level_values(1).unique()
             colunas_ordenadas = []
             
@@ -1613,21 +1740,17 @@ if df_data is not None and not df_data.empty:
             
             df_final = df_pivot[colunas_ordenadas].reset_index()
 
-            # Para ordenações por data, reordenar o df_final baseado na ordem correta
             if classificar_por in ['Data de Início Previsto (Mais antiga)', 'Data de Término Previsto (Mais recente)']:
-                # Obter ordem única de UGB/Empreendimento do df_ordenado
                 ordem_linhas_final = df_ordenado[['UGB', 'Empreendimento']].drop_duplicates().reset_index(drop=True)
                 
-                # Reordenar df_final
                 df_final = df_final.set_index(['UGB', 'Empreendimento'])
                 df_final = df_final.reindex(pd.MultiIndex.from_frame(ordem_linhas_final))
                 df_final = df_final.reset_index()
 
-            # --- COLUMN RENAMING FOR MULTIINDEX ---
             novos_nomes = []
             for col in df_final.columns:
                 if col[0] in ['UGB', 'Empreendimento']:
-                    novos_nomes.append((col[0], ''))  # Segundo nível vazio para colunas simples
+                    novos_nomes.append((col[0], ''))
                 else:
                     tipo, etapa = col[0], col[1]
                     nome_etapa = sigla_para_nome_completo.get(etapa, etapa)
@@ -1642,7 +1765,6 @@ if df_data is not None and not df_data.empty:
             
             df_final.columns = pd.MultiIndex.from_tuples(novos_nomes)
 
-            # --- FORMATTING FUNCTIONS ---
             def formatar_valor(valor, tipo):
                 if pd.isna(valor):
                     return "-"
@@ -1653,13 +1775,11 @@ if df_data is not None and not df_data.empty:
                 return str(valor)
 
             def determinar_cor(row, col_tuple):
-                """Determina a cor baseada no status da etapa"""
                 if len(col_tuple) == 2 and (col_tuple[1] in ['Início Real', 'Término Real']):
                     etapa_nome_completo = col_tuple[0]
                     etapa_sigla = nome_completo_para_sigla.get(etapa_nome_completo)
                     
                     if etapa_sigla:
-                        # Busca os dados da etapa específica no df_agregado
                         etapa_data = df_agregado[
                             (df_agregado['UGB'] == row[('UGB', '')]) &
                             (df_agregado['Empreendimento'] == row[('Empreendimento', '')]) &
@@ -1672,49 +1792,38 @@ if df_data is not None and not df_data.empty:
                             termino_real = etapa_data['Termino_Real']
                             termino_previsto = etapa_data['Termino_Prevista']
                             
-                            # Verifica se está 100% concluído
                             if percentual == 100:
                                 if pd.notna(termino_real) and pd.notna(termino_previsto):
                                     if termino_real < termino_previsto:
-                                        return "color: #2EAF5B; font-weight: bold;"  # Concluído antes
+                                        return "color: #2EAF5B; font-weight: bold;"
                                     elif termino_real > termino_previsto:
-                                        return "color: #C30202; font-weight: bold;"  # Concluído com atraso
-                            # Verifica se está atrasado (data passou mas não está 100%)
+                                        return "color: #C30202; font-weight: bold;"
                             elif pd.notna(termino_real) and (termino_real < hoje):
-                                return "color: #A38408; font-weight: bold;"  # Aguardando atualização
+                                return "color: #A38408; font-weight: bold;"
                 
-                # Padrão para outras colunas ou casos não especificados
                 return ""
 
-            # --- DATA FORMATTING (APLICAR APENAS APÓS ORDENAÇÃO) ---
             df_formatado = df_final.copy()
             for col_tuple in df_formatado.columns:
-                if len(col_tuple) == 2 and col_tuple[1] != '':  # Ignorar colunas sem segundo nível
+                if len(col_tuple) == 2 and col_tuple[1] != '':
                     if any(x in col_tuple[1] for x in ["Início Prev.", "Término Prev.", "Início Real", "Término Real"]):
                         df_formatado[col_tuple] = df_formatado[col_tuple].apply(lambda x: formatar_valor(x, "data"))
                     elif "VarTerm" in col_tuple[1]:
                         df_formatado[col_tuple] = df_formatado[col_tuple].apply(lambda x: formatar_valor(x, "variacao"))
 
-            # --- STYLING FUNCTION ---
             def aplicar_estilos(df):
-                # Cria um DataFrame de estilos vazio com as mesmas dimensões do DataFrame original
                 styles = pd.DataFrame('', index=df.index, columns=df.columns)
                 
                 for i, row in df.iterrows():
-                    # Aplicar zebra striping (cor de fundo alternada) para todas as células da linha
                     cor_fundo = "#fbfbfb" if i % 2 == 0 else '#ffffff'
                     
                     for col_tuple in df.columns:
-                        # Estilo base com zebra striping
                         cell_style = f"background-color: {cor_fundo};"
                         
-                        # Aplicar estilo para células de dados
                         if len(col_tuple) == 2 and col_tuple[1] != '':
-                            # Dados faltantes
                             if row[col_tuple] == '-':
                                 cell_style += ' color: #999999; font-style: italic;'
                             else:
-                                # Aplicar cores condicionais para Início/Término Real
                                 if col_tuple[1] in ['Início Real', 'Término Real']:
                                     row_dict = {('UGB', ''): row[('UGB', '')],
                                                 ('Empreendimento', ''): row[('Empreendimento', '')]}
@@ -1722,89 +1831,34 @@ if df_data is not None and not df_data.empty:
                                     if cor_condicional:
                                         cell_style += f' {cor_condicional}'
                                 
-                                # Estilo para variação de prazo
                                 elif 'VarTerm' in col_tuple[1]:
-                                    if '▲' in str(row[col_tuple]):  # Atraso
+                                    if '▲' in str(row[col_tuple]):
                                         cell_style += ' color: #e74c3c; font-weight: 600;'
-                                    elif '▼' in str(row[col_tuple]):  # Adiantamento
+                                    elif '▼' in str(row[col_tuple]):
                                         cell_style += ' color: #2ecc71; font-weight: 600;'
-                        else:
-                            # Para colunas UGB e Empreendimento, manter apenas o fundo zebrado
-                            pass
                         
                         styles.at[i, col_tuple] = cell_style
                 
                 return styles
 
-            # --- TABLE STYLING ---
             header_styles = [
-                # Estilo para o nível superior (etapas)
-                {
-                    'selector': 'th.level0',
-                    'props': [
-                        ('font-size', '12px'),
-                        ('font-weight', 'bold'),
-                        ('background-color', "#6c6d6d"),
-                        ('border-bottom', '2px solid #ddd'),
-                        ('text-align', 'center'),
-                        ('white-space', 'nowrap')
-                    ]
-                },
-                # Estilo para o nível inferior (tipos de data)
-                {
-                    'selector': 'th.level1',
-                    'props': [
-                        ('font-size', '11px'),
-                        ('font-weight', 'normal'),
-                        ('background-color', '#f8f9fa'),
-                        ('text-align', 'center'),
-                        ('white-space', 'nowrap')
-                    ]
-                },
-                # Estilo para células de dados
-                {
-                    'selector': 'td',
-                    'props': [
-                        ('font-size', '12px'),
-                        ('text-align', 'center'),
-                        ('padding', '5px 8px'),
-                        ('border', '1px solid #f0f0f0')
-                    ]
-                },
-                # Estilo para cabeçalho das colunas UGB e Empreendimento
-                {
-                    'selector': 'th.col_heading.level0',
-                    'props': [
-                        ('font-size', '12px'),
-                        ('font-weight', 'bold'),
-                        ('background-color', '#6c6d6d'),
-                        ('text-align', 'center')
-                    ]
-                }
+                {'selector': 'th.level0', 'props': [('font-size', '12px'), ('font-weight', 'bold'), ('background-color', "#6c6d6d"), ('border-bottom', '2px solid #ddd'), ('text-align', 'center'), ('white-space', 'nowrap')]},
+                {'selector': 'th.level1', 'props': [('font-size', '11px'), ('font-weight', 'normal'), ('background-color', '#f8f9fa'), ('text-align', 'center'), ('white-space', 'nowrap')]},
+                {'selector': 'td', 'props': [('font-size', '12px'), ('text-align', 'center'), ('padding', '5px 8px'), ('border', '1px solid #f0f0f0')]},
+                {'selector': 'th.col_heading.level0', 'props': [('font-size', '12px'), ('font-weight', 'bold'), ('background-color', '#6c6d6d'), ('text-align', 'center')]}
             ]
 
-            # Adicionar bordas entre grupos de colunas
             for i, etapa in enumerate(ordem_etapas_completas):
-                if i > 0:  # Não aplicar para a primeira etapa
-                    # Encontrar a primeira coluna de cada etapa
+                if i > 0:
                     etapa_nome = sigla_para_nome_completo.get(etapa, etapa)
-                    col_idx = next((idx for idx, col in enumerate(df_final.columns)
-                                if col[0] == etapa_nome), None)
+                    col_idx = next((idx for idx, col in enumerate(df_final.columns) if col[0] == etapa_nome), None)
                     if col_idx:
-                        header_styles.append({
-                            'selector': f'th:nth-child({col_idx+1})',
-                            'props': [('border-left', '2px solid #ddd')]
-                        })
-                        header_styles.append({
-                            'selector': f'td:nth-child({col_idx+1})',
-                            'props': [('border-left', '2px solid #ddd')]
-                        })
+                        header_styles.append({'selector': f'th:nth-child({col_idx+1})', 'props': [('border-left', '2px solid #ddd')]})
+                        header_styles.append({'selector': f'td:nth-child({col_idx+1})', 'props': [('border-left', '2px solid #ddd')]})
 
-            # Aplicar estilos condicionais
             styled_df = df_formatado.style.apply(aplicar_estilos, axis=None)
             styled_df = styled_df.set_table_styles(header_styles)
 
-            # --- DISPLAY RESULTS ---
             st.dataframe(
                 styled_df,
                 height=min(35 * len(df_final) + 40, 600),
@@ -1812,7 +1866,6 @@ if df_data is not None and not df_data.empty:
                 use_container_width=True
             )
             
-            # Legend
             st.markdown("""<div style="margin-top: 10px; font-size: 12px; color: #555;">
                 <strong>Legenda:</strong> 
                 <span style="color: #2EAF5B; font-weight: bold;">■ Concluído antes do prazo</span> | 
@@ -1823,5 +1876,3 @@ if df_data is not None and not df_data.empty:
             </div>""", unsafe_allow_html=True)
 else:
     st.error("❌ Não foi possível carregar ou gerar os dados.")
-
-
