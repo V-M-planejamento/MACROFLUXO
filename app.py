@@ -131,7 +131,7 @@ class StyleConfig:
 
 # --- Funções do Novo Gráfico Gantt ---
 
-def calcular_periodo_datas(df, meses_padding_inicio=1, meses_padding_fim=3):
+def calcular_periodo_datas(df, meses_padding_inicio=1, meses_padding_fim=36):
     if df.empty:
         hoje = datetime.now()
         data_min_default = (hoje - relativedelta(months=2)).replace(day=1)
@@ -868,7 +868,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
         """
         components.html(gantt_html, height=altura_gantt, scrolling=True)
         st.markdown("---")# Substitua a função inteira por esta
-        
+
 def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
     """
     Gera um gráfico de Gantt HTML consolidado, mostrando o progresso de uma
