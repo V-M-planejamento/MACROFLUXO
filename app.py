@@ -181,7 +181,6 @@ def obter_data_meta_assinatura_novo(df_empreendimento):
             return pd.to_datetime(df_meta[col].iloc[0])
     return None
 
-# ★★★ FUNÇÃO ATUALIZADA PARA CRIAR OS DADOS PARA A NOVA TABELA ★★★
 def converter_dados_para_gantt(df):
     if df.empty:
         return []
@@ -258,8 +257,11 @@ def converter_dados_para_gantt(df):
                 "termino_real": pd.to_datetime(end_real_original).strftime("%d/%m/%y") if pd.notna(end_real_original) else "N/D",
                 "duracao_prev_meses": f"{dur_prev_meses:.1f}".replace('.', ',') if dur_prev_meses is not None else "-",
                 "duracao_real_meses": f"{dur_real_meses:.1f}".replace('.', ',') if dur_real_meses is not None else "-",
-                "vt_text": f"VT: {int(vt):+d}d" if pd.notna(vt) else "VT: -",
-                "vd_text": f"VD: {int(vd):+d}d" if pd.notna(vd) else "VD: -",
+                
+                # ALTERAÇÃO AQUI: Removido "VT:" e "VD:"
+                "vt_text": f"{int(vt):+d}d" if pd.notna(vt) else "-",
+                "vd_text": f"{int(vd):+d}d" if pd.notna(vd) else "-",
+                
                 "status_color_class": status_color_class
             }
             tasks.append(task)
@@ -362,7 +364,6 @@ def aplicar_ordenacao_final(df, empreendimentos_ordenados):
     df_ordenado = df.sort_values(["ordem_empreendimento", "ordem_etapa"]).drop(["ordem_empreendimento", "ordem_etapa"], axis=1)
     return df_ordenado.reset_index(drop=True)
 
-# ★★★ FUNÇÃO FINAL COM CORREÇÃO DE ALTURA DINÂMICA VIA JAVASCRIPT ★★★
 # Substitua sua função gerar_gantt_por_projeto inteira por esta
 def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
     df_gantt = df.copy()
@@ -406,7 +407,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
         total_meses_proj = ((data_max_proj.year - data_min_proj.year) * 12) + (data_max_proj.month - data_min_proj.month) + 1
 
         num_tasks = len(project["tasks"])
-        altura_gantt = max(500, (num_tasks * 50) + 150)
+        altura_gantt = max(500, (num_tasks * 38) + 150)
 
         gantt_html = f"""
             <!DOCTYPE html>
@@ -419,47 +420,107 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     html, body {{ width: 100%; height: 100%; font-family: 'Segoe UI', sans-serif; background-color: #f5f5f5; color: #333; overflow: hidden; }}
                     .gantt-container {{ width: 100%; height: 100%; background-color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; display: flex; flex-direction: column; }}
                     .gantt-main {{ display: flex; flex: 1; overflow: hidden; }}
-                    .gantt-sidebar-wrapper {{ width: 680px; display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.3s ease-in-out; border-right: 2px solid #e2e8f0; }}
+                    
+                    /* ALTERAÇÃO 1: Adicionado 'overflow: hidden' para o wrapper da sidebar */
+                    .gantt-sidebar-wrapper {{ width: 680px; display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.3s ease-in-out; border-right: 2px solid #e2e8f0; overflow: hidden; }}
+
                     .gantt-sidebar-header {{ background: linear-gradient(135deg, #4a5568, #2d3748); display: flex; flex-direction: column; height: 60px; flex-shrink: 0; }}
                     .project-title-row {{ display: flex; justify-content: space-between; align-items: center; padding: 0 15px; height: 30px; color: white; font-weight: 600; font-size: 14px; }}
                     .toggle-sidebar-btn {{ background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 5px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s, transform 0.3s ease-in-out; }}
                     .toggle-sidebar-btn:hover {{ background: rgba(255,255,255,0.4); }}
                     .sidebar-grid-header-wrapper {{ display: grid; grid-template-columns: 30px 1fr; color: #d1d5db; font-size: 9px; font-weight: 600; text-transform: uppercase; height: 30px; align-items: center; }}
-                    .sidebar-grid-header {{ display: grid; grid-template-columns: 2.5fr 1fr 1fr 0.8fr 1fr 1fr 0.8fr 1.2fr; padding: 0 10px; transition: grid-template-columns 0.3s ease-in-out; align-items: center; }}
+                    
+                    .sidebar-grid-header {{ 
+                        display: grid; 
+                        grid-template-columns: 2.5fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr;
+                        padding: 0 10px; 
+                        align-items: center; 
+                    }}
+                    
+                    .sidebar-row {{
+                        display: grid;
+                        grid-template-columns: 2.5fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr;
+                        border-bottom: 1px solid #eff2f5;
+                        height: 38px; 
+                        padding: 0 10px; 
+                        background-color: white; 
+                        transition: all 0.2s ease-in-out;
+                    }}
+                    .sidebar-cell {{ 
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: center; 
+                        font-size: 11px; 
+                        color: #4a5568; 
+                        white-space: nowrap; 
+                        overflow: hidden; 
+                        text-overflow: ellipsis; 
+                        padding: 0 8px;
+                        border: none;
+                    }}
+                    
                     .header-cell {{ text-align: center; }}
                     .header-cell.task-name-cell {{ text-align: left; }}
-                    .gantt-sidebar-content {{ background-color: #f8f9fa; overflow-y: auto; flex-grow: 1; }}
-                    .sidebar-group-wrapper {{ display: flex; border-bottom: 1px solid #cdd5e0; }}
+
+                    /* ALTERAÇÃO 2: Faz o conteúdo da tabela crescer e ter sua própria rolagem */
+                    .gantt-sidebar-content {{ 
+                        background-color: #f8f9fa;
+                        flex: 1; /* Faz este elemento ocupar todo o espaço vertical disponível */
+                        overflow-y: auto; /* Adiciona a rolagem vertical quando necessário */
+                        overflow-x: hidden; /* Oculta a rolagem horizontal */
+                    }}
+
+                    .sidebar-group-wrapper {{ display: flex; border-bottom: 1px solid #e2e8f0; }}
+                    
                     .sidebar-group-title-vertical {{
-                        width: 30px;
-                        background-color: #e2e8f0;
-                        color: #4a5568;
-                        font-size: 10px;
-                        font-weight: 700;
-                        text-transform: uppercase;
+                        width: 30px; background-color: #e2e8f0; color: #4a5568;
+                        font-size: 9.5px;
+                        font-weight: 700; text-transform: uppercase;
+                        display: flex; align-items: center; justify-content: center;
+                        writing-mode: vertical-rl; transform: rotate(180deg);
+                        flex-shrink: 0; border-right: 1px solid #d1d5db;
+                        text-align: center; white-space: nowrap;
+                        overflow: hidden; text-overflow: ellipsis;
+                        padding: 5px 0;
+                        letter-spacing: -0.5px;
+                    }}
+
+                    .sidebar-rows-container {{ flex-grow: 1; }}
+                    
+                    .sidebar-row.odd-row {{ background-color: #fdfdfd; }}
+                    .sidebar-rows-container .sidebar-row:last-child {{ border-bottom: none; }}
+                    .sidebar-row:hover {{ background-color: #f5f8ff; }}
+                    
+                    .sidebar-cell.task-name-cell {{ justify-content: flex-start; font-weight: 600; color: #2d3748; }}
+                    
+                    .status-box-inner {{
+                        width: 115%;
+                        height: 15px;
                         display: flex;
                         align-items: center;
                         justify-content: center;
-                        writing-mode: vertical-rl;
-                        transform: rotate(180deg);
-                        flex-shrink: 0;
-                        border-right: 1px solid #d1d5db;
-                        text-align: center;
+                        border-radius: 5px;
+                        font-size: 8px; 
+                        font-weight: 700;
+                        padding: 0 5px;
                         white-space: nowrap;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
+                        border: 1px solid transparent;
                     }}
-                    .sidebar-rows-container {{ flex-grow: 1; }}
-                    .sidebar-row {{ display: grid; grid-template-columns: 2.5fr 1fr 1fr 0.8fr 1fr 1fr 0.8fr 1.2fr; border-bottom: 1px solid #e2e8f0; height: 50px; padding: 0 10px; background-color: white; transition: all 0.2s ease-in-out; }}
-                    .sidebar-row.odd-row {{ background-color: #f1f3f5; }}
-                    .sidebar-rows-container .sidebar-row:last-child {{ border-bottom: none; }}
-                    .sidebar-row:hover {{ background-color: #e9eef5; }}
-                    .sidebar-cell {{ display: flex; align-items: center; justify-content: center; font-size: 11px; color: #4a5568; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-                    .sidebar-cell.task-name-cell {{ justify-content: flex-start; font-weight: 600; color: #2d3748; }}
-                    .status-box-container {{ display: flex; flex-direction: column; width: 90%; height: 42px; border-radius: 4px; overflow: hidden; font-size: 9px; font-weight: bold; border: 1px solid rgba(0,0,0,0.1); }}
-                    .status-box {{ flex: 1; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid rgba(0,0,0,0.08); }}
-                    .status-box:last-child {{ border-bottom: none; }}
-                    .status-green {{ background-color: #d4edda; color: #155724; }} .status-red {{ background-color: #f8d7da; color: #721c24; }} .status-yellow {{ background-color: #fff3cd; color: #856404; }} .status-default {{ background-color: #e9ecef; color: #495057; }}
+                    .status-box-inner.status-green {{ background-color: #E6F4EA; color: #1E8449; border-color: #A9DFBF; }}
+                    .status-box-inner.status-red   {{ background-color: #FDEBEB; color: #C0392B; border-color: #F5B7B1; }}
+                    .status-box-inner.status-yellow{{ background-color: #FEF7E6; color: #B9770E; border-color: #FAD7A0; }}
+                    .status-box-inner.status-default{{ background-color: #F4F6F7; color: #566573; border-color: #D5DBDB; }}
+                    
+                    .sidebar-row .sidebar-cell:nth-child(2),
+                    .sidebar-row .sidebar-cell:nth-child(3),
+                    .sidebar-row .sidebar-cell:nth-child(5),
+                    .sidebar-row .sidebar-cell:nth-child(6) {{
+                        font-size: 8px;
+                    }}
+                    .sidebar-row .sidebar-cell:nth-child(8) .status-box-inner {{
+                        font-size: 10.5 px;
+                    }}
+
                     .gantt-sidebar-wrapper.collapsed {{ width: 250px; }}
                     .gantt-sidebar-wrapper.collapsed .sidebar-grid-header, .gantt-sidebar-wrapper.collapsed .sidebar-row {{ grid-template-columns: 1fr; padding: 0 15px 0 10px; }}
                     .gantt-sidebar-wrapper.collapsed .header-cell:not(.task-name-cell), .gantt-sidebar-wrapper.collapsed .sidebar-cell:not(.task-name-cell) {{ display: none; }}
@@ -473,12 +534,20 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     .month-header {{ height: 30px; display: flex; align-items: center; }}
                     .month-cell {{ width: 30px; height: 30px; border-right: 1px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 500; }}
                     .chart-body {{ position: relative; }}
-                    .gantt-row {{ position: relative; height: 50px; border-bottom: 1px solid #e2e8f0; background-color: white; }}
-                    .gantt-bar {{ position: absolute; height: 18px; top: 16px; border-radius: 3px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                    .gantt-row {{ position: relative; height: 38px; border-bottom: 1px solid #eff2f5; background-color: white; }}
+                    .gantt-bar {{ 
+                        position: absolute; height: 16px; top: 11px; border-radius: 3px; cursor: pointer; 
+                        transition: all 0.2s ease; display: flex; align-items: center; 
+                        padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+                    }}
+                    .gantt-bar-overlap {{ 
+                        position: absolute; height: 16px; top: 11px;
+                        background-image: linear-gradient(45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%, transparent 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25) 75%, transparent 75%, transparent);
+                        background-size: 8px 8px; z-index: 9; pointer-events: none; border-radius: 3px;
+                    }}
                     .gantt-bar:hover {{ transform: translateY(-1px) scale(1.01); box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 10 !important; }}
                     .gantt-bar.previsto {{ z-index: 7; }}
                     .gantt-bar.real {{ z-index: 8; }}
-                    .gantt-bar-overlap {{ position: absolute; height: 18px; top: 16px; background-image: linear-gradient(45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%, transparent 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25) 75%, transparent 75%, transparent); background-size: 8px 8px; z-index: 9; pointer-events: none; border-radius: 3px; }}
                     .bar-label {{ font-size: 8px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }}
                     .gantt-bar.real .bar-label {{ color: white; }}
                     .gantt-bar.previsto .bar-label {{ color: #6C6C6C; }}
@@ -509,11 +578,13 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                                         <div class="header-cell task-name-cell">SERVIÇO</div>
                                         <div class="header-cell">INÍCIO-P</div>
                                         <div class="header-cell">TÉRMINO-P</div>
-                                        <div class="header-cell">DUR-P(M)</div>
+                                        <div class="header-cell">DUR-P</div>
                                         <div class="header-cell">INÍCIO-R</div>
                                         <div class="header-cell">TÉRMINO-R</div>
-                                        <div class="header-cell">DUR-R(M)</div>
-                                        <div class="header-cell">STATUS</div>
+                                        <div class="header-cell">DUR-R</div>
+                                        <div class="header-cell">%</div>
+                                        <div class="header-cell">VT</div>
+                                        <div class="header-cell">VD</div>
                                     </div>
                                 </div>
                             </div>
@@ -566,15 +637,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         let globalRowIndex = 0;
                         for (const grupo in gruposGantt) {{
                             const tasksInGroup = gruposGantt[grupo].filter(etapaNome => tasks.some(t => t.name === etapaNome));
-                            if (tasksInGroup.length === 0) {{
-                                continue;
-                            }}
+                            if (tasksInGroup.length === 0) {{ continue; }}
 
-                            // <<< NOVA LÓGICA AQUI >>>
-                            const groupHeight = tasksInGroup.length * 50; // 50px de altura para cada linha de tarefa
+                            const groupHeight = tasksInGroup.length * 38; 
 
                             html += `<div class="sidebar-group-wrapper">`;
-                            // <<< MUDANÇA AQUI: Adiciona o estilo de altura dinâmico >>>
                             html += `<div class="sidebar-group-title-vertical" style="height: ${{groupHeight}}px;"><span>${{grupo}}</span></div>`;
                             html += `<div class="sidebar-rows-container">`;
                             gruposGantt[grupo].forEach(etapaNome => {{
@@ -591,13 +658,9 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                                             <div class="sidebar-cell">${{task.inicio_real}}</div>
                                             <div class="sidebar-cell">${{task.termino_real}}</div>
                                             <div class="sidebar-cell">${{task.duracao_real_meses}}</div>
-                                            <div class="sidebar-cell">
-                                                <div class="status-box-container ${{task.status_color_class}}">
-                                                    <div class="status-box">${{task.progress}}%</div>
-                                                    <div class="status-box">${{task.vt_text}}</div>
-                                                    <div class="status-box">${{task.vd_text}}</div>
-                                                </div>
-                                            </div>
+                                            <div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.progress}}%</div></div>
+                                            <div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.vt_text}}</div></div>
+                                            <div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.vd_text}}</div></div>
                                         </div>
                                     `;
                                 }}
@@ -639,34 +702,25 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         const chartBody = document.getElementById('chart-body-{project["id"]}');
                         const gruposGantt = JSON.parse(document.getElementById('grupos-gantt-data').textContent);
                         const tasks = projectData_{project["id"]}[0].tasks;
-                        
                         chartBody.innerHTML = '';
-
                         for (const grupo in gruposGantt) {{
                             const tasksInGroup = gruposGantt[grupo].filter(etapaNome => tasks.some(t => t.name === etapaNome));
-                            if (tasksInGroup.length === 0) {{
-                                continue;
-                            }}
-
+                            if (tasksInGroup.length === 0) {{ continue; }}
                             gruposGantt[grupo].forEach(etapaNome => {{
                                 const task = tasks.find(t => t.name === etapaNome);
-                                
                                 if (task) {{
                                     const row = document.createElement('div');
                                     row.className = 'gantt-row';
-                                    
                                     let barPrevisto = null;
                                     if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{
                                         barPrevisto = createBar_{project["id"]}(task, 'previsto');
                                         row.appendChild(barPrevisto);
                                     }}
-                                    
                                     let barReal = null;
                                     if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && task.end_real) {{
                                         barReal = createBar_{project["id"]}(task, 'real');
                                         row.appendChild(barReal);
                                     }}
-
                                     if (barPrevisto && barReal) {{
                                         const s_prev = parseDate(task.start_previsto);
                                         const e_prev = parseDate(task.end_previsto);
@@ -678,7 +732,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                                         }}
                                         renderOverlapBar_{project["id"]}(task, row);
                                     }}
-                                    
                                     chartBody.appendChild(row);
                                 }}
                             }});
@@ -814,7 +867,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         const ganttChartContent = document.getElementById('gantt-chart-content-{project["id"]}');
                         const sidebarContent = document.getElementById('gantt-sidebar-content-{project["id"]}');
                         const fullscreenBtn = document.getElementById('fullscreen-btn-{project["id"]}');
-                        const toggleBtn = document.getElementById('toggle-sidebar-btn-{project["id"]}');
+                        const toggleBtn = document.getElementById('toggle-sidebar-btn-{project['id']}');
                         
                         if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreen_{project["id"]}());
                         if (toggleBtn) toggleBtn.addEventListener('click', () => toggleSidebar_{project["id"]}());
@@ -867,8 +920,8 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
             </html>
         """
         components.html(gantt_html, height=altura_gantt, scrolling=True)
-        st.markdown("---")# Substitua a função inteira por esta
-
+        st.markdown("---")
+       
 def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
     """
     Gera um gráfico de Gantt HTML consolidado, mostrando o progresso de uma
