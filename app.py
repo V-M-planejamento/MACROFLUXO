@@ -37,36 +37,22 @@ ORDEM_ETAPAS_GLOBAL = [
 
 # --- Definição dos Grupos ---
 GRUPOS = {
-    "PLANEJAMENTO MACROFLUXO": ["PROSPECÇÃO", "LEGALIZAÇÃO PARA VENDA", "PULMÃO VENDA"],
-
-    "LIMPEZA 'SUPRESSÃO'": ["PL.LIMP", "LEG.LIMP", "ENG. LIMP.", "EXECUÇÃO LIMP."],
-
+    "VENDA": ["PROSPECÇÃO", "LEGALIZAÇÃO PARA VENDA", "PULMÃO VENDA"],
+    "LIMPEZA": ["PL.LIMP", "LEG.LIMP", "ENG. LIMP.", "EXECUÇÃO LIMP."],
     "TERRAPLANAGEM": ["PL.TER.", "LEG.TER.", "ENG. TER.", "EXECUÇÃO TER."],
-
-    "INFRA INCIDENTE (SAA E SES)": ["PL.INFRA", "LEG.INFRA", "ENG. INFRA", "EXECUÇÃO INFRA"],
-
+    "INFRA INCIDENTE": ["PL.INFRA", "LEG.INFRA", "ENG. INFRA", "EXECUÇÃO INFRA"],
     "PAVIMENTAÇÃO": ["ENG. PAV", "EXECUÇÃO PAV."],
-
     "PULMÃO": ["PULMÃO INFRA"],
-
     "RADIER": ["PL.RADIER", "PULMÃO RADIER", "RADIER"],
-
-    "DEMANDA MÍNIMA": ["DEMANDA MÍNIMA"],
-
+    "DM": ["DEMANDA MÍNIMA"],
 }
 
 SETOR = {
     "PROSPECÇÃO": ["PROSPECÇÃO"],
-    "LEGALIZAÇÃO": [
-        "LEGALIZAÇÃO PARA VENDA", "LEG.LIMP", "LEG.TER.", "LEG.INFRA", "LEG.RADIER"
-    ],
+    "LEGALIZAÇÃO": ["LEGALIZAÇÃO PARA VENDA", "LEG.LIMP", "LEG.TER.", "LEG.INFRA", "LEG.RADIER"],
     "PULMÃO": ["PULMÃO VENDA", "PULMÃO INFRA", "PULMÃO RADIER"],
-    "ENGENHARIA": [
-        "PL.LIMP", "ENG. LIMP.", "PL.TER.", "ENG. TER.", "PL.INFRA", "ENG. INFRA", "ENG. PAV"
-    ],
-    "INFRA": [
-        "EXECUÇÃO LIMP.", "EXECUÇÃO TER.", "EXECUÇÃO INFRA", "EXECUÇÃO PAV."
-    ],
+    "ENGENHARIA": ["PL.LIMP", "ENG. LIMP.", "PL.TER.", "ENG. TER.", "PL.INFRA", "ENG. INFRA", "ENG. PAV"],
+    "INFRA": ["EXECUÇÃO LIMP.", "EXECUÇÃO TER.", "EXECUÇÃO INFRA", "EXECUÇÃO PAV."],
     "PRODUÇÃO": ["RADIER"],
     "NOVOS PRODUTOS": ["PL.RADIER"],
     "VENDA": ["DEMANDA MÍNIMA"],
@@ -376,8 +362,8 @@ def aplicar_ordenacao_final(df, empreendimentos_ordenados):
     df_ordenado = df.sort_values(["ordem_empreendimento", "ordem_etapa"]).drop(["ordem_empreendimento", "ordem_etapa"], axis=1)
     return df_ordenado.reset_index(drop=True)
 
-# ★★★ FUNÇÃO ATUALIZADA COM O NOVO COMPONENTE DE GANTT/TABELA ★★★
-# Substitua a função inteira por esta
+# ★★★ FUNÇÃO FINAL COM CORREÇÃO DE ALTURA DINÂMICA VIA JAVASCRIPT ★★★
+# Substitua sua função gerar_gantt_por_projeto inteira por esta
 def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
     df_gantt = df.copy()
     if "Empreendimento" in df_gantt.columns:
@@ -432,11 +418,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
                     html, body {{ width: 100%; height: 100%; font-family: 'Segoe UI', sans-serif; background-color: #f5f5f5; color: #333; overflow: hidden; }}
                     .gantt-container {{ width: 100%; height: 100%; background-color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; display: flex; flex-direction: column; }}
-                    
-                    /* --- ESTRUTURA CORRIGIDA --- */
                     .gantt-main {{ display: flex; flex: 1; overflow: hidden; }}
-
-                    /* --- Tabela Lateral (Sidebar) --- */
                     .gantt-sidebar-wrapper {{ width: 680px; display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.3s ease-in-out; border-right: 2px solid #e2e8f0; }}
                     .gantt-sidebar-header {{ background: linear-gradient(135deg, #4a5568, #2d3748); display: flex; flex-direction: column; height: 60px; flex-shrink: 0; }}
                     .project-title-row {{ display: flex; justify-content: space-between; align-items: center; padding: 0 15px; height: 30px; color: white; font-weight: 600; font-size: 14px; }}
@@ -447,8 +429,26 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     .header-cell {{ text-align: center; }}
                     .header-cell.task-name-cell {{ text-align: left; }}
                     .gantt-sidebar-content {{ background-color: #f8f9fa; overflow-y: auto; flex-grow: 1; }}
-                    .sidebar-group-wrapper {{ display: flex; border-bottom: 2px solid #cdd5e0; }}
-                    .sidebar-group-title-vertical {{ width: 30px; background-color: #e2e8f0; color: #4a5568; font-size: 10px; font-weight: 700; text-transform: uppercase; display: flex; align-items: center; justify-content: center; writing-mode: vertical-rl; transform: rotate(180deg); flex-shrink: 0; border-right: 1px solid #d1d5db; text-align: center; }}
+                    .sidebar-group-wrapper {{ display: flex; border-bottom: 1px solid #cdd5e0; }}
+                    .sidebar-group-title-vertical {{
+                        width: 30px;
+                        background-color: #e2e8f0;
+                        color: #4a5568;
+                        font-size: 10px;
+                        font-weight: 700;
+                        text-transform: uppercase;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        writing-mode: vertical-rl;
+                        transform: rotate(180deg);
+                        flex-shrink: 0;
+                        border-right: 1px solid #d1d5db;
+                        text-align: center;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    }}
                     .sidebar-rows-container {{ flex-grow: 1; }}
                     .sidebar-row {{ display: grid; grid-template-columns: 2.5fr 1fr 1fr 0.8fr 1fr 1fr 0.8fr 1.2fr; border-bottom: 1px solid #e2e8f0; height: 50px; padding: 0 10px; background-color: white; transition: all 0.2s ease-in-out; }}
                     .sidebar-row.odd-row {{ background-color: #f1f3f5; }}
@@ -464,8 +464,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     .gantt-sidebar-wrapper.collapsed .sidebar-grid-header, .gantt-sidebar-wrapper.collapsed .sidebar-row {{ grid-template-columns: 1fr; padding: 0 15px 0 10px; }}
                     .gantt-sidebar-wrapper.collapsed .header-cell:not(.task-name-cell), .gantt-sidebar-wrapper.collapsed .sidebar-cell:not(.task-name-cell) {{ display: none; }}
                     .gantt-sidebar-wrapper.collapsed .toggle-sidebar-btn {{ transform: rotate(180deg); }}
-                    
-                    /* --- Área do Gráfico (Sua lógica original preservada) --- */
                     .gantt-chart-content {{ flex: 1; overflow: auto; position: relative; background-color: white; user-select: none; cursor: grab; }}
                     .gantt-chart-content.active {{ cursor: grabbing; }}
                     .chart-container {{ position: relative; min-width: {total_meses_proj * 30}px; }}
@@ -487,7 +485,8 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     .tooltip {{ position: fixed; background-color: #2d3748; color: white; padding: 6px 10px; border-radius: 4px; font-size: 11px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none; opacity: 0; transition: opacity 0.2s ease; max-width: 220px; }}
                     .tooltip.show {{ opacity: 1; }}
                     .today-line {{ position: absolute; top: 60px; bottom: 0; width: 2px; background-color: #e53e3e; z-index: 5; box-shadow: 0 0 4px rgba(229, 62, 62, 0.6); }}
-                    .month-divider {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #cbd5e0; z-index: 4; pointer-events: none; }}
+                    .month-divider {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #fcf6f6; z-index: 4; pointer-events: none; }}
+                    .month-divider.first {{ background-color: #eeeeee; width: 1px; }}
                     .fullscreen-btn {{ position: absolute; top: 10px; right: 10px; background: rgba(255, 255, 255, 0.9); border: none; border-radius: 4px; padding: 8px 12px; font-size: 14px; cursor: pointer; z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.2s ease; display: flex; align-items: center; gap: 5px; }}
                     .meta-line {{ position: absolute; top: 60px; bottom: 0; width: 2px; border-left: 2px dashed #8e44ad; z-index: 5; box-shadow: 0 0 4px rgba(142, 68, 173, 0.6); }}
                     .meta-line-label {{ position: absolute; top: 65px; background-color: #8e44ad; color: white; padding: 2px 5px; border-radius: 4px; font-size: 9px; font-weight: 600; white-space: nowrap; z-index: 8; transform: translateX(-50%); }}
@@ -497,7 +496,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                 <script id="grupos-gantt-data" type="application/json">{json.dumps(GRUPOS)}</script>
                 <div class="gantt-container" id="gantt-container-{project['id']}">
                     <button class="fullscreen-btn" id="fullscreen-btn-{project["id"]}"><span>📺</span> <span>Tela Cheia</span></button>
-                    
                     <div class="gantt-main">
                         <div class="gantt-sidebar-wrapper" id="gantt-sidebar-wrapper-{project['id']}">
                             <div class="gantt-sidebar-header">
@@ -521,7 +519,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                             </div>
                             <div class="gantt-sidebar-content" id="gantt-sidebar-content-{project['id']}"></div>
                         </div>
-
                         <div class="gantt-chart-content" id="gantt-chart-content-{project['id']}">
                             <div class="chart-container" id="chart-container-{project["id"]}">
                                 <div class="chart-header">
@@ -535,7 +532,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                             </div>
                         </div>
                     </div>
-
                     <div class="tooltip" id="tooltip-{project["id"]}"></div>
                 </div>
                 <script>
@@ -543,7 +539,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     const projectData_{project["id"]} = {json.dumps([project])};
                     const dataMinStr_{project["id"]} = '{data_min_proj.strftime("%Y-%m-%d")}';
                     const dataMaxStr_{project["id"]} = '{data_max_proj.strftime("%Y-%m-%d")}';
-                    // NOVO: Passando a variável para o JavaScript
                     const tipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
                     const PIXELS_PER_MONTH = 30;
 
@@ -570,8 +565,17 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         let html = '';
                         let globalRowIndex = 0;
                         for (const grupo in gruposGantt) {{
+                            const tasksInGroup = gruposGantt[grupo].filter(etapaNome => tasks.some(t => t.name === etapaNome));
+                            if (tasksInGroup.length === 0) {{
+                                continue;
+                            }}
+
+                            // <<< NOVA LÓGICA AQUI >>>
+                            const groupHeight = tasksInGroup.length * 50; // 50px de altura para cada linha de tarefa
+
                             html += `<div class="sidebar-group-wrapper">`;
-                            html += `<div class="sidebar-group-title-vertical"><span>${{grupo}}</span></div>`;
+                            // <<< MUDANÇA AQUI: Adiciona o estilo de altura dinâmico >>>
+                            html += `<div class="sidebar-group-title-vertical" style="height: ${{groupHeight}}px;"><span>${{grupo}}</span></div>`;
                             html += `<div class="sidebar-rows-container">`;
                             gruposGantt[grupo].forEach(etapaNome => {{
                                 const task = tasks.find(t => t.name === etapaNome);
@@ -635,46 +639,50 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         const chartBody = document.getElementById('chart-body-{project["id"]}');
                         const gruposGantt = JSON.parse(document.getElementById('grupos-gantt-data').textContent);
                         const tasks = projectData_{project["id"]}[0].tasks;
-                        const taskOrder = [];
+                        
+                        chartBody.innerHTML = '';
+
                         for (const grupo in gruposGantt) {{
+                            const tasksInGroup = gruposGantt[grupo].filter(etapaNome => tasks.some(t => t.name === etapaNome));
+                            if (tasksInGroup.length === 0) {{
+                                continue;
+                            }}
+
                             gruposGantt[grupo].forEach(etapaNome => {{
                                 const task = tasks.find(t => t.name === etapaNome);
-                                if (task) taskOrder.push(task);
+                                
+                                if (task) {{
+                                    const row = document.createElement('div');
+                                    row.className = 'gantt-row';
+                                    
+                                    let barPrevisto = null;
+                                    if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{
+                                        barPrevisto = createBar_{project["id"]}(task, 'previsto');
+                                        row.appendChild(barPrevisto);
+                                    }}
+                                    
+                                    let barReal = null;
+                                    if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && task.end_real) {{
+                                        barReal = createBar_{project["id"]}(task, 'real');
+                                        row.appendChild(barReal);
+                                    }}
+
+                                    if (barPrevisto && barReal) {{
+                                        const s_prev = parseDate(task.start_previsto);
+                                        const e_prev = parseDate(task.end_previsto);
+                                        const s_real = parseDate(task.start_real);
+                                        const e_real = parseDate(task.end_real);
+                                        if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{
+                                            barPrevisto.style.zIndex = '8';
+                                            barReal.style.zIndex = '7';
+                                        }}
+                                        renderOverlapBar_{project["id"]}(task, row);
+                                    }}
+                                    
+                                    chartBody.appendChild(row);
+                                }}
                             }});
                         }}
-                        let html = '';
-                        taskOrder.forEach(task => {{ html += `<div class="gantt-row" data-task-id="${{task.id}}"></div>`; }});
-                        chartBody.innerHTML = html;
-                        taskOrder.forEach(task => {{
-                            const row = chartBody.querySelector(`[data-task-id="${{task.id}}"]`);
-                            if (!row) return;
-
-                            // NOVO: Lógica condicional para renderizar as barras
-                            let barPrevisto = null;
-                            if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{
-                                barPrevisto = createBar_{project["id"]}(task, 'previsto');
-                                row.appendChild(barPrevisto);
-                            }}
-                            
-                            let barReal = null;
-                            if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && task.end_real) {{
-                                barReal = createBar_{project["id"]}(task, 'real');
-                                row.appendChild(barReal);
-                            }}
-
-                            // Lógica para sobreposição e ordem z-index
-                            if (barPrevisto && barReal) {{
-                                const s_prev = parseDate(task.start_previsto);
-                                const e_prev = parseDate(task.end_previsto);
-                                const s_real = parseDate(task.start_real);
-                                const e_real = parseDate(task.end_real);
-                                if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{
-                                    barPrevisto.style.zIndex = '8';
-                                    barReal.style.zIndex = '7';
-                                }}
-                                renderOverlapBar_{project["id"]}(task, row);
-                            }}
-                        }});
                     }}
 
                     function createBar_{project["id"]}(task, tipo) {{
@@ -812,7 +820,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         if (toggleBtn) toggleBtn.addEventListener('click', () => toggleSidebar_{project["id"]}());
                         
                         if (ganttChartContent && sidebarContent) {{
-                            // Sincroniza a rolagem vertical
                             let isSyncing = false;
                             ganttChartContent.addEventListener('scroll', () => {{
                                 if (!isSyncing) {{
@@ -829,7 +836,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                                 }}
                             }});
 
-                            // Lógica de arrastar para rolar horizontalmente
                             let isDown = false, startX, scrollLeft;
                             ganttChartContent.addEventListener('mousedown', (e) => {{ isDown = true; ganttChartContent.classList.add('active'); startX = e.pageX - ganttChartContent.offsetLeft; scrollLeft = ganttChartContent.scrollLeft; }});
                             ganttChartContent.addEventListener('mouseleave', () => {{ isDown = false; ganttChartContent.classList.remove('active'); }});
@@ -861,10 +867,8 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
             </html>
         """
         components.html(gantt_html, height=altura_gantt, scrolling=True)
-        st.markdown("---")
-
-
-# Substitua a função inteira por esta
+        st.markdown("---")# Substitua a função inteira por esta
+        
 def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
     """
     Gera um gráfico de Gantt HTML consolidado, mostrando o progresso de uma
@@ -1001,8 +1005,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
                 .tooltip {{ position: fixed; background-color: #2d3748; color: white; padding: 6px 10px; border-radius: 4px; font-size: 11px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none; opacity: 0; transition: opacity 0.2s ease; max-width: 220px; }}
                 .tooltip.show {{ opacity: 1; }}
                 .today-line {{ position: absolute; top: 60px; bottom: 0; width: 2px; background-color: #e53e3e; z-index: 5; box-shadow: 0 0 4px rgba(229, 62, 62, 0.6); }}
-                .month-divider {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #cbd5e0; z-index: 4; pointer-events: none; }}
-                .month-divider.first {{ background-color: #4a5568; width: 2px; }}
+                .month-divider {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #fcf6f6; z-index: 4; pointer-events: none; }}
+                .month-divider.first {{ background-color: #eeeeee; width: 2px; }}
                 .fullscreen-btn {{ position: absolute; top: 10px; right: 10px; background: rgba(255, 255, 255, 0.9); border: none; border-radius: 4px; padding: 8px 12px; font-size: 14px; cursor: pointer; z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.2s ease; display: flex; align-items: center; gap: 5px; }}
                 .fullscreen-btn:hover {{ background: white; box-shadow: 0 4px 8px rgba(0,0,0,0.3); transform: translateY(-1px); }}
             </style>
@@ -1027,7 +1031,6 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
                 const projectData_{project["id"]} = {json.dumps([project])};
                 const dataMinStr_{project["id"]} = '{data_min_proj.strftime("%Y-%m-%d")}';
                 const dataMaxStr_{project["id"]} = '{data_max_proj.strftime("%Y-%m-%d")}';
-                // NOVO: Passando a variável para o JavaScript
                 const tipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
                 const totalMeses_{project["id"]} = {total_meses_proj};
                 const PIXELS_PER_MONTH = 30;
@@ -1100,7 +1103,6 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
                         const row = chartBody.querySelector(`[data-task-id="${{task.id}}"]`);
                         if (!row) return;
                         
-                        // NOVO: Lógica condicional para renderizar as barras
                         let barPrevisto = null;
                         if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{
                             barPrevisto = createBar_{project["id"]}(task, 'previsto');
@@ -1267,7 +1269,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
     """
     components.html(gantt_html, height=altura_gantt, scrolling=True)
     
-
+ 
 # --- FUNÇÃO PRINCIPAL DE GANTT (DISPATCHER) ---
 def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_ordenacao):
     if df.empty:
@@ -1441,7 +1443,7 @@ if df_data is not None and not df_data.empty:
         selected_ugb = simple_multiselect_dropdown(label="Filtrar por UGB", options=ugb_options, key="ugb_filter", default_selected=ugb_options)
 
         emp_options = get_unique_values(df_data[df_data["UGB"].isin(selected_ugb)], "Empreendimento") if selected_ugb else []
-        selected_emp = simple_multiselect_dropdown(label="Filtrar por Empreendimento", options=emp_options, key="empreendimento_filter", default_selected=emp_options)
+        selected_emp = simple_multiselect_dropdown(label="Filtrar por EMP", options=emp_options, key="empreendimento_filter", default_selected=emp_options)
 
         df_temp = df_data[df_data["UGB"].isin(selected_ugb)]
         if selected_emp:
@@ -1641,7 +1643,7 @@ if df_data is not None and not df_data.empty:
                         styler = styler.set_properties(**{'white-space': 'nowrap', 'text-overflow': 'ellipsis', 'overflow': 'hidden', 'max-width': '380px'})
                         styler = styler.apply(estilo_linha, axis=1).hide(axis="index")
                         return styler
-
+                    
                     st.markdown("""
                     <style>
                         .stDataFrame { width: 100%; }
