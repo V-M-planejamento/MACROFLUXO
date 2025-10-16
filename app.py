@@ -377,6 +377,7 @@ def aplicar_ordenacao_final(df, empreendimentos_ordenados):
     return df_ordenado.reset_index(drop=True)
 
 # ★★★ FUNÇÃO ATUALIZADA COM O NOVO COMPONENTE DE GANTT/TABELA ★★★
+# Substitua a função inteira por esta
 def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
     df_gantt = df.copy()
     if "Empreendimento" in df_gantt.columns:
@@ -542,6 +543,8 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     const projectData_{project["id"]} = {json.dumps([project])};
                     const dataMinStr_{project["id"]} = '{data_min_proj.strftime("%Y-%m-%d")}';
                     const dataMaxStr_{project["id"]} = '{data_max_proj.strftime("%Y-%m-%d")}';
+                    // NOVO: Passando a variável para o JavaScript
+                    const tipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
                     const PIXELS_PER_MONTH = 30;
 
                     function parseDate(dateStr) {{
@@ -645,14 +648,22 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         taskOrder.forEach(task => {{
                             const row = chartBody.querySelector(`[data-task-id="${{task.id}}"]`);
                             if (!row) return;
-                            const barPrevisto = createBar_{project["id"]}(task, 'previsto');
-                            row.appendChild(barPrevisto);
+
+                            // NOVO: Lógica condicional para renderizar as barras
+                            let barPrevisto = null;
+                            if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{
+                                barPrevisto = createBar_{project["id"]}(task, 'previsto');
+                                row.appendChild(barPrevisto);
+                            }}
+                            
                             let barReal = null;
-                            if (task.start_real && task.end_real) {{
+                            if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && task.end_real) {{
                                 barReal = createBar_{project["id"]}(task, 'real');
                                 row.appendChild(barReal);
                             }}
-                            if (barReal) {{
+
+                            // Lógica para sobreposição e ordem z-index
+                            if (barPrevisto && barReal) {{
                                 const s_prev = parseDate(task.start_previsto);
                                 const e_prev = parseDate(task.end_previsto);
                                 const s_real = parseDate(task.start_real);
@@ -661,8 +672,8 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                                     barPrevisto.style.zIndex = '8';
                                     barReal.style.zIndex = '7';
                                 }}
+                                renderOverlapBar_{project["id"]}(task, row);
                             }}
-                            renderOverlapBar_{project["id"]}(task, row);
                         }});
                     }}
 
@@ -710,21 +721,13 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         }}
                     }}
 
-                    // CÓDIGO NOVO - CORRIGIDO
                     function getPosition_{project["id"]}(date) {{
                         if (!date) return 0;
                         const chartStart = parseDate(dataMinStr_{project["id"]});
-
-                        // 1. Calcula quantos meses completos se passaram desde o início do gráfico.
                         const monthsOffset = (date.getUTCFullYear() - chartStart.getUTCFullYear()) * 12 + (date.getUTCMonth() - chartStart.getUTCMonth());
-
-                        // 2. Calcula a fração do mês atual. O dia 1 é 0% e o último dia é quase 100%.
-                        const dayOfMonth = date.getUTCDate() - 1; // Subtrai 1 porque o dia 1 deve estar na posição 0 do mês.
+                        const dayOfMonth = date.getUTCDate() - 1;
                         const daysInMonth = new Date(date.getUTCFullYear(), date.getUTCMonth() + 1, 0).getUTCDate();
                         const fractionOfMonth = daysInMonth > 0 ? dayOfMonth / daysInMonth : 0;
-
-                        // 3. A posição final é a soma dos meses completos com a fração do mês atual, 
-                        //    tudo multiplicado pela largura fixa de um mês em pixels.
                         return (monthsOffset + fractionOfMonth) * PIXELS_PER_MONTH;
                     }}
 
@@ -861,6 +864,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
         st.markdown("---")
 
 
+# Substitua a função inteira por esta
 def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
     """
     Gera um gráfico de Gantt HTML consolidado, mostrando o progresso de uma
@@ -1023,6 +1027,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
                 const projectData_{project["id"]} = {json.dumps([project])};
                 const dataMinStr_{project["id"]} = '{data_min_proj.strftime("%Y-%m-%d")}';
                 const dataMaxStr_{project["id"]} = '{data_max_proj.strftime("%Y-%m-%d")}';
+                // NOVO: Passando a variável para o JavaScript
+                const tipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
                 const totalMeses_{project["id"]} = {total_meses_proj};
                 const PIXELS_PER_MONTH = 30;
 
@@ -1093,14 +1099,21 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
                     projectData_{project["id"]}[0].tasks.forEach(task => {{
                         const row = chartBody.querySelector(`[data-task-id="${{task.id}}"]`);
                         if (!row) return;
-                        const barPrevisto = createBar_{project["id"]}(task, 'previsto');
-                        row.appendChild(barPrevisto);
+                        
+                        // NOVO: Lógica condicional para renderizar as barras
+                        let barPrevisto = null;
+                        if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{
+                            barPrevisto = createBar_{project["id"]}(task, 'previsto');
+                            row.appendChild(barPrevisto);
+                        }}
+                        
                         let barReal = null;
-                        if (task.start_real && task.end_real) {{
+                        if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && task.end_real) {{
                             barReal = createBar_{project["id"]}(task, 'real');
                             row.appendChild(barReal);
                         }}
-                        if (barReal) {{
+
+                        if (barPrevisto && barReal) {{
                             const s_prev = parseDate(task.start_previsto);
                             const e_prev = parseDate(task.end_previsto);
                             const s_real = parseDate(task.start_real);
@@ -1109,8 +1122,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
                                 barPrevisto.style.zIndex = '8';
                                 barReal.style.zIndex = '7';
                             }}
+                            renderOverlapBar_{project["id"]}(task, row);
                         }}
-                        renderOverlapBar_{project["id"]}(task, row);
                     }});
                 }}
 
@@ -1158,23 +1171,14 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
                     }}
                 }}
 
-                // CÓDIGO NOVO - CORRIGIDO
                 function getPosition_{project["id"]}(date) {{
                     if (!date) return 0;
                     const chartStart = parseDate(dataMinStr_{project["id"]});
-
-                    // 1. Calcula quantos meses completos se passaram desde o início do gráfico.
                     const monthsOffset = (date.getUTCFullYear() - chartStart.getUTCFullYear()) * 12 + (date.getUTCMonth() - chartStart.getUTCMonth());
-
-                    // 2. Calcula a fração do mês atual. O dia 1 é 0% e o último dia é quase 100%.
-                    const dayOfMonth = date.getUTCDate() - 1; // Subtrai 1 porque o dia 1 deve estar na posição 0 do mês.
+                    const dayOfMonth = date.getUTCDate() - 1;
                     const daysInMonth = new Date(date.getUTCFullYear(), date.getUTCMonth() + 1, 0).getUTCDate();
                     const fractionOfMonth = daysInMonth > 0 ? dayOfMonth / daysInMonth : 0;
-
-                    // 3. A posição final é a soma dos meses completos com a fração do mês atual, 
-                    //    tudo multiplicado pela largura fixa de um mês em pixels.
                     return (monthsOffset + fractionOfMonth) * PIXELS_PER_MONTH;
-
                 }}
 
                 function positionTodayLine_{project["id"]}() {{
