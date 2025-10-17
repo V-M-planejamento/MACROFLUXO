@@ -420,107 +420,71 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     html, body {{ width: 100%; height: 100%; font-family: 'Segoe UI', sans-serif; background-color: #f5f5f5; color: #333; overflow: hidden; }}
                     .gantt-container {{ width: 100%; height: 100%; background-color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; display: flex; flex-direction: column; }}
                     .gantt-main {{ display: flex; flex: 1; overflow: hidden; }}
-                    
-                    /* ALTERAÇÃO 1: Adicionado 'overflow: hidden' para o wrapper da sidebar */
                     .gantt-sidebar-wrapper {{ width: 680px; display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.3s ease-in-out; border-right: 2px solid #e2e8f0; overflow: hidden; }}
-
                     .gantt-sidebar-header {{ background: linear-gradient(135deg, #4a5568, #2d3748); display: flex; flex-direction: column; height: 60px; flex-shrink: 0; }}
                     .project-title-row {{ display: flex; justify-content: space-between; align-items: center; padding: 0 15px; height: 30px; color: white; font-weight: 600; font-size: 14px; }}
                     .toggle-sidebar-btn {{ background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 5px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s, transform 0.3s ease-in-out; }}
                     .toggle-sidebar-btn:hover {{ background: rgba(255,255,255,0.4); }}
                     .sidebar-grid-header-wrapper {{ display: grid; grid-template-columns: 30px 1fr; color: #d1d5db; font-size: 9px; font-weight: 600; text-transform: uppercase; height: 30px; align-items: center; }}
-                    
-                    .sidebar-grid-header {{ 
-                        display: grid; 
-                        grid-template-columns: 2.5fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr;
-                        padding: 0 10px; 
-                        align-items: center; 
-                    }}
-                    
-                    .sidebar-row {{
-                        display: grid;
-                        grid-template-columns: 2.5fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr;
-                        border-bottom: 1px solid #eff2f5;
-                        height: 38px; 
-                        padding: 0 10px; 
-                        background-color: white; 
-                        transition: all 0.2s ease-in-out;
-                    }}
-                    .sidebar-cell {{ 
-                        display: flex; 
-                        align-items: center; 
-                        justify-content: center; 
-                        font-size: 11px; 
-                        color: #4a5568; 
-                        white-space: nowrap; 
-                        overflow: hidden; 
-                        text-overflow: ellipsis; 
-                        padding: 0 8px;
-                        border: none;
-                    }}
-                    
+                    .sidebar-grid-header {{ display: grid; grid-template-columns: 2.5fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr; padding: 0 10px; align-items: center; }}
+                    .sidebar-row {{ display: grid; grid-template-columns: 2.5fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr; border-bottom: 1px solid #eff2f5; height: 38px; padding: 0 10px; background-color: white; transition: all 0.2s ease-in-out; }}
+                    .sidebar-cell {{ display: flex; align-items: center; justify-content: center; font-size: 11px; color: #4a5568; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; border: none; }}
                     .header-cell {{ text-align: center; }}
                     .header-cell.task-name-cell {{ text-align: left; }}
+                    .gantt-sidebar-content {{ background-color: #f8f9fa; flex: 1; overflow-y: auto; overflow-x: hidden; }}
 
-                    /* ALTERAÇÃO 2: Faz o conteúdo da tabela crescer e ter sua própria rolagem */
-                    .gantt-sidebar-content {{ 
-                        background-color: #f8f9fa;
-                        flex: 1; /* Faz este elemento ocupar todo o espaço vertical disponível */
-                        overflow-y: auto; /* Adiciona a rolagem vertical quando necessário */
-                        overflow-x: hidden; /* Oculta a rolagem horizontal */
+                    /* --- INÍCIO DAS MODIFICAÇÕES --- */
+                    .sidebar-group-wrapper {{
+                        display: flex;
+                        /* Adiciona uma linha visível NO FIM de cada grupo */
+                        border-bottom: 2px solid #e2e8f0; 
+                        /* Adiciona um pequeno respiro entre a última tarefa e a linha */
+                        padding-bottom: 10px;
+                        margin-bottom: 10px; /* Espaço entre os grupos */
                     }}
-
-                    .sidebar-group-wrapper {{ display: flex; border-bottom: 1px solid #e2e8f0; }}
-                    
+                    .gantt-sidebar-content > .sidebar-group-wrapper:last-child {{
+                        margin-bottom: 0; /* Remove a margem do último grupo */
+                    }}
                     .sidebar-group-title-vertical {{
-                        width: 30px; background-color: #e2e8f0; color: #4a5568;
+                        width: 30px;
+                        background-color: #f8fafc;
+                        color: #4a5568;
                         font-size: 9.5px;
-                        font-weight: 700; text-transform: uppercase;
-                        display: flex; align-items: center; justify-content: center;
-                        writing-mode: vertical-rl; transform: rotate(180deg);
-                        flex-shrink: 0; border-right: 1px solid #d1d5db;
-                        text-align: center; white-space: nowrap;
-                        overflow: hidden; text-overflow: ellipsis;
-                        padding: 5px 0;
-                        letter-spacing: -0.5px;
-                    }}
-
-                    .sidebar-rows-container {{ flex-grow: 1; }}
-                    
-                    .sidebar-row.odd-row {{ background-color: #fdfdfd; }}
-                    .sidebar-rows-container .sidebar-row:last-child {{ border-bottom: none; }}
-                    .sidebar-row:hover {{ background-color: #f5f8ff; }}
-                    
-                    .sidebar-cell.task-name-cell {{ justify-content: flex-start; font-weight: 600; color: #2d3748; }}
-                    
-                    .status-box-inner {{
-                        width: 115%;
-                        height: 15px;
+                        font-weight: 700;
+                        text-transform: uppercase;
                         display: flex;
                         align-items: center;
                         justify-content: center;
-                        border-radius: 5px;
-                        font-size: 8px; 
-                        font-weight: 700;
-                        padding: 0 5px;
+                        writing-mode: vertical-rl;
+                        transform: rotate(180deg);
+                        flex-shrink: 0;
+                        border-right: 1px solid #e2e8f0;
+                        text-align: center;
                         white-space: nowrap;
-                        border: 1px solid transparent;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        padding: 5px 0;
+                        letter-spacing: -0.5px;
+                        align-self: flex-start; /* Alinha ao topo */
                     }}
+                    .sidebar-group-spacer {{
+                        display: none; /* Não precisamos mais do espaçador, a margem faz o trabalho */
+                    }}
+                    /* --- FIM DAS MODIFICAÇÕES --- */
+
+                    .sidebar-rows-container {{ flex-grow: 1; }}
+                    .sidebar-row.odd-row {{ background-color: #fdfdfd; }}
+                    .sidebar-rows-container .sidebar-row:last-child {{ border-bottom: none; }}
+                    .sidebar-row:hover {{ background-color: #f5f8ff; }}
+                    .sidebar-cell.task-name-cell {{ justify-content: flex-start; font-weight: 600; color: #2d3748; }}
+                    .status-box-inner {{ width: 115%; height: 15px; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 8px; font-weight: 700; padding: 0 5px; white-space: nowrap; border: 1px solid transparent; }}
                     .status-box-inner.status-green {{ background-color: #E6F4EA; color: #1E8449; border-color: #A9DFBF; }}
                     .status-box-inner.status-red   {{ background-color: #FDEBEB; color: #C0392B; border-color: #F5B7B1; }}
                     .status-box-inner.status-yellow{{ background-color: #FEF7E6; color: #B9770E; border-color: #FAD7A0; }}
                     .status-box-inner.status-default{{ background-color: #F4F6F7; color: #566573; border-color: #D5DBDB; }}
-                    
-                    .sidebar-row .sidebar-cell:nth-child(2),
-                    .sidebar-row .sidebar-cell:nth-child(3),
-                    .sidebar-row .sidebar-cell:nth-child(5),
-                    .sidebar-row .sidebar-cell:nth-child(6) {{
-                        font-size: 8px;
-                    }}
-                    .sidebar-row .sidebar-cell:nth-child(8) .status-box-inner {{
-                        font-size: 10.5 px;
-                    }}
-
+                    .sidebar-row .sidebar-cell:nth-child(2), .sidebar-row .sidebar-cell:nth-child(3), .sidebar-row .sidebar-cell:nth-child(5), .sidebar-row .sidebar-cell:nth-child(6) {{ font-size: 8px; }}
+                    .sidebar-row .sidebar-cell:nth-child(8) .status-box-inner {{ font-size: 10.5px; }}
+                    .gantt-row-spacer {{height: 22px;background-color: #ffffff;position: relative;z-index: 5;border: none;border-bottom: 1px solid #e2e8f0;}} /* Aumentei para corresponder ao padding+margin */
                     .gantt-sidebar-wrapper.collapsed {{ width: 250px; }}
                     .gantt-sidebar-wrapper.collapsed .sidebar-grid-header, .gantt-sidebar-wrapper.collapsed .sidebar-row {{ grid-template-columns: 1fr; padding: 0 15px 0 10px; }}
                     .gantt-sidebar-wrapper.collapsed .header-cell:not(.task-name-cell), .gantt-sidebar-wrapper.collapsed .sidebar-cell:not(.task-name-cell) {{ display: none; }}
@@ -535,16 +499,8 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     .month-cell {{ width: 30px; height: 30px; border-right: 1px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 500; }}
                     .chart-body {{ position: relative; }}
                     .gantt-row {{ position: relative; height: 38px; border-bottom: 1px solid #eff2f5; background-color: white; }}
-                    .gantt-bar {{ 
-                        position: absolute; height: 16px; top: 11px; border-radius: 3px; cursor: pointer; 
-                        transition: all 0.2s ease; display: flex; align-items: center; 
-                        padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
-                    }}
-                    .gantt-bar-overlap {{ 
-                        position: absolute; height: 16px; top: 11px;
-                        background-image: linear-gradient(45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%, transparent 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25) 75%, transparent 75%, transparent);
-                        background-size: 8px 8px; z-index: 9; pointer-events: none; border-radius: 3px;
-                    }}
+                    .gantt-bar {{ position: absolute; height: 16px; top: 11px; border-radius: 3px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                    .gantt-bar-overlap {{ position: absolute; height: 16px; top: 11px; background-image: linear-gradient(45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%, transparent 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25) 75%, transparent 75%, transparent); background-size: 8px 8px; z-index: 9; pointer-events: none; border-radius: 3px; }}
                     .gantt-bar:hover {{ transform: translateY(-1px) scale(1.01); box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 10 !important; }}
                     .gantt-bar.previsto {{ z-index: 7; }}
                     .gantt-bar.real {{ z-index: 8; }}
@@ -613,11 +569,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     const tipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
                     const PIXELS_PER_MONTH = 30;
 
-                    function parseDate(dateStr) {{
-                        if (!dateStr) return null;
-                        const [year, month, day] = dateStr.split('-').map(Number);
-                        return new Date(Date.UTC(year, month - 1, day));
-                    }}
+                    function parseDate(dateStr) {{ if (!dateStr) return null; const [year, month, day] = dateStr.split('-').map(Number); return new Date(Date.UTC(year, month - 1, day)); }}
 
                     function initGantt_{project["id"]}() {{
                         renderSidebar_{project["id"]}();
@@ -635,12 +587,12 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         const tasks = projectData_{project["id"]}[0].tasks;
                         let html = '';
                         let globalRowIndex = 0;
-                        for (const grupo in gruposGantt) {{
+                        const groupKeys = Object.keys(gruposGantt);
+                        for (let i = 0; i < groupKeys.length; i++) {{
+                            const grupo = groupKeys[i];
                             const tasksInGroup = gruposGantt[grupo].filter(etapaNome => tasks.some(t => t.name === etapaNome));
-                            if (tasksInGroup.length === 0) {{ continue; }}
-
-                            const groupHeight = tasksInGroup.length * 38; 
-
+                            if (tasksInGroup.length === 0) continue;
+                            const groupHeight = (tasksInGroup.length * 38);
                             html += `<div class="sidebar-group-wrapper">`;
                             html += `<div class="sidebar-group-title-vertical" style="height: ${{groupHeight}}px;"><span>${{grupo}}</span></div>`;
                             html += `<div class="sidebar-rows-container">`;
@@ -649,20 +601,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                                 if (task) {{
                                     globalRowIndex++;
                                     const rowClass = globalRowIndex % 2 !== 0 ? 'odd-row' : '';
-                                    html += `
-                                        <div class="sidebar-row ${{rowClass}}">
-                                            <div class="sidebar-cell task-name-cell" title="${{task.numero_etapa}}. ${{task.name}}">${{task.numero_etapa}}. ${{task.name}}</div>
-                                            <div class="sidebar-cell">${{task.inicio_previsto}}</div>
-                                            <div class="sidebar-cell">${{task.termino_previsto}}</div>
-                                            <div class="sidebar-cell">${{task.duracao_prev_meses}}</div>
-                                            <div class="sidebar-cell">${{task.inicio_real}}</div>
-                                            <div class="sidebar-cell">${{task.termino_real}}</div>
-                                            <div class="sidebar-cell">${{task.duracao_real_meses}}</div>
-                                            <div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.progress}}%</div></div>
-                                            <div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.vt_text}}</div></div>
-                                            <div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.vd_text}}</div></div>
-                                        </div>
-                                    `;
+                                    html += `<div class="sidebar-row ${{rowClass}}"><div class="sidebar-cell task-name-cell" title="${{task.numero_etapa}}. ${{task.name}}">${{task.numero_etapa}}. ${{task.name}}</div><div class="sidebar-cell">${{task.inicio_previsto}}</div><div class="sidebar-cell">${{task.termino_previsto}}</div><div class="sidebar-cell">${{task.duracao_prev_meses}}</div><div class="sidebar-cell">${{task.inicio_real}}</div><div class="sidebar-cell">${{task.termino_real}}</div><div class="sidebar-cell">${{task.duracao_real_meses}}</div><div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.progress}}%</div></div><div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.vt_text}}</div></div><div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.vd_text}}</div></div></div>`;
                                 }}
                             }});
                             html += `</div></div>`;
@@ -690,10 +629,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                             currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
                         }}
                         if (currentYear !== -1) yearsData.push({{ year: currentYear, count: monthsInCurrentYear }});
-                        yearsData.forEach(data => {{
-                            const yearWidth = data.count * PIXELS_PER_MONTH;
-                            yearHtml += `<div class="year-section" style="width:${{yearWidth}}px">${{data.year}}</div>`;
-                        }});
+                        yearsData.forEach(data => {{ const yearWidth = data.count * PIXELS_PER_MONTH; yearHtml += `<div class="year-section" style="width:${{yearWidth}}px">${{data.year}}</div>`; }});
                         yearHeader.innerHTML = yearHtml;
                         monthHeader.innerHTML = monthHtml;
                     }}
@@ -703,38 +639,36 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         const gruposGantt = JSON.parse(document.getElementById('grupos-gantt-data').textContent);
                         const tasks = projectData_{project["id"]}[0].tasks;
                         chartBody.innerHTML = '';
-                        for (const grupo in gruposGantt) {{
+                        const groupKeys = Object.keys(gruposGantt);
+                        for (let i = 0; i < groupKeys.length; i++) {{
+                            const grupo = groupKeys[i];
                             const tasksInGroup = gruposGantt[grupo].filter(etapaNome => tasks.some(t => t.name === etapaNome));
-                            if (tasksInGroup.length === 0) {{ continue; }}
+                            if (tasksInGroup.length === 0) continue;
                             gruposGantt[grupo].forEach(etapaNome => {{
                                 const task = tasks.find(t => t.name === etapaNome);
                                 if (task) {{
-                                    const row = document.createElement('div');
-                                    row.className = 'gantt-row';
+                                    const row = document.createElement('div'); row.className = 'gantt-row';
                                     let barPrevisto = null;
-                                    if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{
-                                        barPrevisto = createBar_{project["id"]}(task, 'previsto');
-                                        row.appendChild(barPrevisto);
-                                    }}
+                                    if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{ barPrevisto = createBar_{project["id"]}(task, 'previsto'); row.appendChild(barPrevisto); }}
                                     let barReal = null;
-                                    if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && task.end_real) {{
-                                        barReal = createBar_{project["id"]}(task, 'real');
-                                        row.appendChild(barReal);
-                                    }}
+                                    if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && task.end_real) {{ barReal = createBar_{project["id"]}(task, 'real'); row.appendChild(barReal); }}
                                     if (barPrevisto && barReal) {{
-                                        const s_prev = parseDate(task.start_previsto);
-                                        const e_prev = parseDate(task.end_previsto);
-                                        const s_real = parseDate(task.start_real);
-                                        const e_real = parseDate(task.end_real);
-                                        if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{
-                                            barPrevisto.style.zIndex = '8';
-                                            barReal.style.zIndex = '7';
-                                        }}
+                                        const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real);
+                                        if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{ barPrevisto.style.zIndex = '8'; barReal.style.zIndex = '7'; }}
                                         renderOverlapBar_{project["id"]}(task, row);
                                     }}
                                     chartBody.appendChild(row);
                                 }}
                             }});
+                            if (i < groupKeys.length - 1 && tasksInGroup.length > 0) {{
+                                const nextGroupKey = groupKeys[i + 1];
+                                const nextGroupTasks = gruposGantt[nextGroupKey].filter(etapaNome => tasks.some(t => t.name === etapaNome));
+                                if (nextGroupTasks.length > 0) {{
+                                    const spacerRow = document.createElement('div');
+                                    spacerRow.className = 'gantt-row-spacer';
+                                    chartBody.appendChild(spacerRow);
+                                }}
+                             }}
                         }}
                     }}
 
@@ -744,18 +678,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         if (!startDate || !endDate) return document.createElement('div');
                         const left = getPosition_{project["id"]}(startDate);
                         const width = getPosition_{project["id"]}(endDate) - left + (PIXELS_PER_MONTH / 30);
-                        const bar = document.createElement('div');
-                        bar.className = `gantt-bar ${{tipo}}`;
-                        const coresSetor = coresPorSetor_{project["id"]}[task.setor] || coresPorSetor_{project["id"]}['Não especificado'];
-                        const corDefault = tipo === 'previsto' ? '#cccccc' : '#888888';
-                        let corBarra = coresSetor ? (tipo === 'previsto' ? coresSetor.previsto : coresSetor.real) : corDefault;
-                        bar.style.backgroundColor = corBarra;
-                        bar.style.left = `${{left}}px`;
-                        bar.style.width = `${{width}}px`;
-                        const barLabel = document.createElement('span');
-                        barLabel.className = 'bar-label';
-                        barLabel.textContent = `${{task.name}} (${{task.progress}}%)`;
-                        bar.appendChild(barLabel);
+                        const bar = document.createElement('div'); bar.className = `gantt-bar ${{tipo}}`;
+                        const coresSetor = coresPorSetor_{project["id"]}[task.setor] || coresPorSetor_{project["id"]}['Não especificado'] || {{previsto: '#cccccc', real: '#888888'}};
+                        bar.style.backgroundColor = tipo === 'previsto' ? coresSetor.previsto : coresSetor.real;
+                        bar.style.left = `${{left}}px`; bar.style.width = `${{width}}px`;
+                        const barLabel = document.createElement('span'); barLabel.className = 'bar-label'; barLabel.textContent = `${{task.name}} (${{task.progress}}%)`; bar.appendChild(barLabel);
                         bar.addEventListener('mousemove', e => showTooltip_{project["id"]}(e, task, tipo));
                         bar.addEventListener('mouseout', () => hideTooltip_{project["id"]}());
                         return bar;
@@ -763,22 +690,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
 
                     function renderOverlapBar_{project["id"]}(task, row) {{
                        if (!task.start_real || !task.end_real) return;
-                        const s_prev = parseDate(task.start_previsto);
-                        const e_prev = parseDate(task.end_previsto);
-                        const s_real = parseDate(task.start_real);
-                        const e_real = parseDate(task.end_real);
-                        const overlap_start = new Date(Math.max(s_prev, s_real));
-                        const overlap_end = new Date(Math.min(e_prev, e_real));
+                        const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real);
+                        const overlap_start = new Date(Math.max(s_prev, s_real)), overlap_end = new Date(Math.min(e_prev, e_real));
                         if (overlap_start < overlap_end) {{
-                            const left = getPosition_{project["id"]}(overlap_start);
-                            const width = getPosition_{project["id"]}(overlap_end) - left + (PIXELS_PER_MONTH / 30);
-                            if (width > 0) {{
-                                const overlapBar = document.createElement('div');
-                                overlapBar.className = 'gantt-bar-overlap';
-                                overlapBar.style.left = `${{left}}px`;
-                                overlapBar.style.width = `${{width}}px`;
-                                row.appendChild(overlapBar);
-                            }}
+                            const left = getPosition_{project["id"]}(overlap_start), width = getPosition_{project["id"]}(overlap_end) - left + (PIXELS_PER_MONTH / 30);
+                            if (width > 0) {{ const overlapBar = document.createElement('div'); overlapBar.className = 'gantt-bar-overlap'; overlapBar.style.left = `${{left}}px`; overlapBar.style.width = `${{width}}px`; row.appendChild(overlapBar); }}
                         }}
                     }}
 
@@ -794,58 +710,28 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
 
                     function positionTodayLine_{project["id"]}() {{
                         const todayLine = document.getElementById('today-line-{project["id"]}');
-                        const today = new Date();
-                        const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
-                        const chartStart = parseDate(dataMinStr_{project["id"]});
-                        const chartEnd = parseDate(dataMaxStr_{project["id"]});
-                        if (todayUTC >= chartStart && todayUTC <= chartEnd) {{
-                            const offset = getPosition_{project["id"]}(todayUTC);
-                            todayLine.style.left = `${{offset}}px`;
-                            todayLine.style.display = 'block';
-                        }} else {{
-                            todayLine.style.display = 'none';
-                        }}
+                        const today = new Date(), todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+                        const chartStart = parseDate(dataMinStr_{project["id"]}), chartEnd = parseDate(dataMaxStr_{project["id"]});
+                        if (todayUTC >= chartStart && todayUTC <= chartEnd) {{ const offset = getPosition_{project["id"]}(todayUTC); todayLine.style.left = `${{offset}}px`; todayLine.style.display = 'block'; }} else {{ todayLine.style.display = 'none'; }}
                     }}
 
                     function positionMetaLine_{project["id"]}() {{
-                        const metaLine = document.getElementById('meta-line-{project["id"]}');
-                        const metaLabel = document.getElementById('meta-line-label-{project["id"]}');
+                        const metaLine = document.getElementById('meta-line-{project["id"]}'), metaLabel = document.getElementById('meta-line-label-{project["id"]}');
                         const metaDateStr = projectData_{project["id"]}[0].meta_assinatura_date;
                         if (!metaDateStr) {{ metaLine.style.display = 'none'; metaLabel.style.display = 'none'; return; }}
-                        const metaDate = parseDate(metaDateStr);
-                        const chartStart = parseDate(dataMinStr_{project["id"]});
-                        const chartEnd = parseDate(dataMaxStr_{project["id"]});
-                        if (metaDate >= chartStart && metaDate <= chartEnd) {{
-                            const offset = getPosition_{project["id"]}(metaDate);
-                            metaLine.style.left = `${{offset}}px`;
-                            metaLabel.style.left = `${{offset}}px`;
-                            metaLine.style.display = 'block';
-                            metaLabel.style.display = 'block';
-                            metaLabel.textContent = `Meta: ${{metaDate.toLocaleDateString('pt-BR', {{day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC'}})}}`;
-                        }} else {{
-                            metaLine.style.display = 'none';
-                            metaLabel.style.display = 'none';
-                        }}
+                        const metaDate = parseDate(metaDateStr), chartStart = parseDate(dataMinStr_{project["id"]}), chartEnd = parseDate(dataMaxStr_{project["id"]});
+                        if (metaDate >= chartStart && metaDate <= chartEnd) {{ const offset = getPosition_{project["id"]}(metaDate); metaLine.style.left = `${{offset}}px`; metaLabel.style.left = `${{offset}}px`; metaLine.style.display = 'block'; metaLabel.style.display = 'block'; metaLabel.textContent = `Meta: ${{metaDate.toLocaleDateString('pt-BR', {{day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC'}})}}`; }} else {{ metaLine.style.display = 'none'; metaLabel.style.display = 'none'; }}
                     }}
 
                     function showTooltip_{project["id"]}(e, task, tipo) {{
                         const tooltip = document.getElementById('tooltip-{project["id"]}');
                         let content = `<b>${{task.name}}</b><br>`;
-                        if (tipo === 'previsto') {{
-                            content += `Previsto: ${{task.inicio_previsto}} - ${{task.termino_previsto}}<br>Duração: ${{task.duracao_prev_meses}}M`;
-                        }} else {{
-                            content += `Real: ${{task.inicio_real}} - ${{task.termino_real}}<br>Duração: ${{task.duracao_real_meses}}M<br>Variação Término: ${{task.vt_text}}<br>Variação Duração: ${{task.vd_text}}`;
-                        }}
+                        if (tipo === 'previsto') {{ content += `Previsto: ${{task.inicio_previsto}} - ${{task.termino_previsto}}<br>Duração: ${{task.duracao_prev_meses}}M`; }} else {{ content += `Real: ${{task.inicio_real}} - ${{task.termino_real}}<br>Duração: ${{task.duracao_real_meses}}M<br>Variação Término: ${{task.vt_text}}<br>Variação Duração: ${{task.vd_text}}`; }}
                         content += `<br><b>Progresso: ${{task.progress}}%</b>`;
-                        tooltip.innerHTML = content;
-                        tooltip.style.left = `${{e.pageX + 10}}px`;
-                        tooltip.style.top = `${{e.pageY + 10}}px`;
-                        tooltip.classList.add('show');
+                        tooltip.innerHTML = content; tooltip.style.left = `${{e.pageX + 10}}px`; tooltip.style.top = `${{e.pageY + 10}}px`; tooltip.classList.add('show');
                     }}
 
-                    function hideTooltip_{project["id"]}() {{
-                        document.getElementById('tooltip-{project["id"]}').classList.remove('show');
-                    }}
+                    function hideTooltip_{project["id"]}() {{ document.getElementById('tooltip-{project["id"]}').classList.remove('show'); }}
 
                     function renderMonthDividers_{project["id"]}() {{
                         const chartContainer = document.getElementById('chart-container-{project["id"]}');
@@ -854,66 +740,32 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         const dataMax = parseDate(dataMaxStr_{project["id"]});
                         while (currentDate <= dataMax) {{
                             const left = getPosition_{project["id"]}(currentDate);
-                            const divider = document.createElement('div');
-                            divider.className = 'month-divider';
+                            const divider = document.createElement('div'); divider.className = 'month-divider';
                             if (currentDate.getUTCMonth() === 0) divider.classList.add('first');
-                            divider.style.left = `${{left}}px`;
-                            chartContainer.appendChild(divider);
+                            divider.style.left = `${{left}}px`; chartContainer.appendChild(divider);
                             currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
                         }}
                     }}
 
                     function setupEventListeners_{project["id"]}() {{
-                        const ganttChartContent = document.getElementById('gantt-chart-content-{project["id"]}');
-                        const sidebarContent = document.getElementById('gantt-sidebar-content-{project["id"]}');
-                        const fullscreenBtn = document.getElementById('fullscreen-btn-{project["id"]}');
-                        const toggleBtn = document.getElementById('toggle-sidebar-btn-{project['id']}');
-                        
+                        const ganttChartContent = document.getElementById('gantt-chart-content-{project["id"]}'), sidebarContent = document.getElementById('gantt-sidebar-content-{project["id"]}');
+                        const fullscreenBtn = document.getElementById('fullscreen-btn-{project["id"]}'), toggleBtn = document.getElementById('toggle-sidebar-btn-{project['id']}');
                         if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreen_{project["id"]}());
                         if (toggleBtn) toggleBtn.addEventListener('click', () => toggleSidebar_{project["id"]}());
-                        
                         if (ganttChartContent && sidebarContent) {{
                             let isSyncing = false;
-                            ganttChartContent.addEventListener('scroll', () => {{
-                                if (!isSyncing) {{
-                                    isSyncing = true;
-                                    sidebarContent.scrollTop = ganttChartContent.scrollTop;
-                                    isSyncing = false;
-                                }}
-                            }});
-                            sidebarContent.addEventListener('scroll', () => {{
-                                if (!isSyncing) {{
-                                    isSyncing = true;
-                                    ganttChartContent.scrollTop = sidebarContent.scrollTop;
-                                    isSyncing = false;
-                                }}
-                            }});
-
+                            ganttChartContent.addEventListener('scroll', () => {{ if (!isSyncing) {{ isSyncing = true; sidebarContent.scrollTop = ganttChartContent.scrollTop; isSyncing = false; }} }});
+                            sidebarContent.addEventListener('scroll', () => {{ if (!isSyncing) {{ isSyncing = true; ganttChartContent.scrollTop = sidebarContent.scrollTop; isSyncing = false; }} }});
                             let isDown = false, startX, scrollLeft;
                             ganttChartContent.addEventListener('mousedown', (e) => {{ isDown = true; ganttChartContent.classList.add('active'); startX = e.pageX - ganttChartContent.offsetLeft; scrollLeft = ganttChartContent.scrollLeft; }});
                             ganttChartContent.addEventListener('mouseleave', () => {{ isDown = false; ganttChartContent.classList.remove('active'); }});
                             ganttChartContent.addEventListener('mouseup', () => {{ isDown = false; ganttChartContent.classList.remove('active'); }});
-                            ganttChartContent.addEventListener('mousemove', (e) => {{
-                                if (!isDown) return;
-                                e.preventDefault();
-                                const x = e.pageX - ganttChartContent.offsetLeft;
-                                const walk = (x - startX) * 2;
-                                ganttChartContent.scrollLeft = scrollLeft - walk;
-                            }});
+                            ganttChartContent.addEventListener('mousemove', (e) => {{ if (!isDown) return; e.preventDefault(); const x = e.pageX - ganttChartContent.offsetLeft; const walk = (x - startX) * 2; ganttChartContent.scrollLeft = scrollLeft - walk; }});
                         }}
                     }}
 
-                    function toggleSidebar_{project["id"]}() {{
-                        const sidebarWrapper = document.getElementById('gantt-sidebar-wrapper-{project["id"]}');
-                        sidebarWrapper.classList.toggle('collapsed');
-                    }}
-
-                    function toggleFullscreen_{project["id"]}() {{
-                        const container = document.getElementById('gantt-container-{project["id"]}');
-                        if (!document.fullscreenElement) {{ container.requestFullscreen().catch(err => alert(`Erro: ${{err.message}}`)); }}
-                        else {{ document.exitFullscreen(); }}
-                    }}
-
+                    function toggleSidebar_{project["id"]}() {{ document.getElementById('gantt-sidebar-wrapper-{project["id"]}').classList.toggle('collapsed'); }}
+                    function toggleFullscreen_{project["id"]}() {{ const container = document.getElementById('gantt-container-{project["id"]}'); if (!document.fullscreenElement) {{ container.requestFullscreen().catch(err => alert(`Erro: ${{err.message}}`)); }} else {{ document.exitFullscreen(); }} }}
                     initGantt_{project["id"]}();
                 </script>
             </body>
@@ -921,7 +773,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
         """
         components.html(gantt_html, height=altura_gantt, scrolling=True)
         st.markdown("---")
-       
+
 def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
     """
     Gera um gráfico de Gantt HTML consolidado, mostrando o progresso de uma
@@ -1322,7 +1174,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
     """
     components.html(gantt_html, height=altura_gantt, scrolling=True)
     
- 
+
 # --- FUNÇÃO PRINCIPAL DE GANTT (DISPATCHER) ---
 def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_ordenacao):
     if df.empty:
@@ -1522,6 +1374,29 @@ if df_data is not None and not df_data.empty:
         selected_etapa_nome = st.selectbox("Filtrar por Etapa", options=etapas_para_exibir)
 
         st.markdown("---")
+        # --- NOVA FUNCIONALIDADE: COM/SEM PULMÃO ---
+        st.markdown("##### Simulação de Cenário")
+        pulmao_status = st.radio(
+            "Opção de Pulmão:",
+            ("Sem Pulmão", "Com Pulmão"),
+            key="pulmao_status_radio",
+            horizontal=True,
+            help="Simula um cronograma com uma margem de segurança (Pulmão) ou sem."
+        )
+
+        pulmao_meses = 0
+        if pulmao_status == "Com Pulmão":
+            pulmao_meses = st.number_input(
+                "Período do Pulmão (em meses)",
+                min_value=0,
+                max_value=36,
+                value=1,
+                step=1,
+                key="pulmao_meses_input"
+            )
+        # --- FIM DA NOVA FUNCIONALIDADE ---
+
+        st.markdown("---")
         filtrar_nao_concluidas = st.checkbox("Etapas não concluídas", value=False, help="Quando marcado, mostra apenas etapas com menos de 100% de conclusão")
         st.markdown("---")
         tipo_visualizacao = st.radio("Mostrar dados:", ("Ambos", "Previsto", "Real"))
@@ -1535,6 +1410,24 @@ if df_data is not None and not df_data.empty:
 
     if filtrar_nao_concluidas and not df_filtered.empty:
         df_filtered = filtrar_etapas_nao_concluidas(df_filtered)
+
+    # --- LÓGICA DE APLICAÇÃO DO PULMÃO ---
+    # Copia o dataframe para não alterar o original em cache
+    df_para_exibir = df_filtered.copy()
+
+    # Aplica a lógica do pulmão se selecionado
+    if pulmao_status == "Com Pulmão" and pulmao_meses > 0:
+        # Define as colunas de data a serem ajustadas
+        colunas_data = ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]
+        for col in colunas_data:
+            if col in df_para_exibir.columns:
+                # Garante que a coluna é do tipo datetime
+                df_para_exibir[col] = pd.to_datetime(df_para_exibir[col], errors='coerce')
+                # Adiciona os meses apenas às datas válidas
+                df_para_exibir[col] = df_para_exibir[col].apply(
+                    lambda d: d + relativedelta(months=int(pulmao_meses)) if pd.notna(d) else pd.NaT
+                )
+    # --- FIM DA LÓGICA DO PULMÃO ---
 
     st.title("Macrofluxo")
     tab1, tab2 = st.tabs(["Gráfico de Gantt", "Tabelão Horizontal"])
@@ -1550,19 +1443,19 @@ if df_data is not None and not df_data.empty:
         st.markdown('<div id="inicio"></div>', unsafe_allow_html=True)
 
         st.subheader("Gantt Comparativo")
-        if df_filtered.empty:
+        if df_para_exibir.empty:
             st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
         else:
-            # A chamada principal agora passa o df_data original para manter a ordenação consistente
-            gerar_gantt(df_filtered.copy(), tipo_visualizacao, filtrar_nao_concluidas, df_data)
+            # A chamada principal agora usa df_para_exibir e passa o df_data original para manter a ordenação consistente
+            gerar_gantt(df_para_exibir.copy(), tipo_visualizacao, filtrar_nao_concluidas, df_data)
 
         st.markdown('<div id="visao-detalhada"></div>', unsafe_allow_html=True)
         
         st.subheader("Visão Detalhada por Empreendimento")
-        if df_filtered.empty:
+        if df_para_exibir.empty:
             st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
         else:
-            df_detalhes = df_filtered.copy()
+            df_detalhes = df_para_exibir.copy()
             
             empreendimentos_ordenados_por_meta = criar_ordenacao_empreendimentos(df_data)
             
@@ -1727,10 +1620,10 @@ if df_data is not None and not df_data.empty:
     with tab2:
         st.subheader("Tabelão Horizontal")
 
-        if df_filtered.empty:
+        if df_para_exibir.empty:
             st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
         else:
-            df_detalhes = df_filtered.copy()
+            df_detalhes = df_para_exibir.copy()
             
             if filtrar_nao_concluidas:
                 df_detalhes = filtrar_etapas_nao_concluidas(df_detalhes)
