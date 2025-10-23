@@ -225,6 +225,7 @@ def obter_data_meta_assinatura_novo(df_empreendimento):
             return pd.to_datetime(df_meta[col].iloc[0])
     return None
 
+# --- CÓDIGO MODIFICADO ---
 def converter_dados_para_gantt(df):
     if df.empty:
         return []
@@ -254,6 +255,12 @@ def converter_dados_para_gantt(df):
 
             etapa = row.get("Etapa", "UNKNOWN")
             
+            # --- INÍCIO DA MODIFICAÇÃO ---
+            # Adiciona o GRUPO para que o JS possa filtrar
+            etapa_sigla = nome_completo_para_sigla.get(etapa, etapa)
+            grupo = GRUPO_POR_ETAPA.get(etapa_sigla, "Não especificado")
+            # --- FIM DA MODIFICAÇÃO ---
+
             # Duração em Meses
             dur_prev_meses = None
             if pd.notna(start_date) and pd.notna(end_date):
@@ -293,7 +300,13 @@ def converter_dados_para_gantt(df):
                 "end_previsto": end_date.strftime("%Y-%m-%d"),
                 "start_real": pd.to_datetime(start_real).strftime("%Y-%m-%d") if pd.notna(start_real) else None,
                 "end_real": pd.to_datetime(end_real_visual).strftime("%Y-%m-%d") if pd.notna(end_real_visual) else None,
+                # --- INÍCIO DA MODIFICAÇÃO ---
+                "end_real_original_raw": pd.to_datetime(end_real_original).strftime("%Y-%m-%d") if pd.notna(end_real_original) else None,
+                # --- FIM DA MODIFICAÇÃO ---
                 "setor": row.get("SETOR", "Não especificado"),
+                # --- INÍCIO DA MODIFICAÇÃO ---
+                "grupo": grupo,
+                # --- FIM DA MODIFICAÇÃO ---
                 "progress": int(progress),
                 "inicio_previsto": start_date.strftime("%d/%m/%y"),
                 "termino_previsto": end_date.strftime("%d/%m/%y"),
@@ -319,7 +332,7 @@ def converter_dados_para_gantt(df):
         gantt_data.append(project)
     
     return gantt_data
-
+# --- FIM DO CÓDIGO MODIFICADO ---
 
 # --- Funções Utilitárias ---
 def abreviar_nome(nome):
@@ -407,20 +420,62 @@ def aplicar_ordenacao_final(df, empreendimentos_ordenados):
     df_ordenado = df.sort_values(["ordem_empreendimento", "ordem_etapa"]).drop(["ordem_empreendimento", "ordem_etapa"], axis=1)
     return df_ordenado.reset_index(drop=True)
 
+# --- CÓDIGO MODIFICADO ---
 # Substitua sua função gerar_gantt_por_projeto inteira por esta
-def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
-    df_gantt = df.copy()
-    if "Empreendimento" in df_gantt.columns:
-        df_gantt["Empreendimento"] = df_gantt["Empreendimento"].apply(abreviar_nome)
+# --- CÓDIGO MODIFICADO ---
+# Substitua sua função gerar_gantt_por_projeto inteira por esta
+def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses):
     
+    # --- Início da Lógica de Pulmão ---
+    # df (recebido) é o "sem pulmão"
+    df_sem_pulmao = df.copy() 
+
+    # Aplicar lógica de pulmão para criar o df_com_pulmao
+    df_com_pulmao = df.copy()
+    if pulmao_meses > 0:
+        colunas_data_todas = ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]
+        colunas_data_inicio = ["Inicio_Prevista", "Inicio_Real"]
+        
+        for col in colunas_data_todas:
+            if col in df_com_pulmao.columns:
+                df_com_pulmao[col] = pd.to_datetime(df_com_pulmao[col], errors='coerce')
+
+        offset_meses = -int(pulmao_meses) # NEGATIVO para antecipar a data
+        
+        def aplicar_offset_meses(data):
+            if pd.isna(data) or data is pd.NaT:
+                return pd.NaT
+            try:
+                return data + relativedelta(months=offset_meses)
+            except Exception as e:
+                return pd.NaT
+
+        etapas_pulmao = ["PULVENDA", "PUL.INFRA", "PUL.RAD"]
+        etapas_sem_alteracao = ["PROSPEC", "RAD", "DEM.MIN"]
+        
+        mask_nao_mexer = df_com_pulmao['Etapa'].isin(etapas_sem_alteracao)
+        mask_shift_inicio_apenas = df_com_pulmao['Etapa'].isin(etapas_pulmao)
+        mask_shift_tudo = (~mask_nao_mexer) & (~mask_shift_inicio_apenas)
+
+        for col in colunas_data_todas:
+            if col in df_com_pulmao.columns:
+                df_com_pulmao.loc[mask_shift_tudo, col] = df_com_pulmao.loc[mask_shift_tudo, col].apply(aplicar_offset_meses)
+        
+        for col in colunas_data_inicio:
+            if col in df_com_pulmao.columns:
+                df_com_pulmao.loc[mask_shift_inicio_apenas, col] = df_com_pulmao.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses)
+    # --- Fim da Lógica de Pulmão ---
+
+    # --- Processar DF SEM PULMÃO ---
+    df_gantt_sem_pulmao = df_sem_pulmao.copy()
+    if "Empreendimento" in df_gantt_sem_pulmao.columns:
+        df_gantt_sem_pulmao["Empreendimento"] = df_gantt_sem_pulmao["Empreendimento"].apply(abreviar_nome)
     for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
-        if col in df_gantt.columns:
-            df_gantt[col] = pd.to_datetime(df_gantt[col], errors="coerce")
-
-    if "% concluído" not in df_gantt.columns: df_gantt["% concluído"] = 0
-    df_gantt["% concluído"] = df_gantt["% concluído"].fillna(0).apply(converter_porcentagem)
-
-    df_gantt_agg = df_gantt.groupby(['Empreendimento', 'Etapa']).agg(
+        if col in df_gantt_sem_pulmao.columns:
+            df_gantt_sem_pulmao[col] = pd.to_datetime(df_gantt_sem_pulmao[col], errors="coerce")
+    if "% concluído" not in df_gantt_sem_pulmao.columns: df_gantt_sem_pulmao["% concluído"] = 0
+    df_gantt_sem_pulmao["% concluído"] = df_gantt_sem_pulmao["% concluído"].fillna(0).apply(converter_porcentagem)
+    df_gantt_agg_sem_pulmao = df_gantt_sem_pulmao.groupby(['Empreendimento', 'Etapa']).agg(
         Inicio_Prevista=('Inicio_Prevista', 'min'),
         Termino_Prevista=('Termino_Prevista', 'max'),
         Inicio_Real=('Inicio_Real', 'min'),
@@ -428,28 +483,87 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
         **{'% concluído': ('% concluído', 'max')},
         SETOR=('SETOR', 'first')
     ).reset_index()
-    
-    df_gantt_agg["Etapa"] = df_gantt_agg["Etapa"].map(sigla_para_nome_completo).fillna(df_gantt_agg["Etapa"])
-    
-    gantt_data = converter_dados_para_gantt(df_gantt_agg)
-    
-    if not gantt_data:
+    df_gantt_agg_sem_pulmao["Etapa"] = df_gantt_agg_sem_pulmao["Etapa"].map(sigla_para_nome_completo).fillna(df_gantt_agg_sem_pulmao["Etapa"])
+    gantt_data_sem_pulmao = converter_dados_para_gantt(df_gantt_agg_sem_pulmao)
+
+    # --- Processar DF COM PULMÃO ---
+    df_gantt_com_pulmao = df_com_pulmao.copy()
+    if "Empreendimento" in df_gantt_com_pulmao.columns:
+        df_gantt_com_pulmao["Empreendimento"] = df_gantt_com_pulmao["Empreendimento"].apply(abreviar_nome)
+    for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
+        if col in df_gantt_com_pulmao.columns:
+            df_gantt_com_pulmao[col] = pd.to_datetime(df_gantt_com_pulmao[col], errors="coerce")
+    if "% concluído" not in df_gantt_com_pulmao.columns: df_gantt_com_pulmao["% concluído"] = 0
+    df_gantt_com_pulmao["% concluído"] = df_gantt_com_pulmao["% concluído"].fillna(0).apply(converter_porcentagem)
+    df_gantt_agg_com_pulmao = df_gantt_com_pulmao.groupby(['Empreendimento', 'Etapa']).agg(
+        Inicio_Prevista=('Inicio_Prevista', 'min'),
+        Termino_Prevista=('Termino_Prevista', 'max'),
+        Inicio_Real=('Inicio_Real', 'min'),
+        Termino_Real=('Termino_Real', 'max'),
+        **{'% concluído': ('% concluído', 'max')},
+        SETOR=('SETOR', 'first')
+    ).reset_index()
+    df_gantt_agg_com_pulmao["Etapa"] = df_gantt_agg_com_pulmao["Etapa"].map(sigla_para_nome_completo).fillna(df_gantt_agg_com_pulmao["Etapa"])
+    gantt_data_com_pulmao = converter_dados_para_gantt(df_gantt_agg_com_pulmao)
+
+    # --- Fim do processamento duplicado ---
+
+    if not gantt_data_sem_pulmao and not gantt_data_com_pulmao:
         st.warning("Nenhum dado válido para o Gantt após a conversão.")
         return
 
+    # --- INÍCIO DA MODIFICAÇÃO: Preparar dados do filtro ---
+    filter_options = {
+        "setores": ["Todos"] + sorted(list(SETOR.keys())),
+        "grupos": ["Todos"] + sorted(list(GRUPOS.keys())),
+        "etapas": ["Todas"] + ORDEM_ETAPAS_NOME_COMPLETO
+    }
+    # --- FIM DA MODIFICAÇÃO ---
+
     empreendimentos_ordenados = criar_ordenacao_empreendimentos(df_original_para_ordenacao)
-    project_dict = {project['name']: project for project in gantt_data}
+    
+    # Criar dicionários para acesso rápido
+    projects_sem_pulmao_dict = {project['name']: project for project in gantt_data_sem_pulmao}
+    projects_com_pulmao_dict = {project['name']: project for project in gantt_data_com_pulmao}
     
     for empreendimento_nome in empreendimentos_ordenados:
-        if empreendimento_nome not in project_dict: continue
         
-        project = project_dict[empreendimento_nome]
+        # Obter ambos os projetos
+        project_sem_pulmao = projects_sem_pulmao_dict.get(empreendimento_nome)
+        project_com_pulmao = projects_com_pulmao_dict.get(empreendimento_nome)
+        
+        # Determinar o projeto inicial e as tarefas
+        if pulmao_status == "Com Pulmão":
+            project = project_com_pulmao
+            df_para_datas = df_gantt_agg_com_pulmao[df_gantt_agg_com_pulmao["Empreendimento"] == empreendimento_nome]
+        else:
+            project = project_sem_pulmao
+            df_para_datas = df_gantt_agg_sem_pulmao[df_gantt_agg_sem_pulmao["Empreendimento"] == empreendimento_nome]
 
-        df_projeto_especifico = df_gantt_agg[df_gantt_agg["Empreendimento"] == empreendimento_nome]
-        data_min_proj, data_max_proj = calcular_periodo_datas(df_projeto_especifico)
+        # Pular se o projeto não existir no estado inicial (ou em ambos)
+        if not project:
+            # Se não existir no estado inicial, tentar pegar o outro
+            if pulmao_status == "Com Pulmão" and project_sem_pulmao:
+                project = project_sem_pulmao
+                df_para_datas = df_gantt_agg_sem_pulmao[df_gantt_agg_sem_pulmao["Empreendimento"] == empreendimento_nome]
+            elif pulmao_status == "Sem Pulmão" and project_com_pulmao:
+                project = project_com_pulmao
+                df_para_datas = df_gantt_agg_com_pulmao[df_gantt_agg_com_pulmao["Empreendimento"] == empreendimento_nome]
+            else:
+                # Se não existir em nenhum, pular
+                continue
+
+        tasks_sem_pulmao = project_sem_pulmao['tasks'] if project_sem_pulmao else []
+        tasks_com_pulmao = project_com_pulmao['tasks'] if project_com_pulmao else []
+        
+        # --- Fim das modificações de dados ---
+
+        data_min_proj, data_max_proj = calcular_periodo_datas(df_para_datas)
         total_meses_proj = ((data_max_proj.year - data_min_proj.year) * 12) + (data_max_proj.month - data_min_proj.month) + 1
 
-        num_tasks = len(project["tasks"])
+        num_tasks = len(project["tasks"]) if project else 0 # Adiciona verificação para project nulo
+        if num_tasks == 0: continue # Pula se não houver tarefas
+        
         altura_gantt = max(500, (num_tasks * 38) + 150)
 
         gantt_html = f"""
@@ -476,44 +590,10 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     .header-cell.task-name-cell {{ text-align: left; }}
                     .gantt-sidebar-content {{ background-color: #f8f9fa; flex: 1; overflow-y: auto; overflow-x: hidden; }}
 
-                    /* --- INÍCIO DAS MODIFICAÇÕES --- */
-                    .sidebar-group-wrapper {{
-                        display: flex;
-                        /* Adiciona uma linha visível NO FIM de cada grupo */
-                        border-bottom: 2px solid #e2e8f0; 
-                        /* Adiciona um pequeno respiro entre a última tarefa e a linha */
-                        padding-bottom: 10px;
-                        margin-bottom: 10px; /* Espaço entre os grupos */
-                    }}
-                    .gantt-sidebar-content > .sidebar-group-wrapper:last-child {{
-                        margin-bottom: 0; /* Remove a margem do último grupo */
-                    }}
-                    .sidebar-group-title-vertical {{
-                        width: 30px;
-                        background-color: #f8fafc;
-                        color: #4a5568;
-                        font-size: 9.5px;
-                        font-weight: 700;
-                        text-transform: uppercase;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        writing-mode: vertical-rl;
-                        transform: rotate(180deg);
-                        flex-shrink: 0;
-                        border-right: 1px solid #e2e8f0;
-                        text-align: center;
-                        white-space: nowrap;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        padding: 5px 0;
-                        letter-spacing: -0.5px;
-                        align-self: flex-start; /* Alinha ao topo */
-                    }}
-                    .sidebar-group-spacer {{
-                        display: none; /* Não precisamos mais do espaçador, a margem faz o trabalho */
-                    }}
-                    /* --- FIM DAS MODIFICAÇÕES --- */
+                    .sidebar-group-wrapper {{ display: flex; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 10px; }}
+                    .gantt-sidebar-content > .sidebar-group-wrapper:last-child {{ margin-bottom: 0; }}
+                    .sidebar-group-title-vertical {{ width: 30px; background-color: #f8fafc; color: #4a5568; font-size: 9.5px; font-weight: 700; text-transform: uppercase; display: flex; align-items: center; justify-content: center; writing-mode: vertical-rl; transform: rotate(180deg); flex-shrink: 0; border-right: 1px solid #e2e8f0; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 5px 0; letter-spacing: -0.5px; align-self: flex-start; }}
+                    .sidebar-group-spacer {{ display: none; }}
 
                     .sidebar-rows-container {{ flex-grow: 1; }}
                     .sidebar-row.odd-row {{ background-color: #fdfdfd; }}
@@ -527,7 +607,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     .status-box-inner.status-default{{ background-color: #F4F6F7; color: #566573; border-color: #D5DBDB; }}
                     .sidebar-row .sidebar-cell:nth-child(2), .sidebar-row .sidebar-cell:nth-child(3), .sidebar-row .sidebar-cell:nth-child(5), .sidebar-row .sidebar-cell:nth-child(6) {{ font-size: 8px; }}
                     .sidebar-row .sidebar-cell:nth-child(8) .status-box-inner {{ font-size: 10.5px; }}
-                    .gantt-row-spacer {{height: 22px;background-color: #ffffff;position: relative;z-index: 5;border: none;border-bottom: 1px solid #e2e8f0;}} /* Aumentei para corresponder ao padding+margin */
+                    .gantt-row-spacer {{height: 22px;background-color: #ffffff;position: relative;z-index: 5;border: none;border-bottom: 1px solid #e2e8f0;}}
                     .gantt-sidebar-wrapper.collapsed {{ width: 250px; }}
                     .gantt-sidebar-wrapper.collapsed .sidebar-grid-header, .gantt-sidebar-wrapper.collapsed .sidebar-row {{ grid-template-columns: 1fr; padding: 0 15px 0 10px; }}
                     .gantt-sidebar-wrapper.collapsed .header-cell:not(.task-name-cell), .gantt-sidebar-wrapper.collapsed .sidebar-cell:not(.task-name-cell) {{ display: none; }}
@@ -555,15 +635,130 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     .today-line {{ position: absolute; top: 60px; bottom: 0; width: 2px; background-color: #e53e3e; z-index: 5; box-shadow: 0 0 4px rgba(229, 62, 62, 0.6); }}
                     .month-divider {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #fcf6f6; z-index: 4; pointer-events: none; }}
                     .month-divider.first {{ background-color: #eeeeee; width: 1px; }}
-                    .fullscreen-btn {{ position: absolute; top: 10px; right: 10px; background: rgba(255, 255, 255, 0.9); border: none; border-radius: 4px; padding: 8px 12px; font-size: 14px; cursor: pointer; z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.2s ease; display: flex; align-items: center; gap: 5px; }}
                     .meta-line {{ position: absolute; top: 60px; bottom: 0; width: 2px; border-left: 2px dashed #8e44ad; z-index: 5; box-shadow: 0 0 4px rgba(142, 68, 173, 0.6); }}
                     .meta-line-label {{ position: absolute; top: 65px; background-color: #8e44ad; color: white; padding: 2px 5px; border-radius: 4px; font-size: 9px; font-weight: 600; white-space: nowrap; z-index: 8; transform: translateX(-50%); }}
+                    
+                    /* --- INÍCIO ESTILOS DO FILTRO --- */
+                    .fullscreen-btn {{
+                        position: absolute; top: 10px; right: 10px;
+                        background: rgba(255, 255, 255, 0.9); border: none; border-radius: 4px;
+                        padding: 8px 12px; font-size: 14px; cursor: pointer;
+                        z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                        transition: all 0.2s ease; display: flex; align-items: center; gap: 5px;
+                    }}
+                    .fullscreen-btn.is-fullscreen {{
+                        /* Estilo Hamburguer */
+                        font-size: 24px;
+                        padding: 5px 10px;
+                        color: #2d3748;
+                    }}
+                    .floating-filter-menu {{
+                        display: none;
+                        position: absolute;
+                        top: 55px; right: 10px;
+                        width: 280px;
+                        background: white;
+                        border-radius: 8px;
+                        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+                        z-index: 99;
+                        padding: 15px;
+                        border: 1px solid #e2e8f0;
+                    }}
+                    .floating-filter-menu.is-open {{
+                        display: block;
+                    }}
+                    .filter-group {{ margin-bottom: 12px; }}
+                    .filter-group label {{
+                        display: block;
+                        font-size: 11px; font-weight: 600;
+                        color: #4a5568; margin-bottom: 4px;
+                        text-transform: uppercase;
+                    }}
+                    .filter-group select, .filter-group input {{
+                        width: 100%;
+                        padding: 6px 8px;
+                        border: 1px solid #cbd5e0;
+                        border-radius: 4px;
+                        font-size: 13px;
+                    }}
+                    .filter-group-radio, .filter-group-checkbox {{
+                        display: flex; align-items: center;
+                        padding: 5px 0;
+                    }}
+                    .filter-group-radio input, .filter-group-checkbox input {{
+                        width: auto; margin-right: 8px;
+                    }}
+                    .filter-group-radio label, .filter-group-checkbox label {{
+                        font-size: 13px; font-weight: 500;
+                        color: #2d3748; margin-bottom: 0; text-transform: none;
+                    }}
+                    .filter-apply-btn {{
+                        width: 100%; padding: 8px; font-size: 14px; font-weight: 600;
+                        color: white; background-color: #2d3748;
+                        border: none; border-radius: 4px; cursor: pointer;
+                        margin-top: 5px;
+                    }}
+                    /* --- FIM ESTILOS DO FILTRO --- */
                 </style>
             </head>
             <body>
                 <script id="grupos-gantt-data" type="application/json">{json.dumps(GRUPOS)}</script>
                 <div class="gantt-container" id="gantt-container-{project['id']}">
                     <button class="fullscreen-btn" id="fullscreen-btn-{project["id"]}"><span>📺</span> <span>Tela Cheia</span></button>
+                    
+                    <div class="floating-filter-menu" id="filter-menu-{project['id']}">
+                        <div class="filter-group">
+                            <label for="filter-setor-{project['id']}">Setor</label>
+                            <select id="filter-setor-{project['id']}"></select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="filter-grupo-{project['id']}">Grupo</label>
+                            <select id="filter-grupo-{project['id']}"></select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="filter-etapa-{project['id']}">Etapa</label>
+                            <select id="filter-etapa-{project['id']}"></select>
+                        </div>
+                        <div class="filter-group">
+                            <div class="filter-group-checkbox">
+                                <input type="checkbox" id="filter-concluidas-{project['id']}">
+                                <label for="filter-concluidas-{project['id']}">Mostrar apenas não concluídas</label>
+                            </div>
+                        </div>
+                        <div class="filter-group">
+                            <label>Visualização</label>
+                            <div class="filter-group-radio">
+                                <input type="radio" id="filter-vis-ambos-{project['id']}" name="filter-vis-{project['id']}" value="Ambos" checked>
+                                <label for="filter-vis-ambos-{project['id']}">Ambos</label>
+                            </div>
+                            <div class="filter-group-radio">
+                                <input type="radio" id="filter-vis-previsto-{project['id']}" name="filter-vis-{project['id']}" value="Previsto">
+                                <label for="filter-vis-previsto-{project['id']}">Previsto</label>
+                            </div>
+                            <div class="filter-group-radio">
+                                <input type="radio" id="filter-vis-real-{project['id']}" name="filter-vis-{project['id']}" value="Real">
+                                <label for="filter-vis-real-{project['id']}">Real</label>
+                            </div>
+                        </div>
+                        
+                        <div class="filter-group">
+                            <label>Simulação Pulmão</label>
+                            <div class="filter-group-radio">
+                                <input type="radio" id="filter-pulmao-sem-{project['id']}" name="filter-pulmao-{project['id']}" value="Sem Pulmão">
+                                <label for="filter-pulmao-sem-{project['id']}">Sem Pulmão</label>
+                            </div>
+                            <div class="filter-group-radio">
+                                <input type="radio" id="filter-pulmao-com-{project['id']}" name="filter-pulmao-{project['id']}" value="Com Pulmão">
+                                <label for="filter-pulmao-com-{project['id']}">Com Pulmão</label>
+                            </div>
+                            <div class="filter-group" id="pulmao-meses-group-{project['id']}" style="margin-top: 8px; display: none; padding-left: 25px;"> 
+                                <label for="filter-pulmao-meses-{project['id']}" style="font-size: 12px; font-weight: 500;">Meses de Pulmão:</label>
+                                <input type="number" id="filter-pulmao-meses-{project['id']}" value="{pulmao_meses}" min="0" max="36" step="1" style="padding: 4px 6px; font-size: 12px; height: 28px; width: 80px;">
+                            </div>
+                            </div>
+                        <button class="filter-apply-btn" id="filter-apply-btn-{project['id']}">Aplicar Filtros</button>
+                    </div>
+
                     <div class="gantt-main">
                         <div class="gantt-sidebar-wrapper" id="gantt-sidebar-wrapper-{project['id']}">
                             <div class="gantt-sidebar-header">
@@ -609,8 +804,55 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     const projectData_{project["id"]} = {json.dumps([project])};
                     const dataMinStr_{project["id"]} = '{data_min_proj.strftime("%Y-%m-%d")}';
                     const dataMaxStr_{project["id"]} = '{data_max_proj.strftime("%Y-%m-%d")}';
-                    const tipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
+                    let tipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
                     const PIXELS_PER_MONTH = 30;
+
+                    // --- INÍCIO HELPERS DE DATA E PULMÃO ---
+                    // Listas de etapas (traduzidas do Python)
+                    const etapas_pulmao_{project["id"]} = ["PULMÃO VENDA", "PULMÃO INFRA", "PULMÃO RADIER"];
+                    const etapas_sem_alteracao_{project["id"]} = ["PROSPECÇÃO", "RADIER", "DEMANDA MÍNIMA"];
+
+                    // Helper function to format 'YYYY-MM-DD' back to 'DD/MM/YY'
+                    const formatDateDisplay_{project["id"]} = (dateStr) => {{
+                        if (!dateStr) return "N/D";
+                        const d = parseDate(dateStr); // parseDate já existe no seu código
+                        // --- INÍCIO DA CORREÇÃO ---
+                        if (!d || isNaN(d.getTime())) return "N/D"; // Verifica se 'd' é null OU uma Data Inválida
+                        // --- FIM DA CORREÇÃO ---
+                        const day = String(d.getUTCDate()).padStart(2, '0');
+                        const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+                        const year = String(d.getUTCFullYear()).slice(-2);
+                        return `${{day}}/${{month}}/${{year}}`;
+                    }};
+
+                    // Equivalente JS do relativedelta(months=offset) do Python
+                    function addMonths_{project["id"]}(dateStr, months) {{
+                        if (!dateStr) return null;
+                        const date = parseDate(dateStr); // re-usa sua função parseDate
+                        // --- INÍCIO DA CORREÇÃO ---
+                        if (!date || isNaN(date.getTime())) return null; // Verifica se 'date' é null OU uma Data Inválida
+                        // --- FIM DA CORREÇÃO ---
+                        
+                        const originalDay = date.getUTCDate();
+                        date.setUTCMonth(date.getUTCMonth() + months);
+                        
+                        // Lida com casos como 31/03 - 1 mês = 02/03 (errado), deve ser 28/02
+                        if (date.getUTCDate() !== originalDay) {{
+                            date.setUTCDate(0); // Vai para o último dia do mês anterior
+                        }}
+                        // Formata de volta para 'YYYY-MM-DD'
+                        return date.toISOString().split('T')[0];
+                    }}
+                    // --- FIM HELPERS DE DATA E PULMÃO ---
+
+                    // --- INÍCIO DAS MODIFICAÇÕES: Dados do Filtro ---
+                    const filterOptions_{project["id"]} = {json.dumps(filter_options)};
+                    // Salva as tarefas originais para poder re-filtrar
+                    const allTasks_semPulmao_{project["id"]} = {json.dumps(tasks_sem_pulmao)};
+                    const allTasks_comPulmao_{project["id"]} = {json.dumps(tasks_com_pulmao)};
+                    let pulmaoStatus_{project["id"]} = '{pulmao_status}'; // "Com Pulmão" ou "Sem Pulmão"
+                    let filtersPopulated_{project["id"]} = false;
+                    // --- FIM DAS MODIFICAÇÕES ---
 
                     function parseDate(dateStr) {{ if (!dateStr) return null; const [year, month, day] = dateStr.split('-').map(Number); return new Date(Date.UTC(year, month - 1, day)); }}
 
@@ -622,20 +864,25 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         setupEventListeners_{project["id"]}();
                         positionTodayLine_{project["id"]}();
                         positionMetaLine_{project["id"]}();
+                        // Popula os filtros (mas eles estão escondidos)
+                        populateFilters_{project["id"]}();
                     }}
 
                     function renderSidebar_{project["id"]}() {{
                         const sidebarContent = document.getElementById('gantt-sidebar-content-{project["id"]}');
                         const gruposGantt = JSON.parse(document.getElementById('grupos-gantt-data').textContent);
+                        // Usa as tarefas filtradas do projectData
                         const tasks = projectData_{project["id"]}[0].tasks;
                         let html = '';
                         let globalRowIndex = 0;
                         const groupKeys = Object.keys(gruposGantt);
                         for (let i = 0; i < groupKeys.length; i++) {{
                             const grupo = groupKeys[i];
-                            const tasksInGroup = gruposGantt[grupo].filter(etapaNome => tasks.some(t => t.name === etapaNome));
-                            if (tasksInGroup.length === 0) continue;
-                            const groupHeight = (tasksInGroup.length * 38);
+                            // Filtra as tarefas que existem *nas* tarefas filtradas atuais
+                            const tasksInGroupNames = gruposGantt[grupo].filter(etapaNome => tasks.some(t => t.name === etapaNome));
+                            if (tasksInGroupNames.length === 0) continue;
+                            
+                            const groupHeight = (tasksInGroupNames.length * 38);
                             html += `<div class="sidebar-group-wrapper">`;
                             html += `<div class="sidebar-group-title-vertical" style="height: ${{groupHeight}}px;"><span>${{grupo}}</span></div>`;
                             html += `<div class="sidebar-rows-container">`;
@@ -680,6 +927,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     function renderChart_{project["id"]}() {{
                         const chartBody = document.getElementById('chart-body-{project["id"]}');
                         const gruposGantt = JSON.parse(document.getElementById('grupos-gantt-data').textContent);
+                        // Usa as tarefas filtradas
                         const tasks = projectData_{project["id"]}[0].tasks;
                         chartBody.innerHTML = '';
                         const groupKeys = Object.keys(gruposGantt);
@@ -692,6 +940,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                                 if (task) {{
                                     const row = document.createElement('div'); row.className = 'gantt-row';
                                     let barPrevisto = null;
+                                    // Usa a variável JS global 'tipoVisualizacao'
                                     if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{ barPrevisto = createBar_{project["id"]}(task, 'previsto'); row.appendChild(barPrevisto); }}
                                     let barReal = null;
                                     if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && task.end_real) {{ barReal = createBar_{project["id"]}(task, 'real'); row.appendChild(barReal); }}
@@ -714,7 +963,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                             }}
                         }}
                     }}
-
                     function createBar_{project["id"]}(task, tipo) {{
                         const startDate = parseDate(tipo === 'previsto' ? task.start_previsto : task.start_real);
                         const endDate = parseDate(tipo === 'previsto' ? task.end_previsto : task.end_real);
@@ -770,7 +1018,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                         const tooltip = document.getElementById('tooltip-{project["id"]}');
                         let content = `<b>${{task.name}}</b><br>`;
                         if (tipo === 'previsto') {{ content += `Previsto: ${{task.inicio_previsto}} - ${{task.termino_previsto}}<br>Duração: ${{task.duracao_prev_meses}}M`; }} else {{ content += `Real: ${{task.inicio_real}} - ${{task.termino_real}}<br>Duração: ${{task.duracao_real_meses}}M<br>Variação Término: ${{task.vt_text}}<br>Variação Duração: ${{task.vd_text}}`; }}
-                        content += `<br><b>Progresso: ${{task.progress}}%</b>`;
+                        content += `<br><b>Progresso: ${{task.progress}}%</b><br>Setor: ${{task.setor}}<br>Grupo: ${{task.grupo}}`;
                         tooltip.innerHTML = content; tooltip.style.left = `${{e.pageX + 10}}px`; tooltip.style.top = `${{e.pageY + 10}}px`; tooltip.classList.add('show');
                     }}
 
@@ -793,7 +1041,18 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     function setupEventListeners_{project["id"]}() {{
                         const ganttChartContent = document.getElementById('gantt-chart-content-{project["id"]}'), sidebarContent = document.getElementById('gantt-sidebar-content-{project['id']}');
                         const fullscreenBtn = document.getElementById('fullscreen-btn-{project["id"]}'), toggleBtn = document.getElementById('toggle-sidebar-btn-{project['id']}');
-                        if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreen_{project["id"]}());
+                        const container = document.getElementById('gantt-container-{project["id"]}');
+                        
+                        // Botão de aplicar filtro
+                        const applyBtn = document.getElementById('filter-apply-btn-{project["id"]}');
+                        if (applyBtn) applyBtn.addEventListener('click', () => applyFiltersAndRedraw_{project["id"]}());
+
+                        // Listener para o botão principal (Tela Cheia / Menu)
+                        if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreenOrMenu_{project["id"]}());
+                        
+                        // Listener para MUDANÇA de tela cheia (para saber o estado)
+                        if (container) container.addEventListener('fullscreenchange', () => handleFullscreenChange_{project["id"]}());
+                        
                         if (toggleBtn) toggleBtn.addEventListener('click', () => toggleSidebar_{project["id"]}());
                         if (ganttChartContent && sidebarContent) {{
                             let isSyncing = false;
@@ -808,7 +1067,163 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
                     }}
 
                     function toggleSidebar_{project["id"]}() {{ document.getElementById('gantt-sidebar-wrapper-{project["id"]}').classList.toggle('collapsed'); }}
-                    function toggleFullscreen_{project["id"]}() {{ const container = document.getElementById('gantt-container-{project["id"]}'); if (!document.fullscreenElement) {{ container.requestFullscreen().catch(err => alert(`Erro: ${{err.message}}`)); }} else {{ document.exitFullscreen(); }} }}
+                    
+                    // --- INÍCIO DAS NOVAS FUNÇÕES JS ---
+
+                    function toggleFullscreen_{project["id"]}() {{
+                        // Lida apenas com a entrada/saída do fullscreen
+                        const container = document.getElementById('gantt-container-{project["id"]}');
+                        if (!document.fullscreenElement) {{
+                            container.requestFullscreen().catch(err => alert(`Erro: ${{err.message}}`));
+                        }} else {{
+                            document.exitFullscreen();
+                        }}
+                    }}
+                    
+                    function toggleFilterMenu_{project["id"]}() {{
+                        // Apenas mostra/esconde o menu
+                        document.getElementById('filter-menu-{project["id"]}').classList.toggle('is-open');
+                    }}
+
+                    function toggleFullscreenOrMenu_{project["id"]}() {{
+                        // Decide se é para entrar em fullscreen ou mostrar o menu
+                        const container = document.getElementById('gantt-container-{project["id"]}');
+                        if (document.fullscreenElement === container) {{
+                            // Já está em fullscreen, então mostre o menu
+                            toggleFilterMenu_{project["id"]}();
+                        }} else {{
+                            // Não está em fullscreen, então entre
+                            toggleFullscreen_{project["id"]}();
+                        }}
+                    }}
+                    
+                    function handleFullscreenChange_{project["id"]}() {{
+                        // Lida com a MUDANÇA de estado (troca o ícone)
+                        const btn = document.getElementById('fullscreen-btn-{project["id"]}');
+                        const container = document.getElementById('gantt-container-{project["id"]}');
+                        if (document.fullscreenElement === container) {{
+                            btn.innerHTML = '<span>&#9776;</span>'; // Icone Hamburguer
+                            btn.classList.add('is-fullscreen');
+                        }} else {{
+                            btn.innerHTML = '<span>📺</span> <span>Tela Cheia</span>';
+                            btn.classList.remove('is-fullscreen');
+                            // Esconde o menu ao sair do fullscreen
+                            document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
+                        }}
+                    }}
+                    
+                    function populateFilters_{project["id"]}() {{
+                        if (filtersPopulated_{project["id"]}) return; // Só popular uma vez
+
+                        const selSetor = document.getElementById('filter-setor-{project["id"]}');
+                        filterOptions_{project["id"]}.setores.forEach(s => {{
+                            selSetor.innerHTML += `<option value="${{s}}">${{s}}</option>`;
+                        }});
+                        
+                        const selGrupo = document.getElementById('filter-grupo-{project["id"]}');
+                        filterOptions_{project["id"]}.grupos.forEach(g => {{
+                            selGrupo.innerHTML += `<option value="${{g}}">${{g}}</option>`;
+                        }});
+
+                        const selEtapa = document.getElementById('filter-etapa-{project["id"]}');
+                        filterOptions_{project["id"]}.etapas.forEach(e => {{
+                            selEtapa.innerHTML += `<option value="${{e}}">${{e}}</option>`;
+                        }});
+                        
+                        // Seta o valor inicial do radio
+                        document.querySelector(`input[name="filter-vis-{project['id']}"][value="${{tipoVisualizacao_{project["id"]}}}"]`).checked = true;
+
+                        // ==== INÍCIO DA MODIFICAÇÃO ====
+                        const radioCom = document.getElementById('filter-pulmao-com-{project["id"]}');
+                        const radioSem = document.getElementById('filter-pulmao-sem-{project["id"]}');
+                        const mesesGroup = document.getElementById('pulmao-meses-group-{project["id"]}');
+                        
+                        const updatePulmaoInputVisibility_{project["id"]} = () => {{
+                            if (radioCom.checked) {{
+                                mesesGroup.style.display = 'block';
+                            }} else {{
+                                mesesGroup.style.display = 'none';
+                            }}
+                        }};
+
+                        radioCom.addEventListener('change', updatePulmaoInputVisibility_{project["id"]});
+                        radioSem.addEventListener('change', updatePulmaoInputVisibility_{project["id"]});
+                        
+                        // Seta o valor inicial do radio de PULMÃO
+                        document.querySelector(`input[name="filter-pulmao-{project['id']}"][value="${{pulmaoStatus_{project["id"]}}}"]`).checked = true;
+                        
+                        // Seta o valor inicial do input de meses (vindo do sidebar)
+                        document.getElementById('filter-pulmao-meses-{project["id"]}').value = {pulmao_meses};
+                        
+                        // Chama a função para acertar a visibilidade inicial
+                        updatePulmaoInputVisibility_{project["id"]}();
+                        // ==== FIM DA MODIFICAÇÃO ====
+
+                        filtersPopulated_{project["id"]} = true;
+                    }}
+                    
+                    // #############################################
+                    // ##### FUNÇÃO applyFiltersAndRedraw CORRIGIDA #####
+                    // #############################################
+                    function applyFiltersAndRedraw_{project["id"]}() {{
+                        // 1. Ler os valores dos filtros
+                        const selSetor = document.getElementById('filter-setor-{project["id"]}').value;
+                        const selGrupo = document.getElementById('filter-grupo-{project["id"]}').value;
+                        const selEtapa = document.getElementById('filter-etapa-{project["id"]}').value;
+                        const selConcluidas = document.getElementById('filter-concluidas-{project["id"]}').checked;
+                        const selVis = document.querySelector(`input[name="filter-vis-{project['id']}"]:checked`).value;
+                        const selPulmao = document.querySelector(`input[name="filter-pulmao-{project['id']}"]:checked`).value;
+                        // const selPulmaoMeses = parseInt(document.getElementById('filter-pulmao-meses-{project["id"]}').value, 10) || 0; // Não precisamos mais ler os meses aqui
+
+                        let baseTasks;
+
+                        // ==== INÍCIO DA MODIFICAÇÃO ====
+                        // Escolhe o conjunto de dados CORRETO pré-calculado pelo Python
+                        if (selPulmao === 'Com Pulmão') {{
+                             // Usa a cópia profunda dos dados COM pulmão
+                            baseTasks = JSON.parse(JSON.stringify(allTasks_comPulmao_{project["id"]}));
+                        }} else {{
+                             // Usa a cópia profunda dos dados SEM pulmão
+                            baseTasks = JSON.parse(JSON.stringify(allTasks_semPulmao_{project["id"]}));
+                        }}
+                        // Removemos toda a lógica complexa de recalcular datas com addMonths_ daqui.
+                        // Usamos diretamente os dados que o Python já calculou.
+                        // ==== FIM DA MODIFICAÇÃO ====
+
+                        let filteredTasks = baseTasks; // Começa com o conjunto de dados correto
+
+                        // 2. Aplicar filtros de Setor, Grupo, Etapa e Concluídas
+                        if (selSetor !== 'Todos') {{
+                            filteredTasks = filteredTasks.filter(t => t.setor === selSetor);
+                        }}
+                        if (selGrupo !== 'Todos') {{
+                            filteredTasks = filteredTasks.filter(t => t.grupo === selGrupo);
+                        }}
+                        if (selEtapa !== 'Todas') {{
+                            filteredTasks = filteredTasks.filter(t => t.name === selEtapa);
+                        }}
+                        if (selConcluidas) {{
+                            filteredTasks = filteredTasks.filter(t => t.progress < 100);
+                        }}
+
+                        // 3. Atualizar os dados globais do JS que serão usados para renderizar
+                        projectData_{project["id"]}[0].tasks = filteredTasks;
+                        tipoVisualizacao_{project["id"]} = selVis; // Atualiza a visualização (Ambos/Previsto/Real)
+                        pulmaoStatus_{project["id"]} = selPulmao; // Atualiza o status do pulmão global
+
+                        // 4. Redesenhar o gráfico e a tabela com os dados filtrados e selecionados (com ou sem pulmão)
+                        renderSidebar_{project["id"]}();
+                        renderChart_{project["id"]}();
+
+                        // 5. Esconder o menu de filtros
+                        toggleFilterMenu_{project["id"]}();
+                    }}
+                    // #############################################
+                    // ##### FIM DA FUNÇÃO CORRIGIDA ################
+                    // #############################################
+                    
+                    // --- FIM DAS NOVAS FUNÇÕES JS ---
+
                     initGantt_{project["id"]}();
                 </script>
             </body>
@@ -816,6 +1231,8 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao):
         """
         components.html(gantt_html, height=altura_gantt, scrolling=True)
         st.markdown("---")
+# --- FIM DO CÓDIGO MODIFICADO ---
+
 
 def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
     """
@@ -1219,7 +1636,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao):
     
 
 # --- FUNÇÃO PRINCIPAL DE GANTT (DISPATCHER) ---
-def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_ordenacao):
+# --- MODIFICADO ---
+def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_ordenacao, pulmao_status, pulmao_meses):
     if df.empty:
         st.warning("Sem dados disponíveis para exibir o Gantt.")
         return
@@ -1229,9 +1647,46 @@ def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_
 
     if is_single_etapa_view:
         st.info("Exibindo visão comparativa para a etapa selecionada.")
-        gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao)
+        
+        # --- Aplicar lógica de pulmão AQUI para a visão consolidada ---
+        df_para_consolidado = df.copy()
+        if pulmao_status == "Com Pulmão" and pulmao_meses > 0:
+            colunas_data_todas = ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]
+            colunas_data_inicio = ["Inicio_Prevista", "Inicio_Real"]
+            
+            for col in colunas_data_todas:
+                if col in df_para_consolidado.columns:
+                    df_para_consolidado[col] = pd.to_datetime(df_para_consolidado[col], errors='coerce')
+
+            offset_meses = -int(pulmao_meses)
+            
+            def aplicar_offset_meses(data):
+                if pd.isna(data) or data is pd.NaT: return pd.NaT
+                try: return data + relativedelta(months=offset_meses)
+                except Exception: return pd.NaT
+
+            etapas_pulmao = ["PULVENDA", "PUL.INFRA", "PUL.RAD"]
+            etapas_sem_alteracao = ["PROSPEC", "RAD", "DEM.MIN"]
+            
+            mask_nao_mexer = df_para_consolidado['Etapa'].isin(etapas_sem_alteracao)
+            mask_shift_inicio_apenas = df_para_consolidado['Etapa'].isin(etapas_pulmao)
+            mask_shift_tudo = (~mask_nao_mexer) & (~mask_shift_inicio_apenas)
+
+            for col in colunas_data_todas:
+                if col in df_para_consolidado.columns:
+                    df_para_consolidado.loc[mask_shift_tudo, col] = df_para_consolidado.loc[mask_shift_tudo, col].apply(aplicar_offset_meses)
+            
+            for col in colunas_data_inicio:
+                if col in df_para_consolidado.columns:
+                    df_para_consolidado.loc[mask_shift_inicio_apenas, col] = df_para_consolidado.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses)
+        # --- Fim da lógica ---
+
+        gerar_gantt_consolidado(df_para_consolidado, tipo_visualizacao, df_original_para_ordenacao)
     else:
-        gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao)
+        # Passa o DF *não* processado e os parâmetros de pulmão
+        gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses)
+# --- FIM DA MODIFICAÇÃO ---
+
 
 # O restante do código Streamlit...
 
@@ -1473,7 +1928,7 @@ with st.spinner("Carregando e processando dados..."):
                 ("Sem Pulmão", "Com Pulmão"),
                 key="pulmao_status_radio",
                 horizontal=True,
-                help="Simula um cronograma com uma margem de segurança (Pulmão) ou sem."
+                help="Define o estado inicial do gráfico (com ou sem pulmão)."
             )
 
             pulmao_meses = 0
@@ -1486,7 +1941,7 @@ with st.spinner("Carregando e processando dados..."):
                     step=1,
                     key="pulmao_meses_input"
                 )
-    
+        
             st.markdown("---")
             filtrar_nao_concluidas = st.checkbox("Etapas não concluídas", value=False, help="Quando marcado, mostra apenas etapas com menos de 100% de conclusão")
             st.markdown("---")
@@ -1502,60 +1957,13 @@ with st.spinner("Carregando e processando dados..."):
         if filtrar_nao_concluidas and not df_filtered.empty:
             df_filtered = filtrar_etapas_nao_concluidas(df_filtered)
 
-# --- LÓGICA DE APLICAÇÃO DO PULMÃO (VERSÃO MESES DE CALENDÁRIO - CORRIGIDA) ---
-        df_para_exibir = df_filtered.copy()
-        colunas_data_todas = ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]
-        colunas_data_inicio = ["Inicio_Prevista", "Inicio_Real"]
-
-        # 1. Converter colunas de data para datetime e lidar com erros
-        for col in colunas_data_todas:
-            if col in df_para_exibir.columns:
-                df_para_exibir[col] = pd.to_datetime(df_para_exibir[col], errors='coerce')
-
-        if pulmao_status == "Com Pulmão" and pulmao_meses > 0:
-            
-            # 2. Calcular o offset em MESES
-            offset_meses = -int(pulmao_meses) # NEGATIVO para antecipar a data
-            
-            # 3. Definir a função de offset de meses
-            def aplicar_offset_meses(data):
-                if pd.isna(data) or data is pd.NaT:
-                    return pd.NaT
-                try:
-                    # Usar relativedelta para subtrair meses do calendário
-                    return data + relativedelta(months=offset_meses)
-                except Exception as e:
-                    # st.warning(f"Erro ao aplicar offset em {data}: {e}") # Descomente para debug
-                    return pd.NaT 
-
-            # 4. Definir grupos de etapas (mesma lógica de antes)
-            etapas_pulmao = ["PULVENDA", "PUL.INFRA", "PUL.RAD"]
-            # Adicionado RAD e DEM.MIN aqui
-            etapas_sem_alteracao = ["PROSPEC", "RAD", "DEM.MIN"] 
-            
-            # 5. Criar máscaras (mesma lógica de antes)
-            # Mask para tarefas que NUNCA mudam
-            mask_nao_mexer = df_para_exibir['Etapa'].isin(etapas_sem_alteracao)
-            
-            # Mask para tarefas PULMÃO (só muda início)
-            mask_shift_inicio_apenas = df_para_exibir['Etapa'].isin(etapas_pulmao)
-            
-            # Mask para TODAS AS OUTRAS tarefas (muda início e término)
-            mask_shift_tudo = (~mask_nao_mexer) & (~mask_shift_inicio_apenas)
-
-            # 6. Aplicar lógica para tarefas NORMAIS (shiftar Início e Término)
-            for col in colunas_data_todas:
-                if col in df_para_exibir.columns:
-                    # Aplicar apenas onde mask_shift_tudo é True
-                    df_para_exibir.loc[mask_shift_tudo, col] = df_para_exibir.loc[mask_shift_tudo, col].apply(aplicar_offset_meses)
-            
-            # 7. Aplicar lógica para tarefas "PULMÃO" (shiftar SÓ Início)
-            for col in colunas_data_inicio:
-                if col in df_para_exibir.columns:
-                    # Aplicar apenas onde mask_shift_inicio_apenas é True
-                    df_para_exibir.loc[mask_shift_inicio_apenas, col] = df_para_exibir.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses)
+        # --- LÓGICA DE APLICAÇÃO DO PULMÃO FOI MOVIDA ---
+        # A lógica de pulmão não é mais aplicada aqui para o gráfico principal.
+        # Ela é aplicada dentro de gerar_gantt (para visão consolidada)
+        # ou dentro de gerar_gantt_por_projeto (para a visão por projeto)
+        df_para_exibir = df_filtered.copy() # df_para_exibir agora é os dados filtrados, mas SEM pulmão
         
-        # --- FIM DA LÓGICA DE APLICAÇÃO DO PULMÃO ---
+        # --- FIM DA MODIFICAÇÃO DA LÓGICA DE PULMÃO ---
 
         st.title("Macrofluxo")
         tab1, tab2 = st.tabs(["Gráfico de Gantt", "Tabelão Horizontal"])
@@ -1574,15 +1982,60 @@ with st.spinner("Carregando e processando dados..."):
             if df_para_exibir.empty:
                 st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
             else:
-                gerar_gantt(df_para_exibir.copy(), tipo_visualizacao, filtrar_nao_concluidas, df_data)
+                # --- MODIFICADO ---
+                # Passa o df_para_exibir (que é o df_filtered, sem pulmão)
+                # e também o status e os meses do pulmão
+                gerar_gantt(df_para_exibir.copy(), tipo_visualizacao, filtrar_nao_concluidas, df_data, pulmao_status, pulmao_meses)
+                # --- FIM DA MODIFICAÇÃO ---
 
             st.markdown('<div id="visao-detalhada"></div>', unsafe_allow_html=True)
             
             st.subheader("Visão Detalhada por Empreendimento")
-            if df_para_exibir.empty:
+            
+            # --- MODIFICADO ---
+            # A tabela detalhada precisa refletir o estado do pulmão da barra lateral,
+            # então precisamos aplicar a lógica de pulmão aqui também,
+            # mas apenas para esta tabela.
+            
+            df_detalhes = df_para_exibir.copy() # Começa com os dados filtrados
+
+            # Aplicar lógica de pulmão para a tabela detalhada
+            if pulmao_status == "Com Pulmão" and pulmao_meses > 0:
+                colunas_data_todas = ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]
+                colunas_data_inicio = ["Inicio_Prevista", "Inicio_Real"]
+                
+                for col in colunas_data_todas:
+                    if col in df_detalhes.columns:
+                        df_detalhes[col] = pd.to_datetime(df_detalhes[col], errors='coerce')
+
+                offset_meses = -int(pulmao_meses)
+                
+                def aplicar_offset_meses(data):
+                    if pd.isna(data) or data is pd.NaT: return pd.NaT
+                    try: return data + relativedelta(months=offset_meses)
+                    except Exception: return pd.NaT
+
+                etapas_pulmao = ["PULVENDA", "PUL.INFRA", "PUL.RAD"]
+                etapas_sem_alteracao = ["PROSPEC", "RAD", "DEM.MIN"]
+                
+                mask_nao_mexer = df_detalhes['Etapa'].isin(etapas_sem_alteracao)
+                mask_shift_inicio_apenas = df_detalhes['Etapa'].isin(etapas_pulmao)
+                mask_shift_tudo = (~mask_nao_mexer) & (~mask_shift_inicio_apenas)
+
+                for col in colunas_data_todas:
+                    if col in df_detalhes.columns:
+                        df_detalhes.loc[mask_shift_tudo, col] = df_detalhes.loc[mask_shift_tudo, col].apply(aplicar_offset_meses)
+                
+                for col in colunas_data_inicio:
+                    if col in df_detalhes.columns:
+                        df_detalhes.loc[mask_shift_inicio_apenas, col] = df_detalhes.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses)
+            # --- FIM DA LÓGICA DE PULMÃO PARA TABELA ---
+
+
+            if df_detalhes.empty: # Verifique df_detalhes em vez de df_para_exibir
                 st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
             else:
-                df_detalhes = df_para_exibir.copy()
+                # df_detalhes = df_para_exibir.copy() # Esta linha é removida, já foi definida
                 
                 empreendimentos_ordenados_por_meta = criar_ordenacao_empreendimentos(df_data)
                 
@@ -1746,36 +2199,41 @@ with st.spinner("Carregando e processando dados..."):
 
         with tab2:
             st.subheader("Tabelão Horizontal")
-
-            if df_para_exibir.empty:
+            
+            # --- MODIFICADO ---
+            # O tabelão também precisa refletir o estado do pulmão da barra lateral.
+            # Usarei o mesmo df_detalhes que foi processado para a "Visão Detalhada" na tab1.
+            # (A lógica de pulmão já foi aplicada a df_detalhes)
+            
+            if df_detalhes.empty: # Usando df_detalhes
                 st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
             else:
-                df_detalhes = df_para_exibir.copy()
+                # df_detalhes = df_para_exibir.copy() # Removido, já temos df_detalhes
                 
-                if filtrar_nao_concluidas:
-                    df_detalhes = filtrar_etapas_nao_concluidas(df_detalhes)
+                # if filtrar_nao_concluidas: # Removido, df_detalhes já foi filtrado
+                #     df_detalhes = filtrar_etapas_nao_concluidas(df_detalhes)
                 
                 hoje = pd.Timestamp.now().normalize()
 
-                df_detalhes = df_detalhes.rename(columns={
+                df_detalhes_tabelao = df_detalhes.rename(columns={
                     'Termino_prevista': 'Termino_Prevista',
                     'Termino_real': 'Termino_Real'
                 })
                 
                 for col in ['Inicio_Prevista', 'Termino_Prevista', 'Inicio_Real', 'Termino_Real']:
-                    if col in df_detalhes.columns:
-                        df_detalhes[col] = df_detalhes[col].replace('-', pd.NA)
-                        df_detalhes[col] = pd.to_datetime(df_detalhes[col], errors='coerce')
+                    if col in df_detalhes_tabelao.columns:
+                        df_detalhes_tabelao[col] = df_detalhes_tabelao[col].replace('-', pd.NA)
+                        df_detalhes_tabelao[col] = pd.to_datetime(df_detalhes_tabelao[col], errors='coerce')
 
-                df_detalhes['Conclusao_Valida'] = False
-                if '% concluído' in df_detalhes.columns:
+                df_detalhes_tabelao['Conclusao_Valida'] = False
+                if '% concluído' in df_detalhes_tabelao.columns:
                     mask = (
-                        (df_detalhes['% concluído'] == 100) &
-                        (df_detalhes['Termino_Real'].notna()) &
-                        ((df_detalhes['Termino_Prevista'].isna()) |
-                        (df_detalhes['Termino_Real'] <= df_detalhes['Termino_Prevista']))
+                        (df_detalhes_tabelao['% concluído'] == 100) &
+                        (df_detalhes_tabelao['Termino_Real'].notna()) &
+                        ((df_detalhes_tabelao['Termino_Prevista'].isna()) |
+                        (df_detalhes_tabelao['Termino_Real'] <= df_detalhes_tabelao['Termino_Prevista']))
                     )
-                    df_detalhes.loc[mask, 'Conclusao_Valida'] = True
+                    df_detalhes_tabelao.loc[mask, 'Conclusao_Valida'] = True
 
                 st.write("---")
                 col1, col2 = st.columns(2)
@@ -1804,14 +2262,14 @@ with st.spinner("Carregando e processando dados..."):
                     )
 
                 ordem_etapas_completas = list(sigla_para_nome_completo.keys())
-                df_detalhes['Etapa_Ordem'] = df_detalhes['Etapa'].apply(
+                df_detalhes_tabelao['Etapa_Ordem'] = df_detalhes_tabelao['Etapa'].apply(
                     lambda x: ordem_etapas_completas.index(x) if x in ordem_etapas_completas else len(ordem_etapas_completas)
                 )
                 
                 if classificar_por in ['Data de Início Previsto (Mais antiga)', 'Data de Término Previsto (Mais recente)']:
                     coluna_data = 'Inicio_Prevista' if 'Início' in classificar_por else 'Termino_Prevista'
                     
-                    df_detalhes_ordenado = df_detalhes.sort_values(
+                    df_detalhes_ordenado = df_detalhes_tabelao.sort_values(
                         by=[coluna_data, 'UGB', 'Empreendimento', 'Etapa'],
                         ascending=[ordem == 'Crescente', True, True, True],
                         na_position='last'
@@ -1825,7 +2283,7 @@ with st.spinner("Carregando e processando dados..."):
                     )
                     ordem_ugb_emp['ordem_index'] = range(len(ordem_ugb_emp))
                     
-                    df_detalhes = df_detalhes.merge(
+                    df_detalhes_tabelao = df_detalhes_tabelao.merge(
                         ordem_ugb_emp[['UGB', 'Empreendimento', 'ordem_index']],
                         on=['UGB', 'Empreendimento'],
                         how='left'
@@ -1839,15 +2297,15 @@ with st.spinner("Carregando e processando dados..."):
                     'Concluido_Valido': ('Conclusao_Valida', 'any')
                 }
                 
-                if '% concluído' in df_detalhes.columns:
+                if '% concluído' in df_detalhes_tabelao.columns:
                     agg_dict['Percentual_Concluido'] = ('% concluído', 'max')
-                    if not df_detalhes.empty and df_detalhes['% concluído'].max() <= 1:
-                        df_detalhes['% concluído'] *= 100
+                    if not df_detalhes_tabelao.empty and df_detalhes_tabelao['% concluído'].max() <= 1:
+                        df_detalhes_tabelao['% concluído'] *= 100
 
-                if 'ordem_index' in df_detalhes.columns:
+                if 'ordem_index' in df_detalhes_tabelao.columns:
                     agg_dict['ordem_index'] = ('ordem_index', 'first')
 
-                df_agregado = df_detalhes.groupby(['UGB', 'Empreendimento', 'Etapa']).agg(**agg_dict).reset_index()
+                df_agregado = df_detalhes_tabelao.groupby(['UGB', 'Empreendimento', 'Etapa']).agg(**agg_dict).reset_index()
                 
                 df_agregado['Var. Term'] = df_agregado.apply(lambda row: calculate_business_days(row['Termino_Prevista'], row['Termino_Real']), axis=1)
 
