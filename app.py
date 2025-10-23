@@ -11,8 +11,11 @@ import matplotlib.gridspec as gridspec
 from datetime import datetime, timedelta
 import holidays
 from dateutil.relativedelta import relativedelta
-# Assumindo que você tem esses arquivos .py no mesmo diretório
-# Se não, comente as linhas que os importam
+import traceback
+import streamlit.components.v1 as components
+import json
+import random
+
 try:
     from dropdown_component import simple_multiselect_dropdown
     from popup import show_welcome_screen
@@ -28,12 +31,6 @@ except ImportError:
         if pd.isna(start) or pd.isna(end):
             return None
         return np.busday_count(pd.to_datetime(start).date(), pd.to_datetime(end).date())
-
-
-import traceback
-import streamlit.components.v1 as components
-import json
-import random
 
 # --- Bloco de Importação de Dados ---
 try:
@@ -422,51 +419,15 @@ def aplicar_ordenacao_final(df, empreendimentos_ordenados):
 
 # --- CÓDIGO MODIFICADO ---
 # Substitua sua função gerar_gantt_por_projeto inteira por esta
-# --- CÓDIGO MODIFICADO ---
-# Substitua sua função gerar_gantt_por_projeto inteira por esta
 def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses):
     
-    # --- Início da Lógica de Pulmão ---
-    # df (recebido) é o "sem pulmão"
-    df_sem_pulmao = df.copy() 
+    # --- INÍCIO DA MODIFICAÇÃO ---
+    # Não calculamos mais o df_com_pulmao aqui.
+    # Apenas processamos o df (que é "sem pulmão")
+    df_sem_pulmao = df.copy()
+    # --- FIM DA MODIFICAÇÃO ---
 
-    # Aplicar lógica de pulmão para criar o df_com_pulmao
-    df_com_pulmao = df.copy()
-    if pulmao_meses > 0:
-        colunas_data_todas = ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]
-        colunas_data_inicio = ["Inicio_Prevista", "Inicio_Real"]
-        
-        for col in colunas_data_todas:
-            if col in df_com_pulmao.columns:
-                df_com_pulmao[col] = pd.to_datetime(df_com_pulmao[col], errors='coerce')
-
-        offset_meses = -int(pulmao_meses) # NEGATIVO para antecipar a data
-        
-        def aplicar_offset_meses(data):
-            if pd.isna(data) or data is pd.NaT:
-                return pd.NaT
-            try:
-                return data + relativedelta(months=offset_meses)
-            except Exception as e:
-                return pd.NaT
-
-        etapas_pulmao = ["PULVENDA", "PUL.INFRA", "PUL.RAD"]
-        etapas_sem_alteracao = ["PROSPEC", "RAD", "DEM.MIN"]
-        
-        mask_nao_mexer = df_com_pulmao['Etapa'].isin(etapas_sem_alteracao)
-        mask_shift_inicio_apenas = df_com_pulmao['Etapa'].isin(etapas_pulmao)
-        mask_shift_tudo = (~mask_nao_mexer) & (~mask_shift_inicio_apenas)
-
-        for col in colunas_data_todas:
-            if col in df_com_pulmao.columns:
-                df_com_pulmao.loc[mask_shift_tudo, col] = df_com_pulmao.loc[mask_shift_tudo, col].apply(aplicar_offset_meses)
-        
-        for col in colunas_data_inicio:
-            if col in df_com_pulmao.columns:
-                df_com_pulmao.loc[mask_shift_inicio_apenas, col] = df_com_pulmao.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses)
-    # --- Fim da Lógica de Pulmão ---
-
-    # --- Processar DF SEM PULMÃO ---
+    # --- Processar DF SEM PULMÃO (AGORA O ÚNICO DF) ---
     df_gantt_sem_pulmao = df_sem_pulmao.copy()
     if "Empreendimento" in df_gantt_sem_pulmao.columns:
         df_gantt_sem_pulmao["Empreendimento"] = df_gantt_sem_pulmao["Empreendimento"].apply(abreviar_nome)
@@ -484,31 +445,20 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         SETOR=('SETOR', 'first')
     ).reset_index()
     df_gantt_agg_sem_pulmao["Etapa"] = df_gantt_agg_sem_pulmao["Etapa"].map(sigla_para_nome_completo).fillna(df_gantt_agg_sem_pulmao["Etapa"])
-    gantt_data_sem_pulmao = converter_dados_para_gantt(df_gantt_agg_sem_pulmao)
+    
+    # --- INÍCIO DA MODIFICAÇÃO ---
+    # Este é agora o único conjunto de dados que vamos gerar
+    gantt_data_base = converter_dados_para_gantt(df_gantt_agg_sem_pulmao)
+    # --- FIM DA MODIFICAÇÃO ---
 
-    # --- Processar DF COM PULMÃO ---
-    df_gantt_com_pulmao = df_com_pulmao.copy()
-    if "Empreendimento" in df_gantt_com_pulmao.columns:
-        df_gantt_com_pulmao["Empreendimento"] = df_gantt_com_pulmao["Empreendimento"].apply(abreviar_nome)
-    for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
-        if col in df_gantt_com_pulmao.columns:
-            df_gantt_com_pulmao[col] = pd.to_datetime(df_gantt_com_pulmao[col], errors="coerce")
-    if "% concluído" not in df_gantt_com_pulmao.columns: df_gantt_com_pulmao["% concluído"] = 0
-    df_gantt_com_pulmao["% concluído"] = df_gantt_com_pulmao["% concluído"].fillna(0).apply(converter_porcentagem)
-    df_gantt_agg_com_pulmao = df_gantt_com_pulmao.groupby(['Empreendimento', 'Etapa']).agg(
-        Inicio_Prevista=('Inicio_Prevista', 'min'),
-        Termino_Prevista=('Termino_Prevista', 'max'),
-        Inicio_Real=('Inicio_Real', 'min'),
-        Termino_Real=('Termino_Real', 'max'),
-        **{'% concluído': ('% concluído', 'max')},
-        SETOR=('SETOR', 'first')
-    ).reset_index()
-    df_gantt_agg_com_pulmao["Etapa"] = df_gantt_agg_com_pulmao["Etapa"].map(sigla_para_nome_completo).fillna(df_gantt_agg_com_pulmao["Etapa"])
-    gantt_data_com_pulmao = converter_dados_para_gantt(df_gantt_agg_com_pulmao)
 
-    # --- Fim do processamento duplicado ---
-
-    if not gantt_data_sem_pulmao and not gantt_data_com_pulmao:
+    # --- INÍCIO DA MODIFICAÇÃO ---
+    # Removemos todo o processamento duplicado para 'df_com_pulmao'
+    # --- FIM DA MODIFICAÇÃO ---
+    
+    # --- INÍCIO DA MODIFICAÇÃO ---
+    if not gantt_data_base:
+    # --- FIM DA MODIFICAÇÃO ---
         st.warning("Nenhum dado válido para o Gantt após a conversão.")
         return
 
@@ -523,40 +473,29 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
     empreendimentos_ordenados = criar_ordenacao_empreendimentos(df_original_para_ordenacao)
     
     # Criar dicionários para acesso rápido
-    projects_sem_pulmao_dict = {project['name']: project for project in gantt_data_sem_pulmao}
-    projects_com_pulmao_dict = {project['name']: project for project in gantt_data_com_pulmao}
+    # --- INÍCIO DA MODIFICAÇÃO ---
+    projects_base_dict = {project['name']: project for project in gantt_data_base}
+    # --- FIM DA MODIFICAÇÃO ---
     
     for empreendimento_nome in empreendimentos_ordenados:
         
-        # Obter ambos os projetos
-        project_sem_pulmao = projects_sem_pulmao_dict.get(empreendimento_nome)
-        project_com_pulmao = projects_com_pulmao_dict.get(empreendimento_nome)
+        # --- INÍCIO DA MODIFICAÇÃO ---
+        # Obter apenas o projeto base (sem pulmão)
+        project_base = projects_base_dict.get(empreendimento_nome)
         
         # Determinar o projeto inicial e as tarefas
-        if pulmao_status == "Com Pulmão":
-            project = project_com_pulmao
-            df_para_datas = df_gantt_agg_com_pulmao[df_gantt_agg_com_pulmao["Empreendimento"] == empreendimento_nome]
-        else:
-            project = project_sem_pulmao
-            df_para_datas = df_gantt_agg_sem_pulmao[df_gantt_agg_sem_pulmao["Empreendimento"] == empreendimento_nome]
+        # O estado inicial do pulmão (da sidebar) SÓ é usado para
+        # determinar o df_para_datas (para o zoom inicial)
+        # e o 'project' inicial. O JS vai recalcular depois.
+        project = project_base # Começa com o base
+        df_para_datas = df_gantt_agg_sem_pulmao[df_gantt_agg_sem_pulmao["Empreendimento"] == empreendimento_nome]
 
-        # Pular se o projeto não existir no estado inicial (ou em ambos)
         if not project:
-            # Se não existir no estado inicial, tentar pegar o outro
-            if pulmao_status == "Com Pulmão" and project_sem_pulmao:
-                project = project_sem_pulmao
-                df_para_datas = df_gantt_agg_sem_pulmao[df_gantt_agg_sem_pulmao["Empreendimento"] == empreendimento_nome]
-            elif pulmao_status == "Sem Pulmão" and project_com_pulmao:
-                project = project_com_pulmao
-                df_para_datas = df_gantt_agg_com_pulmao[df_gantt_agg_com_pulmao["Empreendimento"] == empreendimento_nome]
-            else:
-                # Se não existir em nenhum, pular
-                continue
+            continue # Pula se não houver dados base
 
-        tasks_sem_pulmao = project_sem_pulmao['tasks'] if project_sem_pulmao else []
-        tasks_com_pulmao = project_com_pulmao['tasks'] if project_com_pulmao else []
-        
-        # --- Fim das modificações de dados ---
+        # Passamos APENAS as tarefas base (sem pulmão) para o JS
+        tasks_base_data = project_base['tasks'] if project_base else []
+        # --- FIM DA MODIFICAÇÃO ---
 
         data_min_proj, data_max_proj = calcular_periodo_datas(df_para_datas)
         total_meses_proj = ((data_max_proj.year - data_min_proj.year) * 12) + (data_max_proj.month - data_min_proj.month) + 1
@@ -566,6 +505,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         
         altura_gantt = max(500, (num_tasks * 38) + 150)
 
+        # O HTML/CSS permanece o mesmo
         gantt_html = f"""
             <!DOCTYPE html>
             <html lang="pt-BR">
@@ -600,13 +540,32 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     .sidebar-rows-container .sidebar-row:last-child {{ border-bottom: none; }}
                     .sidebar-row:hover {{ background-color: #f5f8ff; }}
                     .sidebar-cell.task-name-cell {{ justify-content: flex-start; font-weight: 600; color: #2d3748; }}
-                    .status-box-inner {{ width: 115%; height: 15px; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 8px; font-weight: 700; padding: 0 5px; white-space: nowrap; border: 1px solid transparent; }}
-                    .status-box-inner.status-green {{ background-color: #E6F4EA; color: #1E8449; border-color: #A9DFBF; }}
-                    .status-box-inner.status-red   {{ background-color: #FDEBEB; color: #C0392B; border-color: #F5B7B1; }}
-                    .status-box-inner.status-yellow{{ background-color: #FEF7E6; color: #B9770E; border-color: #FAD7A0; }}
-                    .status-box-inner.status-default{{ background-color: #F4F6F7; color: #566573; border-color: #D5DBDB; }}
-                    .sidebar-row .sidebar-cell:nth-child(2), .sidebar-row .sidebar-cell:nth-child(3), .sidebar-row .sidebar-cell:nth-child(5), .sidebar-row .sidebar-cell:nth-child(6) {{ font-size: 8px; }}
-                    .sidebar-row .sidebar-cell:nth-child(8) .status-box-inner {{ font-size: 10.5px; }}
+                    
+                    /* --- INÍCIO DAS MODIFICAÇÕES CSS --- */
+                    
+                    /* 1. REGRA .status-box-inner REMOVIDA */
+                    
+                    /* 2. Regras de cor movidas para .sidebar-cell e sem background */
+                    .sidebar-cell.status-green {{ color: #1E8449; font-weight: 700; }}
+                    .sidebar-cell.status-red   {{ color: #C0392B; font-weight: 700; }}
+                    .sidebar-cell.status-yellow{{ color: #B9770E; font-weight: 700; }}
+                    .sidebar-cell.status-default{{ color: #566573; font-weight: 700; }}
+
+                    /* 3. Regra de font-size atualizada para incluir durações, %, VT e VD */
+                    .sidebar-row .sidebar-cell:nth-child(2), 
+                    .sidebar-row .sidebar-cell:nth-child(3), 
+                    .sidebar-row .sidebar-cell:nth-child(4),
+                    .sidebar-row .sidebar-cell:nth-child(5), 
+                    .sidebar-row .sidebar-cell:nth-child(6),
+                    .sidebar-row .sidebar-cell:nth-child(7),
+                    .sidebar-row .sidebar-cell:nth-child(8),
+                    .sidebar-row .sidebar-cell:nth-child(9),
+                    .sidebar-row .sidebar-cell:nth-child(10) {{ font-size: 8px; }}
+                    
+                    /* A regra .sidebar-row .sidebar-cell:nth-child(8) .status-box-inner foi removida */
+                    
+                    /* --- FIM DAS MODIFICAÇÕES CSS --- */
+                    
                     .gantt-row-spacer {{height: 22px;background-color: #ffffff;position: relative;z-index: 5;border: none;border-bottom: 1px solid #e2e8f0;}}
                     .gantt-sidebar-wrapper.collapsed {{ width: 250px; }}
                     .gantt-sidebar-wrapper.collapsed .sidebar-grid-header, .gantt-sidebar-wrapper.collapsed .sidebar-row {{ grid-template-columns: 1fr; padding: 0 15px 0 10px; }}
@@ -816,9 +775,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     const formatDateDisplay_{project["id"]} = (dateStr) => {{
                         if (!dateStr) return "N/D";
                         const d = parseDate(dateStr); // parseDate já existe no seu código
-                        // --- INÍCIO DA CORREÇÃO ---
                         if (!d || isNaN(d.getTime())) return "N/D"; // Verifica se 'd' é null OU uma Data Inválida
-                        // --- FIM DA CORREÇÃO ---
                         const day = String(d.getUTCDate()).padStart(2, '0');
                         const month = String(d.getUTCMonth() + 1).padStart(2, '0');
                         const year = String(d.getUTCFullYear()).slice(-2);
@@ -829,9 +786,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     function addMonths_{project["id"]}(dateStr, months) {{
                         if (!dateStr) return null;
                         const date = parseDate(dateStr); // re-usa sua função parseDate
-                        // --- INÍCIO DA CORREÇÃO ---
                         if (!date || isNaN(date.getTime())) return null; // Verifica se 'date' é null OU uma Data Inválida
-                        // --- FIM DA CORREÇÃO ---
                         
                         const originalDay = date.getUTCDate();
                         date.setUTCMonth(date.getUTCMonth() + months);
@@ -847,9 +802,17 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                     // --- INÍCIO DAS MODIFICAÇÕES: Dados do Filtro ---
                     const filterOptions_{project["id"]} = {json.dumps(filter_options)};
-                    // Salva as tarefas originais para poder re-filtrar
-                    const allTasks_semPulmao_{project["id"]} = {json.dumps(tasks_sem_pulmao)};
-                    const allTasks_comPulmao_{project["id"]} = {json.dumps(tasks_com_pulmao)};
+                    
+                    // #############################################
+                    // ##### INÍCIO DA MODIFICAÇÃO PRINCIPAL #####
+                    // #############################################
+                    // Passamos APENAS os dados base (sem pulmão)
+                    const allTasks_baseData_{project["id"]} = {json.dumps(tasks_base_data)};
+                    // Removemos allTasks_comPulmao_
+                    // #############################################
+                    // ##### FIM DA MODIFICAÇÃO PRINCIPAL ######
+                    // #############################################
+                    
                     let pulmaoStatus_{project["id"]} = '{pulmao_status}'; // "Com Pulmão" ou "Sem Pulmão"
                     let filtersPopulated_{project["id"]} = false;
                     // --- FIM DAS MODIFICAÇÕES ---
@@ -857,6 +820,12 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     function parseDate(dateStr) {{ if (!dateStr) return null; const [year, month, day] = dateStr.split('-').map(Number); return new Date(Date.UTC(year, month - 1, day)); }}
 
                     function initGantt_{project["id"]}() {{
+                        // --- INÍCIO DA MODIFICAÇÃO ---
+                        // A renderização inicial deve respeitar o estado do pulmão da sidebar
+                        // Aplicamos o filtro inicial ANTES de renderizar pela primeira vez
+                        applyInitialPulmaoState_{project["id"]}();
+                        // --- FIM DA MODIFICAÇÃO ---
+
                         renderSidebar_{project["id"]}();
                         renderHeader_{project["id"]}();
                         renderChart_{project["id"]}();
@@ -867,6 +836,51 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         // Popula os filtros (mas eles estão escondidos)
                         populateFilters_{project["id"]}();
                     }}
+
+                    // --- INÍCIO DA MODIFICAÇÃO ---
+                    // Nova função para aplicar o estado de pulmão inicial (da sidebar)
+                    // aos dados do projeto antes da primeira renderização
+                    function applyInitialPulmaoState_{project["id"]}() {{
+                        const initialPulmaoStatus = '{pulmao_status}';
+                        const initialPulmaoMeses = {pulmao_meses};
+                        
+                        // Se o estado inicial for "Com Pulmão", modificamos os dados
+                        // em projectData_ ANTES da primeira renderização
+                        if (initialPulmaoStatus === 'Com Pulmão' && initialPulmaoMeses > 0) {{
+                            const offsetMeses = -initialPulmaoMeses;
+                            let baseTasks = projectData_{project["id"]}[0].tasks; // Modifica os dados do projeto diretamente
+
+                            baseTasks.forEach(task => {{
+                                const etapaNome = task.name;
+                                if (etapas_sem_alteracao_{project["id"]}.includes(etapaNome)) {{
+                                }} 
+                                else if (etapas_pulmao_{project["id"]}.includes(etapaNome)) {{
+                                    task.start_previsto = addMonths_{project["id"]}(task.start_previsto, offsetMeses);
+                                    task.start_real = addMonths_{project["id"]}(task.start_real, offsetMeses);
+                                    task.inicio_previsto = formatDateDisplay_{project["id"]}(task.start_previsto);
+                                    task.inicio_real = formatDateDisplay_{project["id"]}(task.start_real);
+                                }} 
+                                else {{
+                                    task.start_previsto = addMonths_{project["id"]}(task.start_previsto, offsetMeses);
+                                    task.end_previsto = addMonths_{project["id"]}(task.end_previsto, offsetMeses);
+                                    task.start_real = addMonths_{project["id"]}(task.start_real, offsetMeses);
+                                    
+                                    if (task.end_real_original_raw) {{
+                                        task.end_real_original_raw = addMonths_{project["id"]}(task.end_real_original_raw, offsetMeses);
+                                        task.end_real = task.end_real_original_raw;
+                                    }} else if (task.end_real) {{ 
+                                        task.end_real = addMonths_{project["id"]}(task.end_real, offsetMeses); 
+                                    }}
+                                    task.inicio_previsto = formatDateDisplay_{project["id"]}(task.start_previsto);
+                                    task.termino_previsto = formatDateDisplay_{project["id"]}(task.end_previsto);
+                                    task.inicio_real = formatDateDisplay_{project["id"]}(task.start_real);
+                                    task.termino_real = formatDateDisplay_{project["id"]}(task.end_real_original_raw); 
+                                }}
+                            }});
+                        }}
+                        // Se for "Sem Pulmão", projectData_ já está correto
+                    }}
+                    // --- FIM DA MODIFICAÇÃO ---
 
                     function renderSidebar_{project["id"]}() {{
                         const sidebarContent = document.getElementById('gantt-sidebar-content-{project["id"]}');
@@ -891,7 +905,12 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                 if (task) {{
                                     globalRowIndex++;
                                     const rowClass = globalRowIndex % 2 !== 0 ? 'odd-row' : '';
-                                    html += `<div class="sidebar-row ${{rowClass}}"><div class="sidebar-cell task-name-cell" title="${{task.numero_etapa}}. ${{task.name}}">${{task.numero_etapa}}. ${{task.name}}</div><div class="sidebar-cell">${{task.inicio_previsto}}</div><div class="sidebar-cell">${{task.termino_previsto}}</div><div class="sidebar-cell">${{task.duracao_prev_meses}}</div><div class="sidebar-cell">${{task.inicio_real}}</div><div class="sidebar-cell">${{task.termino_real}}</div><div class="sidebar-cell">${{task.duracao_real_meses}}</div><div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.progress}}%</div></div><div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.vt_text}}</div></div><div class="sidebar-cell"><div class="status-box-inner ${{task.status_color_class}}">${{task.vd_text}}</div></div></div>`;
+                                    
+                                    /* --- INÍCIO DA MODIFICAÇÃO JS --- */
+                                    // Removemos os divs internos .status-box-inner e aplicamos a classe de cor na célula
+                                    html += `<div class="sidebar-row ${{rowClass}}"><div class="sidebar-cell task-name-cell" title="${{task.numero_etapa}}. ${{task.name}}">${{task.numero_etapa}}. ${{task.name}}</div><div class="sidebar-cell">${{task.inicio_previsto}}</div><div class="sidebar-cell">${{task.termino_previsto}}</div><div class="sidebar-cell">${{task.duracao_prev_meses}}</div><div class="sidebar-cell">${{task.inicio_real}}</div><div class="sidebar-cell">${{task.termino_real}}</div><div class="sidebar-cell">${{task.duracao_real_meses}}</div><div class="sidebar-cell ${{task.status_color_class}}">${{task.progress}}%</div><div class="sidebar-cell ${{task.status_color_class}}">${{task.vt_text}}</div><div class="sidebar-cell ${{task.status_color_class}}">${{task.vd_text}}</div></div>`;
+                                    /* --- FIM DA MODIFICAÇÃO JS --- */
+                                    
                                 }}
                             }});
                             html += `</div></div>`;
@@ -1173,25 +1192,67 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         const selConcluidas = document.getElementById('filter-concluidas-{project["id"]}').checked;
                         const selVis = document.querySelector(`input[name="filter-vis-{project['id']}"]:checked`).value;
                         const selPulmao = document.querySelector(`input[name="filter-pulmao-{project['id']}"]:checked`).value;
-                        // const selPulmaoMeses = parseInt(document.getElementById('filter-pulmao-meses-{project["id"]}').value, 10) || 0; // Não precisamos mais ler os meses aqui
-
-                        let baseTasks;
-
-                        // ==== INÍCIO DA MODIFICAÇÃO ====
-                        // Escolhe o conjunto de dados CORRETO pré-calculado pelo Python
-                        if (selPulmao === 'Com Pulmão') {{
-                             // Usa a cópia profunda dos dados COM pulmão
-                            baseTasks = JSON.parse(JSON.stringify(allTasks_comPulmao_{project["id"]}));
-                        }} else {{
-                             // Usa a cópia profunda dos dados SEM pulmão
-                            baseTasks = JSON.parse(JSON.stringify(allTasks_semPulmao_{project["id"]}));
+                        
+                        // #### INÍCIO DA MODIFICAÇÃO ####
+                        // Lê os meses do *filtro flutuante*
+                        const selPulmaoMeses = parseInt(document.getElementById('filter-pulmao-meses-{project["id"]}').value, 10) || 0;
+                        
+                        // Sempre começa com os dados base (Sem Pulmão)
+                        // Usamos JSON.parse/stringify para fazer uma cópia profunda e não poluir os dados originais
+                        let baseTasks = JSON.parse(JSON.stringify(allTasks_baseData_{project["id"]}));
+                        
+                        // Se "Com Pulmão" estiver selecionado no filtro flutuante, aplica a lógica de data dinamicamente
+                        if (selPulmao === 'Com Pulmão' && selPulmaoMeses > 0) {{
+                            const offsetMeses = -selPulmaoMeses; // Negativo para antecipar a data
+                            
+                            baseTasks.forEach(task => {{
+                                const etapaNome = task.name; // 'name' tem o nome completo, ex: "PROSPECÇÃO"
+                                
+                                // Verifica se a etapa NÃO DEVE ser alterada
+                                if (etapas_sem_alteracao_{project["id"]}.includes(etapaNome)) {{
+                                    // Nenhuma data é alterada
+                                }} 
+                                // Verifica se é uma etapa de pulmão (só altera início)
+                                else if (etapas_pulmao_{project["id"]}.includes(etapaNome)) {{
+                                    // Altera datas de 'YYYY-MM-DD'
+                                    task.start_previsto = addMonths_{project["id"]}(task.start_previsto, offsetMeses);
+                                    task.start_real = addMonths_{project["id"]}(task.start_real, offsetMeses);
+                                    
+                                    // Atualiza datas de display 'DD/MM/YY'
+                                    task.inicio_previsto = formatDateDisplay_{project["id"]}(task.start_previsto);
+                                    task.inicio_real = formatDateDisplay_{project["id"]}(task.start_real);
+                                }} 
+                                // Todas as outras etapas (altera tudo)
+                                else {{
+                                    // Altera datas de 'YYYY-MM-DD'
+                                    task.start_previsto = addMonths_{project["id"]}(task.start_previsto, offsetMeses);
+                                    task.end_previsto = addMonths_{project["id"]}(task.end_previsto, offsetMeses);
+                                    task.start_real = addMonths_{project["id"]}(task.start_real, offsetMeses);
+                                    
+                                    // Lógica especial para end_real
+                                    // end_real_original_raw é a data de término real (se houver)
+                                    // end_real é a data visual (pode ser 'hoje' se não concluído)
+                                    if (task.end_real_original_raw) {{
+                                        task.end_real_original_raw = addMonths_{project["id"]}(task.end_real_original_raw, offsetMeses);
+                                        task.end_real = task.end_real_original_raw; // O visual é o original
+                                    }} else if (task.end_real) {{ 
+                                        // Se não há original, mas há visual (data de 'hoje'), shifta o 'hoje'
+                                        task.end_real = addMonths_{project["id"]}(task.end_real, offsetMeses); 
+                                    }}
+        
+                                    // Atualiza datas de display 'DD/MM/YY'
+                                    task.inicio_previsto = formatDateDisplay_{project["id"]}(task.start_previsto);
+                                    task.termino_previsto = formatDateDisplay_{project["id"]}(task.end_previsto);
+                                    task.inicio_real = formatDateDisplay_{project["id"]}(task.start_real);
+                                    // A tabela mostra a data de término original
+                                    task.termino_real = formatDateDisplay_{project["id"]}(task.end_real_original_raw); 
+                                }}
+                            }});
                         }}
-                        // Removemos toda a lógica complexa de recalcular datas com addMonths_ daqui.
-                        // Usamos diretamente os dados que o Python já calculou.
-                        // ==== FIM DA MODIFICAÇÃO ====
+                        // #### FIM DA MODIFICAÇÃO ####
 
-                        let filteredTasks = baseTasks; // Começa com o conjunto de dados correto
-
+                        let filteredTasks = baseTasks; // Começa com o conjunto de dados correto (modificado ou não)
+                        
                         // 2. Aplicar filtros de Setor, Grupo, Etapa e Concluídas
                         if (selSetor !== 'Todos') {{
                             filteredTasks = filteredTasks.filter(t => t.setor === selSetor);
