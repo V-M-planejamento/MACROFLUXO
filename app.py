@@ -615,7 +615,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     .gantt-bar.previsto .bar-label {{ color: #6C6C6C; }}
                     .tooltip {{ position: fixed; background-color: #2d3748; color: white; padding: 6px 10px; border-radius: 4px; font-size: 11px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none; opacity: 0; transition: opacity 0.2s ease; max-width: 220px; }}
                     .tooltip.show {{ opacity: 1; }}
-                    .today-line {{ position: absolute; top: 60px; bottom: 0; width: 2px; background-color: #e53e3e; z-index: 5; box-shadow: 0 0 4px rgba(229, 62, 62, 0.6); }}
+                    .today-line {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #fdf1f1; z-index: 5; box-shadow: 0 0 1px rgba(229, 62, 62, 0.6); }}
                     .month-divider {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #fcf6f6; z-index: 4; pointer-events: none; }}
                     .month-divider.first {{ background-color: #eeeeee; width: 1px; }}
                     .meta-line {{ position: absolute; top: 60px; bottom: 0; width: 2px; border-left: 2px dashed #8e44ad; z-index: 5; box-shadow: 0 0 4px rgba(142, 68, 173, 0.6); }}
@@ -1617,7 +1617,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 .gantt-bar.previsto .bar-label {{ color: #6C6C6C; }}
                 .tooltip {{ position: fixed; background-color: #2d3748; color: white; padding: 6px 10px; border-radius: 4px; font-size: 11px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none; opacity: 0; transition: opacity 0.2s ease; max-width: 220px; }}
                 .tooltip.show {{ opacity: 1; }}
-                .today-line {{ position: absolute; top: 60px; bottom: 0; width: 2px; background-color: #e53e3e; z-index: 5; box-shadow: 0 0 4px rgba(229, 62, 62, 0.6); }}
+                .today-line {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #fdf1f1; z-index: 5; box-shadow: 0 0 1px rgba(229, 62, 62, 0.6); }}
                 .month-divider {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #fcf6f6; z-index: 4; pointer-events: none; }}
                 .month-divider.first {{ background-color: #eeeeee; width: 1px; }}
                 
@@ -2322,8 +2322,6 @@ def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_
         else:
         # Passa o DF *não* processado e os parâmetros de pulmão
             gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses)
-# --- FIM DA MODIFICAÇÃO ---
-
 
 # O restante do código Streamlit...
 
