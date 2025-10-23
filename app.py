@@ -2270,10 +2270,9 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         </html>
     """
     components.html(gantt_html, height=altura_gantt, scrolling=True)
-    # Não há st.markdown("---") no consolidado, pois ele não é parte de um loop
+    # st.markdown("---") no consolidado, pois ele não é parte de um loop
 
 # --- FUNÇÃO PRINCIPAL DE GANTT (DISPATCHER) ---
-# --- MODIFICADO ---
 def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_ordenacao, pulmao_status, pulmao_meses):
     if df.empty:
         st.warning("Sem dados disponíveis para exibir o Gantt.")
@@ -2285,43 +2284,41 @@ def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_
     if is_single_etapa_view:
         st.info("Exibindo visão comparativa para a etapa selecionada.")
         
-        # --- LÓGICA DE PULMÃO REMOVIDA DAQUI ---
-        # A lógica de pulmão agora é passada para o JS dentro do gerar_gantt_consolidado
-        df_para_consolidado = df.copy() 
-        
-        # --- PARÂMETROS DE PULMÃO SÃO PASSADOS ADIANTE ---
-        gerar_gantt_consolidado(df_para_consolidado, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses)
-    else:
-        # Visão por projeto (lógica original mantida)
-        # Passa o DF *não* processado e os parâmetros de pulmão
-        gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses)
-# --- FIM DA MODIFICAÇÃO ---
+        # --- Aplicar lógica de pulmão AQUI para a visão consolidada ---
+        df_para_consolidado = df.copy()
+        if pulmao_status == "Com Pulmão" and pulmao_meses > 0:
+            colunas_data_todas = ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]
+            colunas_data_inicio = ["Inicio_Prevista", "Inicio_Real"]
             
-        def aplicar_offset_meses(data):
+            for col in colunas_data_todas:
+                if col in df_para_consolidado.columns:
+                    df_para_consolidado[col] = pd.to_datetime(df_para_consolidado[col], errors='coerce')
+
+            offset_meses = -int(pulmao_meses)
+            
+            def aplicar_offset_meses(data):
                 if pd.isna(data) or data is pd.NaT: return pd.NaT
                 try: return data + relativedelta(months=offset_meses)
                 except Exception: return pd.NaT
 
-        etapas_pulmao = ["PULVENDA", "PUL.INFRA", "PUL.RAD"]
-        etapas_sem_alteracao = ["PROSPEC", "RAD", "DEM.MIN"]
-        
-        mask_nao_mexer = df_para_consolidado['Etapa'].isin(etapas_sem_alteracao)
-        mask_shift_inicio_apenas = df_para_consolidado['Etapa'].isin(etapas_pulmao)
-        mask_shift_tudo = (~mask_nao_mexer) & (~mask_shift_inicio_apenas)
+            etapas_pulmao = ["PULVENDA", "PUL.INFRA", "PUL.RAD"]
+            etapas_sem_alteracao = ["PROSPEC", "RAD", "DEM.MIN"]
+            
+            mask_nao_mexer = df_para_consolidado['Etapa'].isin(etapas_sem_alteracao)
+            mask_shift_inicio_apenas = df_para_consolidado['Etapa'].isin(etapas_pulmao)
+            mask_shift_tudo = (~mask_nao_mexer) & (~mask_shift_inicio_apenas)
 
-        for col in colunas_data_todas:
-            if col in df_para_consolidado.columns:
-                df_para_consolidado.loc[mask_shift_tudo, col] = df_para_consolidado.loc[mask_shift_tudo, col].apply(aplicar_offset_meses)
-        
-        for col in colunas_data_inicio:
-            if col in df_para_consolidado.columns:
-                df_para_consolidado.loc[mask_shift_inicio_apenas, col] = df_para_consolidado.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses)
-        # --- Fim da lógica ---
+            for col in colunas_data_todas:
+                if col in df_para_consolidado.columns:
+                    df_para_consolidado.loc[mask_shift_tudo, col] = df_para_consolidado.loc[mask_shift_tudo, col].apply(aplicar_offset_meses)
+            
+            for col in colunas_data_inicio:
+                if col in df_para_consolidado.columns:
+                    df_para_consolidado.loc[mask_shift_inicio_apenas, col] = df_para_consolidado.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses)
 
-            gerar_gantt_consolidado(df_para_consolidado, tipo_visualizacao, df_original_para_ordenacao)
-        else:
-        # Passa o DF *não* processado e os parâmetros de pulmão
-            gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses)
+        gerar_gantt_consolidado(df_para_consolidado, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses)
+    else:
+        gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses)
 
 # O restante do código Streamlit...
 
