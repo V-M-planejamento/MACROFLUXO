@@ -419,19 +419,35 @@ def aplicar_ordenacao_final(df, empreendimentos_ordenados):
 
 
 def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses):
-
-    df_sem_pulmao = df.copy()
-    # --- FIM DA MODIFICAÇÃO ---
+    """
+    Gera e exibe um gráfico de Gantt interativo para cada projeto.
+    
+    Args:
+        df (pd.DataFrame): O DataFrame filtrado pelo Streamlit (estado "Sem Pulmão").
+        tipo_visualizacao (str): "Ambos", "Previsto" ou "Real".
+        df_original_para_ordenacao (pd.DataFrame): O DF original, não filtrado, 
+                                                 usado para determinar a ordem dos projetos.
+        pulmao_status (str): "Com Pulmão" ou "Sem Pulmão" (da sidebar).
+        pulmao_meses (int): Número de meses de pulmão (da sidebar).
+    """
 
     # --- Processar DF SEM PULMÃO (AGORA O ÚNICO DF) ---
+    df_sem_pulmao = df.copy()
+    
     df_gantt_sem_pulmao = df_sem_pulmao.copy()
     if "Empreendimento" in df_gantt_sem_pulmao.columns:
         df_gantt_sem_pulmao["Empreendimento"] = df_gantt_sem_pulmao["Empreendimento"].apply(abreviar_nome)
+    
     for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
         if col in df_gantt_sem_pulmao.columns:
             df_gantt_sem_pulmao[col] = pd.to_datetime(df_gantt_sem_pulmao[col], errors="coerce")
-    if "% concluído" not in df_gantt_sem_pulmao.columns: df_gantt_sem_pulmao["% concluído"] = 0
+    
+    if "% concluído" not in df_gantt_sem_pulmao.columns: 
+        df_gantt_sem_pulmao["% concluído"] = 0
+    
     df_gantt_sem_pulmao["% concluído"] = df_gantt_sem_pulmao["% concluído"].fillna(0).apply(converter_porcentagem)
+    
+    # Agrega os dados
     df_gantt_agg_sem_pulmao = df_gantt_sem_pulmao.groupby(['Empreendimento', 'Etapa']).agg(
         Inicio_Prevista=('Inicio_Prevista', 'min'),
         Termino_Prevista=('Termino_Prevista', 'max'),
@@ -440,76 +456,66 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         **{'% concluído': ('% concluído', 'max')},
         SETOR=('SETOR', 'first')
     ).reset_index()
+    
+    # Mapeia siglas para nomes completos
     df_gantt_agg_sem_pulmao["Etapa"] = df_gantt_agg_sem_pulmao["Etapa"].map(sigla_para_nome_completo).fillna(df_gantt_agg_sem_pulmao["Etapa"])
 
-    # --- INÍCIO DA MODIFICAÇÃO ---
-    # Este é agora o único conjunto de dados que vamos gerar
-    # Ele contém TODOS os empreendimentos
+    # Converte o DataFrame agregado em uma lista de projetos (formato JSON)
+    # Esta é a fonte de dados única para o JS
     gantt_data_base = converter_dados_para_gantt(df_gantt_agg_sem_pulmao)
-    # --- FIM DA MODIFICAÇÃO ---
 
-
-    # --- INÍCIO DA MODIFICAÇÃO ---
-    # Removemos todo o processamento duplicado para 'df_com_pulmao'
-    # --- FIM DA MODIFICAÇÃO ---
-
-    # --- INÍCIO DA MODIFICAÇÃO ---
     if not gantt_data_base:
-    # --- FIM DA MODIFICAÇÃO ---
         st.warning("Nenhum dado válido para o Gantt após a conversão.")
         return
 
-    # --- INÍCIO DA MODIFICAÇÃO: Preparar dados do filtro ---
+    # Prepara opções de filtro para o menu flutuante
     filter_options = {
         "setores": ["Todos"] + sorted(list(SETOR.keys())),
         "grupos": ["Todos"] + sorted(list(GRUPOS.keys())),
         "etapas": ["Todas"] + ORDEM_ETAPAS_NOME_COMPLETO
     }
-    # --- FIM DA MODIFICAÇÃO ---
 
+    # Obtém a lista ordenada de projetos (nomes completos)
     empreendimentos_ordenados = criar_ordenacao_empreendimentos(df_original_para_ordenacao)
 
-    # Criar dicionários para acesso rápido
-    # --- INÍCIO DA MODIFICAÇÃO ---
+    # Dicionário de projetos com nomes ABREVIADOS como chaves
     projects_base_dict = {project['name']: project for project in gantt_data_base}
-    # --- FIM DA MODIFICAÇÃO ---
-
-    # Crie um mapa de Nome do Projeto -> Índice na lista gantt_data_base
+    
+    # Mapa de nome ABREVIADO -> Índice na lista gantt_data_base
     project_name_to_index_map = {project['name']: i for i, project in enumerate(gantt_data_base)}
 
 
-    # Renomeado para 'empreendimento_nome_original' para clareza
+    # Itera sobre os projetos na ordem definida
     for project_index_loop, empreendimento_nome_original in enumerate(empreendimentos_ordenados):
 
-        # ### INÍCIO DA CORREÇÃO (TELA BRANCA) ###
-        # Abrevia o nome que vem da lista de ordenação para
-        # corresponder aos nomes nos dicionários e no df_gantt_agg
+        # ### CORREÇÃO DO BUG "TELA BRANCA" ###
+        # Abrevia o nome para corresponder às chaves do dicionário
         empreendimento_nome_abreviado = abreviar_nome(empreendimento_nome_original)
-        # ### FIM DA CORREÇÃO (TELA BRANCA) ###
 
-        # Use o nome abreviado para todas as buscas
+        # Busca o projeto usando o nome abreviado
         project_base = projects_base_dict.get(empreendimento_nome_abreviado)
         
+        # Define o projeto inicial (sempre "sem pulmão" do Python)
         project = project_base 
-        # Use o nome abreviado para filtrar o DF agregado
+        
+        # Filtra o DF agregado para calcular o range de datas inicial
         df_para_datas = df_gantt_agg_sem_pulmao[df_gantt_agg_sem_pulmao["Empreendimento"] == empreendimento_nome_abreviado]
 
         if not project:
-            # Esta linha é útil para debug, pode ser removida depois
             st.warning(f"Projeto '{empreendimento_nome_original}' (abreviado para '{empreendimento_nome_abreviado}') não foi encontrado nos dados do Gantt. Pulando.")
             continue 
 
-        # Use o nome abreviado para buscar o índice
+        # Obtém o índice correto deste projeto dentro da lista gantt_data_base
         correct_project_index_for_js = project_name_to_index_map.get(empreendimento_nome_abreviado)
         
         if correct_project_index_for_js is None:
-            # Esta linha também é para debug
             st.warning(f"Projeto '{empreendimento_nome_abreviado}' não foi encontrado no mapa de índice. Pulando.")
             continue
         
-        # Passamos APENAS as tarefas base (sem pulmão) para o JS
+        # Pega as tarefas base (sempre "sem pulmão")
         tasks_base_data = project_base['tasks'] if project_base else []
         
+        # Calcula o período de datas inicial (para o zoom do Python)
         data_min_proj, data_max_proj = calcular_periodo_datas(df_para_datas)
         total_meses_proj = ((data_max_proj.year - data_min_proj.year) * 12) + (data_max_proj.month - data_min_proj.month) + 1
 
@@ -518,12 +524,10 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
             st.warning(f"Projeto '{empreendimento_nome_abreviado}' não possui tarefas válidas. Pulando.")
             continue # Pula se não houver tarefas
 
-        # --- MODIFICAÇÃO DE ALTURA ---
+        # Define a altura do componente HTML
         altura_gantt = max(400, (num_tasks * 30) + 150) # Altura da linha 30px
-        # --- FIM DA MODIFICAÇÃO DE ALTURA ---
 
-
-        # O HTML/CSS permanece o mesmo
+        # --- Geração do HTML ---
         gantt_html = f"""
         <!DOCTYPE html>
             <html lang="pt-BR">
@@ -531,7 +535,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <style>
-                    /* ... Seu CSS (idêntico, colapsado para brevidade) ... */
+                    /* ... (Todo o seu CSS idêntico ao fornecido anteriormente) ... */
                      * {{ margin: 0; padding: 0; box-sizing: border-box; }}
                      html, body {{ width: 100%; height: 100%; font-family: 'Segoe UI', sans-serif; background-color: #f5f5f5; color: #333; overflow: hidden; }}
                      .gantt-container {{ width: 100%; height: 100%; background-color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; display: flex; flex-direction: column; }}
@@ -816,17 +820,21 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     
                     const allProjectsData_{project["id"]} = {json.dumps(gantt_data_base)};
                     
-                    // ### CORREÇÃO APLICADA AQUI ###
-                    // Usamos o índice CORRETO que o Python passou
                     let currentProjectIndex_{project["id"]} = {correct_project_index_for_js};
                     const initialProjectIndex_{project["id"]} = {correct_project_index_for_js};
-                    // ### FIM DA CORREÇÃO ###
                     
                     let projectData_{project["id"]} = {json.dumps([project])};
                     
+                    // Datas originais (Python)
                     const dataMinStr_{project["id"]} = '{data_min_proj.strftime("%Y-%m-%d")}';
                     const dataMaxStr_{project["id"]} = '{data_max_proj.strftime("%Y-%m-%d")}';
                     
+                    // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                    // 'dataMinStr/dataMaxStr' são os originais, 'active' são os atuais
+                    let activeDataMinStr_{project["id"]} = dataMinStr_{project["id"]};
+                    let activeDataMaxStr_{project["id"]} = dataMaxStr_{project["id"]};
+                    // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+
                     const initialTipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
                     let tipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
                     const PIXELS_PER_MONTH = 30;
@@ -870,8 +878,75 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                     function parseDate(dateStr) {{ if (!dateStr) return null; const [year, month, day] = dateStr.split('-').map(Number); return new Date(Date.UTC(year, month - 1, day)); }}
 
+                    // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                    // Nova função para encontrar o range de datas das tarefas
+                    function findNewDateRange_{project["id"]}(tasks) {{
+                        let minDate = null;
+                        let maxDate = null;
+
+                        const updateRange = (dateStr) => {{
+                            if (!dateStr) return;
+                            const date = parseDate(dateStr);
+                            if (!date || isNaN(date.getTime())) return;
+                            
+                            if (!minDate || date < minDate) {{
+                                minDate = date;
+                            }}
+                            if (!maxDate || date > maxDate) {{
+                                maxDate = date;
+                            }}
+                        }};
+
+                        tasks.forEach(task => {{
+                            updateRange(task.start_previsto);
+                            updateRange(task.end_previsto);
+                            updateRange(task.start_real);
+                            // Checa o 'end_real_original_raw' se existir, senão o 'end_real'
+                            updateRange(task.end_real_original_raw || task.end_real); 
+                        }});
+
+                        return {{
+                            min: minDate ? minDate.toISOString().split('T')[0] : null,
+                            max: maxDate ? maxDate.toISOString().split('T')[0] : null
+                        }};
+                    }}
+                    // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+
+
                     function initGantt_{project["id"]}() {{
                         applyInitialPulmaoState_{project["id"]}();
+                        
+                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        // Recalcula o range de datas se o estado inicial for "Com Pulmão"
+                        if (initialPulmaoStatus_{project["id"]} === 'Com Pulmão' && initialPulmaoMeses_{project["id"]} > 0) {{
+                            // projectData_[0].tasks já foi modificado por applyInitialPulmaoState_
+                            const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange_{project["id"]}(projectData_{project["id"]}[0].tasks);
+                            const newMin = parseDate(newMinStr);
+                            const newMax = parseDate(newMaxStr);
+                            const originalMin = parseDate(activeDataMinStr_{project["id"]});
+                            const originalMax = parseDate(activeDataMaxStr_{project["id"]});
+
+                            let finalMinDate = originalMin;
+                            if (newMin && newMin < finalMinDate) {{
+                                finalMinDate = newMin;
+                            }}
+                            let finalMaxDate = originalMax;
+                            if (newMax && newMax > finalMaxDate) {{
+                                finalMaxDate = newMax;
+                            }}
+
+                            // Copia as datas para não modificar as originais
+                            finalMinDate = new Date(finalMinDate.getTime());
+                            finalMaxDate = new Date(finalMaxDate.getTime());
+
+                            finalMinDate.setUTCDate(1); // Início do mês
+                            finalMaxDate.setUTCMonth(finalMaxDate.getUTCMonth() + 1, 0); // Fim do mês
+                            
+                            activeDataMinStr_{project["id"]} = finalMinDate.toISOString().split('T')[0];
+                            activeDataMaxStr_{project["id"]} = finalMaxDate.toISOString().split('T')[0];
+                        }}
+                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        
                         renderSidebar_{project["id"]}();
                         renderHeader_{project["id"]}();
                         renderChart_{project["id"]}();
@@ -963,10 +1038,23 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         const monthHeader = document.getElementById('month-header-{project["id"]}');
                         let yearHtml = '', monthHtml = '';
                         const yearsData = [];
-                        let currentDate = parseDate(dataMinStr_{project["id"]});
-                        const dataMax = parseDate(dataMaxStr_{project["id"]});
+                        
+                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        // Usa as datas ATIVAS
+                        let currentDate = parseDate(activeDataMinStr_{project["id"]});
+                        const dataMax = parseDate(activeDataMaxStr_{project["id"]});
+                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+
                         let currentYear = -1, monthsInCurrentYear = 0;
-                        while (currentDate <= dataMax) {{
+                        
+                        if (!currentDate || !dataMax || isNaN(currentDate.getTime()) || isNaN(dataMax.getTime())) {{
+                             yearHeader.innerHTML = "Datas inválidas";
+                             monthHeader.innerHTML = "";
+                             return;
+                        }}
+
+                        let totalMonths = 0; // Prevenção de loop infinito
+                        while (currentDate <= dataMax && totalMonths < 240) {{ // Limite de 20 anos
                             const year = currentDate.getUTCFullYear();
                             if (year !== currentYear) {{
                                 if (currentYear !== -1) yearsData.push({{ year: currentYear, count: monthsInCurrentYear }});
@@ -976,9 +1064,17 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             monthHtml += `<div class="month-cell">${{monthNumber}}</div>`;
                             monthsInCurrentYear++;
                             currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
+                            totalMonths++;
                         }}
                         if (currentYear !== -1) yearsData.push({{ year: currentYear, count: monthsInCurrentYear }});
                         yearsData.forEach(data => {{ const yearWidth = data.count * PIXELS_PER_MONTH; yearHtml += `<div class="year-section" style="width:${{yearWidth}}px">${{data.year}}</div>`; }});
+                        
+                        // Atualiza a largura total do container do gráfico
+                        const chartContainer = document.getElementById('chart-container-{project["id"]}');
+                        if (chartContainer) {{
+                             chartContainer.style.minWidth = `${{totalMonths * PIXELS_PER_MONTH}}px`;
+                        }}
+
                         yearHeader.innerHTML = yearHtml;
                         monthHeader.innerHTML = monthHtml;
                     }}
@@ -1000,9 +1096,9 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                     let barPrevisto = null;
                                     if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{ barPrevisto = createBar_{project["id"]}(task, 'previsto'); row.appendChild(barPrevisto); }}
                                     let barReal = null;
-                                    if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && task.end_real) {{ barReal = createBar_{project["id"]}(task, 'real'); row.appendChild(barReal); }}
+                                    if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && (task.end_real_original_raw || task.end_real)) {{ barReal = createBar_{project["id"]}(task, 'real'); row.appendChild(barReal); }}
                                     if (barPrevisto && barReal) {{
-                                        const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real);
+                                        const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real_original_raw || task.end_real);
                                         if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{ barPrevisto.style.zIndex = '8'; barReal.style.zIndex = '7'; }}
                                         renderOverlapBar_{project["id"]}(task, row);
                                     }}
@@ -1023,7 +1119,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                     function createBar_{project["id"]}(task, tipo) {{
                         const startDate = parseDate(tipo === 'previsto' ? task.start_previsto : task.start_real);
-                        const endDate = parseDate(tipo === 'previsto' ? task.end_previsto : task.end_real);
+                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        // Garante que usa a data final correta (a original ou a calculada)
+                        const endDate = parseDate(tipo === 'previsto' ? task.end_previsto : (task.end_real_original_raw || task.end_real));
+                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        
                         if (!startDate || !endDate) return document.createElement('div');
                         const left = getPosition_{project["id"]}(startDate);
                         const width = getPosition_{project["id"]}(endDate) - left + (PIXELS_PER_MONTH / 30);
@@ -1038,8 +1138,10 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     }}
 
                     function renderOverlapBar_{project["id"]}(task, row) {{
-                       if (!task.start_real || !task.end_real) return;
-                        const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real);
+                       if (!task.start_real || !(task.end_real_original_raw || task.end_real)) return;
+                       // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real_original_raw || task.end_real);
+                       // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
                         const overlap_start = new Date(Math.max(s_prev, s_real)), overlap_end = new Date(Math.min(e_prev, e_real));
                         if (overlap_start < overlap_end) {{
                             const left = getPosition_{project["id"]}(overlap_start), width = getPosition_{project["id"]}(overlap_end) - left + (PIXELS_PER_MONTH / 30);
@@ -1049,7 +1151,12 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                     function getPosition_{project["id"]}(date) {{
                         if (!date) return 0;
-                        const chartStart = parseDate(dataMinStr_{project["id"]});
+                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        // Usa a data ATIVA
+                        const chartStart = parseDate(activeDataMinStr_{project["id"]});
+                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        if (!chartStart || isNaN(chartStart.getTime())) return 0;
+
                         const monthsOffset = (date.getUTCFullYear() - chartStart.getUTCFullYear()) * 12 + (date.getUTCMonth() - chartStart.getUTCMonth());
                         const dayOfMonth = date.getUTCDate() - 1;
                         const daysInMonth = new Date(date.getUTCFullYear(), date.getUTCMonth() + 1, 0).getUTCDate();
@@ -1060,16 +1167,43 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     function positionTodayLine_{project["id"]}() {{
                         const todayLine = document.getElementById('today-line-{project["id"]}');
                         const today = new Date(), todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
-                        const chartStart = parseDate(dataMinStr_{project["id"]}), chartEnd = parseDate(dataMaxStr_{project["id"]});
-                        if (todayUTC >= chartStart && todayUTC <= chartEnd) {{ const offset = getPosition_{project["id"]}(todayUTC); todayLine.style.left = `${{offset}}px`; todayLine.style.display = 'block'; }} else {{ todayLine.style.display = 'none'; }}
+                        
+                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        const chartStart = parseDate(activeDataMinStr_{project["id"]});
+                        const chartEnd = parseDate(activeDataMaxStr_{project["id"]});
+                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+
+                        if (chartStart && chartEnd && !isNaN(chartStart.getTime()) && !isNaN(chartEnd.getTime()) && todayUTC >= chartStart && todayUTC <= chartEnd) {{ 
+                            const offset = getPosition_{project["id"]}(todayUTC); 
+                            todayLine.style.left = `${{offset}}px`; 
+                            todayLine.style.display = 'block'; 
+                        }} else {{ 
+                            todayLine.style.display = 'none'; 
+                        }}
                     }}
 
                     function positionMetaLine_{project["id"]}() {{
                         const metaLine = document.getElementById('meta-line-{project["id"]}'), metaLabel = document.getElementById('meta-line-label-{project["id"]}');
                         const metaDateStr = projectData_{project["id"]}[0].meta_assinatura_date;
                         if (!metaDateStr) {{ metaLine.style.display = 'none'; metaLabel.style.display = 'none'; return; }}
-                        const metaDate = parseDate(metaDateStr), chartStart = parseDate(dataMinStr_{project["id"]}), chartEnd = parseDate(dataMaxStr_{project["id"]});
-                        if (metaDate >= chartStart && metaDate <= chartEnd) {{ const offset = getPosition_{project["id"]}(metaDate); metaLine.style.left = `${{offset}}px`; metaLabel.style.left = `${{offset}}px`; metaLine.style.display = 'block'; metaLabel.style.display = 'block'; metaLabel.textContent = `Meta: ${{metaDate.toLocaleDateString('pt-BR', {{day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC'}})}}`; }} else {{ metaLine.style.display = 'none'; metaLabel.style.display = 'none'; }}
+                        
+                        const metaDate = parseDate(metaDateStr);
+                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        const chartStart = parseDate(activeDataMinStr_{project["id"]});
+                        const chartEnd = parseDate(activeDataMaxStr_{project["id"]});
+                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        
+                        if (metaDate && chartStart && chartEnd && !isNaN(metaDate.getTime()) && !isNaN(chartStart.getTime()) && !isNaN(chartEnd.getTime()) && metaDate >= chartStart && metaDate <= chartEnd) {{ 
+                            const offset = getPosition_{project["id"]}(metaDate); 
+                            metaLine.style.left = `${{offset}}px`; 
+                            metaLabel.style.left = `${{offset}}px`; 
+                            metaLine.style.display = 'block'; 
+                            metaLabel.style.display = 'block'; 
+                            metaLabel.textContent = `Meta: ${{metaDate.toLocaleDateString('pt-BR', {{day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC'}})}}`; 
+                        }} else {{ 
+                            metaLine.style.display = 'none'; 
+                            metaLabel.style.display = 'none'; 
+                        }}
                     }}
 
                     function showTooltip_{project["id"]}(e, task, tipo) {{
@@ -1108,14 +1242,22 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     function renderMonthDividers_{project["id"]}() {{
                         const chartContainer = document.getElementById('chart-container-{project["id"]}');
                         chartContainer.querySelectorAll('.month-divider, .month-divider-label').forEach(el => el.remove());
-                        let currentDate = parseDate(dataMinStr_{project["id"]});
-                        const dataMax = parseDate(dataMaxStr_{project["id"]});
-                        while (currentDate <= dataMax) {{
+                        
+                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        let currentDate = parseDate(activeDataMinStr_{project["id"]});
+                        const dataMax = parseDate(activeDataMaxStr_{project["id"]});
+                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+
+                        if (!currentDate || !dataMax || isNaN(currentDate.getTime()) || isNaN(dataMax.getTime())) return;
+
+                        let totalMonths = 0; // Prevenção de loop infinito
+                        while (currentDate <= dataMax && totalMonths < 240) {{ // Limite de 20 anos
                             const left = getPosition_{project["id"]}(currentDate);
                             const divider = document.createElement('div'); divider.className = 'month-divider';
                             if (currentDate.getUTCMonth() === 0) divider.classList.add('first');
                             divider.style.left = `${{left}}px`; chartContainer.appendChild(divider);
                             currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
+                            totalMonths++;
                         }}
                     }}
 
@@ -1161,17 +1303,53 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     }}
 
                     function resetToInitialState_{project["id"]}() {{
+                        // 1. Resetar o índice e os dados do projeto
                         currentProjectIndex_{project["id"]} = initialProjectIndex_{project["id"]};
                         const initialProject = allProjectsData_{project["id"]}[initialProjectIndex_{project["id"]}];
                         
                         projectData_{project["id"]} = [JSON.parse(JSON.stringify(initialProject))];
                         allTasks_baseData_{project["id"]} = JSON.parse(JSON.stringify(initialProject.tasks));
                         
+                        // 2. Resetar variáveis de estado globais
                         tipoVisualizacao_{project["id"]} = initialTipoVisualizacao_{project["id"]};
                         pulmaoStatus_{project["id"]} = initialPulmaoStatus_{project["id"]};
                         
                         applyInitialPulmaoState_{project["id"]}();
 
+                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        // 3. Resetar o range de datas ativo para o original do Python
+                        activeDataMinStr_{project["id"]} = dataMinStr_{project["id"]};
+                        activeDataMaxStr_{project["id"]} = dataMaxStr_{project["id"]};
+                        
+                        // 3b. RE-CALCULAR o range inicial se o pulmão da sidebar estava ativo
+                        if (initialPulmaoStatus_{project["id"]} === 'Com Pulmão' && initialPulmaoMeses_{project["id"]} > 0) {{
+                            const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange_{project["id"]}(projectData_{project["id"]}[0].tasks);
+                            const newMin = parseDate(newMinStr);
+                            const newMax = parseDate(newMaxStr);
+                            const originalMin = parseDate(activeDataMinStr_{project["id"]});
+                            const originalMax = parseDate(activeDataMaxStr_{project["id"]});
+
+                            let finalMinDate = originalMin;
+                            if (newMin && newMin < finalMinDate) {{
+                                finalMinDate = newMin;
+                            }}
+                            let finalMaxDate = originalMax;
+                            if (newMax && newMax > finalMaxDate) {{
+                                finalMaxDate = newMax;
+                            }}
+
+                            finalMinDate = new Date(finalMinDate.getTime());
+                            finalMaxDate = new Date(finalMaxDate.getTime());
+                            finalMinDate.setUTCDate(1);
+                            finalMaxDate.setUTCMonth(finalMaxDate.getUTCMonth() + 1, 0);
+                            
+                            activeDataMinStr_{project["id"]} = finalMinDate.toISOString().split('T')[0];
+                            activeDataMaxStr_{project["id"]} = finalMaxDate.toISOString().split('T')[0];
+                        }}
+                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+
+
+                        // 4. Resetar a UI do menu de filtros
                         document.getElementById('filter-project-{project["id"]}').value = initialProjectIndex_{project["id"]};
                         document.getElementById('filter-setor-{project["id"]}').value = 'Todos';
                         document.getElementById('filter-grupo-{project["id"]}').value = 'Todos';
@@ -1188,10 +1366,16 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         
                         updatePulmaoInputVisibility_{project["id"]}();
 
+                        // 5. Redesenhar TUDO (inclusive o header)
+                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        renderHeader_{project["id"]}();
+                        renderMonthDividers_{project["id"]}();
                         renderSidebar_{project["id"]}();
                         renderChart_{project["id"]}();
+                        positionTodayLine_{project["id"]}();
                         positionMetaLine_{project["id"]}();
                         updateProjectTitle_{project["id"]}();
+                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
                     }}
 
 
@@ -1352,15 +1536,65 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             filteredTasks = filteredTasks.filter(t => t.progress < 100);
                         }}
 
+                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        // 6. Recalcular o range de datas
+                        
+                        // Pega as datas originais do Python (do projeto ATUAL)
+                        // NOTA: dataMinStr_ e dataMaxStr_ são do PRIMEIRO projeto renderizado
+                        // Se o usuário MUDAR de projeto, precisamos das datas desse NOVO projeto
+                        // Para simplificar, vamos usar as datas do projeto original do Python
+                        // (dataMinStr_) E expandir a partir daí.
+                        
+                        const originalMin = parseDate(dataMinStr_{project["id"]});
+                        const originalMax = parseDate(dataMaxStr_{project["id"]});
+                        
+                        const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange_{project["id"]}(filteredTasks);
+                        const newMin = parseDate(newMinStr);
+                        const newMax = parseDate(newMaxStr);
+
+                        let finalMinDate = originalMin;
+                        // Se a nova data mínima (com pulmão) for anterior, use-a
+                        if (newMin && newMin < finalMinDate) {{
+                            finalMinDate = newMin;
+                        }}
+                        
+                        let finalMaxDate = originalMax;
+                        // Se a nova data máxima (com pulmão) for posterior, use-a
+                        if (newMax && newMax > finalMaxDate) {{
+                            finalMaxDate = newMax;
+                        }}
+
+                        // Copia as datas para não modificar as originais
+                        finalMinDate = new Date(finalMinDate.getTime());
+                        finalMaxDate = new Date(finalMaxDate.getTime());
+                        
+                        // Garante que o range do gráfico comece no dia 01 do mês
+                        finalMinDate.setUTCDate(1);
+                        // Garante que o range do gráfico termine no último dia do mês
+                        finalMaxDate.setUTCMonth(finalMaxDate.getUTCMonth() + 1, 0);
+
+                        activeDataMinStr_{project["id"]} = finalMinDate.toISOString().split('T')[0];
+                        activeDataMaxStr_{project["id"]} = finalMaxDate.toISOString().split('T')[0];
+                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+
+
+                        // 7. Atualizar os dados globais do JS
                         projectData_{project["id"]}[0].tasks = filteredTasks;
                         tipoVisualizacao_{project["id"]} = selVis; 
                         pulmaoStatus_{project["id"]} = selPulmao; 
 
+                        // 8. Redesenhar TUDO (inclusive o header)
+                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        renderHeader_{project["id"]}();
+                        renderMonthDividers_{project["id"]}();
                         renderSidebar_{project["id"]}();
                         renderChart_{project["id"]}();
+                        positionTodayLine_{project["id"]}();
                         positionMetaLine_{project["id"]}(); 
-                        updateProjectTitle_{project["id"]}(); 
+                        updateProjectTitle_{project["id"]}();
+                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
 
+                        // 9. Esconder o menu de filtros
                         toggleFilterMenu_{project["id"]}();
                     }}
                     
@@ -1369,10 +1603,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
             </body>
             </html>
         """
+        # Exibe o componente HTML no Streamlit
         components.html(gantt_html, height=altura_gantt, scrolling=True)
         st.markdown("---")
-# --- FIM DO CÓDIGO MODIFICADO ---
-# --- CÓDIGO MODIFICADO ---
+
+
 # Substitua sua função gerar_gantt_consolidado inteira por esta
 def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses):
     """
