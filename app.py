@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -3475,3 +3474,4 @@ with st.spinner("Carregando e processando dados..."):
 
     else:
         st.error("❌ Não foi possível carregar ou gerar os dados.")
+
