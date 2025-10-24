@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -202,15 +203,15 @@ def calcular_periodo_datas(df, meses_padding_inicio=1, meses_padding_fim=36):
 def calcular_dias_uteis_novo(data_inicio, data_fim):
     if pd.isna(data_inicio) or pd.isna(data_fim):
         return None
-    
+
     data_inicio = pd.to_datetime(data_inicio).normalize()
     data_fim = pd.to_datetime(data_fim).normalize()
-    
+
     sinal = 1
     if data_inicio > data_fim:
         data_inicio, data_fim = data_fim, data_inicio
         sinal = -1
-    
+
     return np.busday_count(data_inicio.date(), data_fim.date()) * sinal
 
 def obter_data_meta_assinatura_novo(df_empreendimento):
@@ -228,10 +229,10 @@ def converter_dados_para_gantt(df):
         return []
 
     gantt_data = []
-    
+
     for empreendimento in df["Empreendimento"].unique():
         df_emp = df[df["Empreendimento"] == empreendimento].copy()
-        
+
         tasks = []
         df_emp['Etapa'] = pd.Categorical(df_emp['Etapa'], categories=ORDEM_ETAPAS_NOME_COMPLETO, ordered=True)
         df_emp_sorted = df_emp.sort_values(by='Etapa').reset_index()
@@ -251,7 +252,7 @@ def converter_dados_para_gantt(df):
                 end_real_visual = datetime.now()
 
             etapa = row.get("Etapa", "UNKNOWN")
-            
+
             # --- INÍCIO DA MODIFICAÇÃO ---
             # Adiciona o GRUPO para que o JS possa filtrar
             etapa_sigla = nome_completo_para_sigla.get(etapa, etapa)
@@ -269,7 +270,7 @@ def converter_dados_para_gantt(df):
 
             # Variação de Término (VT) - em dias úteis
             vt = calculate_business_days(end_date, end_real_original)
-            
+
             # Duração em dias úteis
             duracao_prevista_uteis = calculate_business_days(start_date, end_date)
             duracao_real_uteis = calculate_business_days(start_real, end_real_original)
@@ -278,7 +279,7 @@ def converter_dados_para_gantt(df):
             vd = None
             if pd.notna(duracao_real_uteis) and pd.notna(duracao_prevista_uteis):
                 vd = duracao_real_uteis - duracao_prevista_uteis
-            
+
             # Lógica de Cor do Status
             status_color_class = 'status-default'
             hoje = pd.Timestamp.now().normalize()
@@ -311,23 +312,23 @@ def converter_dados_para_gantt(df):
                 "termino_real": pd.to_datetime(end_real_original).strftime("%d/%m/%y") if pd.notna(end_real_original) else "N/D",
                 "duracao_prev_meses": f"{dur_prev_meses:.1f}".replace('.', ',') if dur_prev_meses is not None else "-",
                 "duracao_real_meses": f"{dur_real_meses:.1f}".replace('.', ',') if dur_real_meses is not None else "-",
-                
+
                 "vt_text": f"{int(vt):+d}d" if pd.notna(vt) else "-",
                 "vd_text": f"{int(vd):+d}d" if pd.notna(vd) else "-",
-                
+
                 "status_color_class": status_color_class
             }
             tasks.append(task)
-    
+
         data_meta = obter_data_meta_assinatura_novo(df_emp)
-        
+
         project = {
             "id": f"p{len(gantt_data)}", "name": empreendimento,
             "tasks": tasks,
             "meta_assinatura_date": data_meta.strftime("%Y-%m-%d") if data_meta else None
         }
         gantt_data.append(project)
-    
+
     return gantt_data
 # --- FIM DO CÓDIGO MODIFICADO ---
 
@@ -418,6 +419,7 @@ def aplicar_ordenacao_final(df, empreendimentos_ordenados):
     return df_ordenado.reset_index(drop=True)
 
 
+# --- *** FUNÇÃO gerar_gantt_por_projeto MODIFICADA *** ---
 def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses):
     """
     Gera e exibe um gráfico de Gantt interativo para cada projeto.
@@ -534,6 +536,9 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                
+                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/virtual-select-plugin@1.0.39/dist/virtual-select.min.css">
+                
                 <style>
                     /* ... (Todo o seu CSS idêntico ao fornecido anteriormente) ... */
                      * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -687,7 +692,8 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                          color: #4a5568; margin-bottom: 4px;
                          text-transform: uppercase;
                      }}
-                     .filter-group select, .filter-group input {{
+                     /* Ajusta o select padrão e o input */
+                     .filter-group select, .filter-group input[type=number] {{
                          width: 100%;
                          padding: 6px 8px;
                          border: 1px solid #cbd5e0;
@@ -711,6 +717,27 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                          border: none; border-radius: 4px; cursor: pointer;
                          margin-top: 5px;
                      }}
+
+                     /* *** INÍCIO: Estilos para Virtual Select no Menu Flutuante *** */
+                     .floating-filter-menu .vscomp-toggle-button {{
+                         border: 1px solid #cbd5e0;
+                         border-radius: 4px;
+                         padding: 6px 8px;
+                         font-size: 13px;
+                         min-height: 30px; /* Ajuste a altura se necessário */
+                     }}
+                     .floating-filter-menu .vscomp-options {{
+                         font-size: 13px;
+                     }}
+                     .floating-filter-menu .vscomp-option {{
+                         min-height: 30px; /* Altura da opção */
+                     }}
+                     .floating-filter-menu .vscomp-search-input {{
+                         height: 30px;
+                         font-size: 13px;
+                     }}
+                     /* *** FIM: Estilos para Virtual Select *** */
+
                 </style>
             </head>
             <body>
@@ -725,15 +752,18 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         </div>
                         <div class="filter-group">
                             <label for="filter-setor-{project['id']}">Setor</label>
-                            <select id="filter-setor-{project['id']}"></select>
+                            
+                            <div id="filter-setor-{project['id']}"></div>
                         </div>
                         <div class="filter-group">
                             <label for="filter-grupo-{project['id']}">Grupo</label>
-                            <select id="filter-grupo-{project['id']}"></select>
+                            
+                            <div id="filter-grupo-{project['id']}"></div>
                         </div>
                         <div class="filter-group">
                             <label for="filter-etapa-{project['id']}">Etapa</label>
-                            <select id="filter-etapa-{project['id']}"></select>
+                            
+                            <div id="filter-etapa-{project['id']}"></div>
                         </div>
                         <div class="filter-group">
                             <div class="filter-group-checkbox">
@@ -815,35 +845,39 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     <div class="tooltip" id="tooltip-{project["id"]}"></div>
                 </div>
                 
-                <script>
-                    const coresPorSetor_{project["id"]} = {json.dumps(StyleConfig.CORES_POR_SETOR)};
-                    
-                    const allProjectsData_{project["id"]} = {json.dumps(gantt_data_base)};
-                    
-                    let currentProjectIndex_{project["id"]} = {correct_project_index_for_js};
-                    const initialProjectIndex_{project["id"]} = {correct_project_index_for_js};
-                    
-                    let projectData_{project["id"]} = {json.dumps([project])};
-                    
-                    // Datas originais (Python)
-                    const dataMinStr_{project["id"]} = '{data_min_proj.strftime("%Y-%m-%d")}';
-                    const dataMaxStr_{project["id"]} = '{data_max_proj.strftime("%Y-%m-%d")}';
-                    
-                    // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                    // 'dataMinStr/dataMaxStr' são os originais, 'active' são os atuais
-                    let activeDataMinStr_{project["id"]} = dataMinStr_{project["id"]};
-                    let activeDataMaxStr_{project["id"]} = dataMaxStr_{project["id"]};
-                    // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                
+                <script src="https://cdn.jsdelivr.net/npm/virtual-select-plugin@1.0.39/dist/virtual-select.min.js"></script>
+                
 
-                    const initialTipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
-                    let tipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
+                <script>
+                    // DEBUG: Verificar dados
+                    console.log('Inicializando Gantt para projeto:', '{project["name"]}');
+                    
+                    const coresPorSetor = {json.dumps(StyleConfig.CORES_POR_SETOR)};
+
+                    const allProjectsData = {json.dumps(gantt_data_base)};
+
+                    let currentProjectIndex = {correct_project_index_for_js};
+                    const initialProjectIndex = {correct_project_index_for_js};
+
+                    let projectData = {json.dumps([project])};
+
+                    // Datas originais (Python)
+                    const dataMinStr = '{data_min_proj.strftime("%Y-%m-%d")}';
+                    const dataMaxStr = '{data_max_proj.strftime("%Y-%m-%d")}';
+
+                    let activeDataMinStr = dataMinStr;
+                    let activeDataMaxStr = dataMaxStr;
+
+                    const initialTipoVisualizacao = '{tipo_visualizacao}';
+                    let tipoVisualizacao = '{tipo_visualizacao}';
                     const PIXELS_PER_MONTH = 30;
 
                     // --- INÍCIO HELPERS DE DATA E PULMÃO ---
-                    const etapas_pulmao_{project["id"]} = ["PULMÃO VENDA", "PULMÃO INFRA", "PULMÃO RADIER"];
-                    const etapas_sem_alteracao_{project["id"]} = ["PROSPECÇÃO", "RADIER", "DEMANDA MÍNIMA"];
+                    const etapas_pulmao = ["PULMÃO VENDA", "PULMÃO INFRA", "PULMÃO RADIER"];
+                    const etapas_sem_alteracao = ["PROSPECÇÃO", "RADIER", "DEMANDA MÍNIMA"];
 
-                    const formatDateDisplay_{project["id"]} = (dateStr) => {{
+                    const formatDateDisplay = (dateStr) => {{
                         if (!dateStr) return "N/D";
                         const d = parseDate(dateStr);
                         if (!d || isNaN(d.getTime())) return "N/D";
@@ -853,7 +887,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         return `${{day}}/${{month}}/${{year}}`;
                     }};
 
-                    function addMonths_{project["id"]}(dateStr, months) {{
+                    function addMonths(dateStr, months) {{
                         if (!dateStr) return null;
                         const date = parseDate(dateStr);
                         if (!date || isNaN(date.getTime())) return null;
@@ -866,21 +900,27 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     }}
                     // --- FIM HELPERS DE DATA E PULMÃO ---
 
-                    const filterOptions_{project["id"]} = {json.dumps(filter_options)};
+                    const filterOptions = {json.dumps(filter_options)};
 
-                    let allTasks_baseData_{project["id"]} = {json.dumps(tasks_base_data)};
+                    let allTasks_baseData = {json.dumps(tasks_base_data)};
 
-                    const initialPulmaoStatus_{project["id"]} = '{pulmao_status}';
-                    const initialPulmaoMeses_{project["id"]} = {pulmao_meses};
+                    const initialPulmaoStatus = '{pulmao_status}';
+                    const initialPulmaoMeses = {pulmao_meses};
 
-                    let pulmaoStatus_{project["id"]} = '{pulmao_status}';
-                    let filtersPopulated_{project["id"]} = false;
+                    let pulmaoStatus = '{pulmao_status}';
+                    let filtersPopulated = false;
 
-                    function parseDate(dateStr) {{ if (!dateStr) return null; const [year, month, day] = dateStr.split('-').map(Number); return new Date(Date.UTC(year, month - 1, day)); }}
+                    // *** INÍCIO: Variáveis Globais para Virtual Select ***
+                    let vsSetor, vsGrupo, vsEtapa;
+                    // *** FIM: Variáveis Globais para Virtual Select ***
 
-                    // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                    // Nova função para encontrar o range de datas das tarefas
-                    function findNewDateRange_{project["id"]}(tasks) {{
+                    function parseDate(dateStr) {{ 
+                        if (!dateStr) return null; 
+                        const [year, month, day] = dateStr.split('-').map(Number); 
+                        return new Date(Date.UTC(year, month - 1, day)); 
+                    }}
+
+                    function findNewDateRange(tasks) {{
                         let minDate = null;
                         let maxDate = null;
 
@@ -888,7 +928,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             if (!dateStr) return;
                             const date = parseDate(dateStr);
                             if (!date || isNaN(date.getTime())) return;
-                            
+
                             if (!minDate || date < minDate) {{
                                 minDate = date;
                             }}
@@ -901,8 +941,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             updateRange(task.start_previsto);
                             updateRange(task.end_previsto);
                             updateRange(task.start_real);
-                            // Checa o 'end_real_original_raw' se existir, senão o 'end_real'
-                            updateRange(task.end_real_original_raw || task.end_real); 
+                            updateRange(task.end_real_original_raw || task.end_real);
                         }});
 
                         return {{
@@ -910,21 +949,25 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             max: maxDate ? maxDate.toISOString().split('T')[0] : null
                         }};
                     }}
-                    // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
 
-
-                    function initGantt_{project["id"]}() {{
-                        applyInitialPulmaoState_{project["id"]}();
+                    function initGantt() {{
+                        console.log('Iniciando Gantt com dados:', projectData);
                         
-                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        // Recalcula o range de datas se o estado inicial for "Com Pulmão"
-                        if (initialPulmaoStatus_{project["id"]} === 'Com Pulmão' && initialPulmaoMeses_{project["id"]} > 0) {{
-                            // projectData_[0].tasks já foi modificado por applyInitialPulmaoState_
-                            const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange_{project["id"]}(projectData_{project["id"]}[0].tasks);
+                        // Verificar se há dados para renderizar
+                        if (!projectData || !projectData[0] || !projectData[0].tasks || projectData[0].tasks.length === 0) {{
+                            console.error('Nenhum dado disponível para renderizar');
+                            document.getElementById('chart-body-{project["id"]}').innerHTML = '<div style="padding: 20px; text-align: center; color: red;">Erro: Nenhum dado disponível</div>';
+                            return;
+                        }}
+
+                        applyInitialPulmaoState();
+
+                        if (initialPulmaoStatus === 'Com Pulmão' && initialPulmaoMeses > 0) {{
+                            const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange(projectData[0].tasks);
                             const newMin = parseDate(newMinStr);
                             const newMax = parseDate(newMaxStr);
-                            const originalMin = parseDate(activeDataMinStr_{project["id"]});
-                            const originalMax = parseDate(activeDataMaxStr_{project["id"]});
+                            const originalMin = parseDate(activeDataMinStr);
+                            const originalMax = parseDate(activeDataMaxStr);
 
                             let finalMinDate = originalMin;
                             if (newMin && newMin < finalMinDate) {{
@@ -935,72 +978,74 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                 finalMaxDate = newMax;
                             }}
 
-                            // Copia as datas para não modificar as originais
                             finalMinDate = new Date(finalMinDate.getTime());
                             finalMaxDate = new Date(finalMaxDate.getTime());
 
-                            finalMinDate.setUTCDate(1); // Início do mês
-                            finalMaxDate.setUTCMonth(finalMaxDate.getUTCMonth() + 1, 0); // Fim do mês
-                            
-                            activeDataMinStr_{project["id"]} = finalMinDate.toISOString().split('T')[0];
-                            activeDataMaxStr_{project["id"]} = finalMaxDate.toISOString().split('T')[0];
+                            finalMinDate.setUTCDate(1);
+                            finalMaxDate.setUTCMonth(finalMaxDate.getUTCMonth() + 1, 0);
+
+                            activeDataMinStr = finalMinDate.toISOString().split('T')[0];
+                            activeDataMaxStr = finalMaxDate.toISOString().split('T')[0];
                         }}
-                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        
-                        renderSidebar_{project["id"]}();
-                        renderHeader_{project["id"]}();
-                        renderChart_{project["id"]}();
-                        renderMonthDividers_{project["id"]}();
-                        setupEventListeners_{project["id"]}();
-                        positionTodayLine_{project["id"]}();
-                        positionMetaLine_{project["id"]}();
-                        populateFilters_{project["id"]}();
+
+                        renderSidebar();
+                        renderHeader();
+                        renderChart();
+                        renderMonthDividers();
+                        setupEventListeners();
+                        positionTodayLine();
+                        positionMetaLine();
+                        populateFilters();
                     }}
 
-                    function applyInitialPulmaoState_{project["id"]}() {{
-                        const initialPulmaoStatus = initialPulmaoStatus_{project["id"]};
-                        const initialPulmaoMeses = initialPulmaoMeses_{project["id"]};
-
+                    function applyInitialPulmaoState() {{
+                        // Use diretamente as variáveis globais
                         if (initialPulmaoStatus === 'Com Pulmão' && initialPulmaoMeses > 0) {{
                             const offsetMeses = -initialPulmaoMeses;
-                            let baseTasks = projectData_{project["id"]}[0].tasks; 
+                            let baseTasks = projectData[0].tasks;
 
                             baseTasks.forEach(task => {{
                                 const etapaNome = task.name;
-                                if (etapas_sem_alteracao_{project["id"]}.includes(etapaNome)) {{
+                                if (etapas_sem_alteracao.includes(etapaNome)) {{
+                                    // Não altera datas
                                 }}
-                                else if (etapas_pulmao_{project["id"]}.includes(etapaNome)) {{
-                                    task.start_previsto = addMonths_{project["id"]}(task.start_previsto, offsetMeses);
-                                    task.start_real = addMonths_{project["id"]}(task.start_real, offsetMeses);
-                                    task.inicio_previsto = formatDateDisplay_{project["id"]}(task.start_previsto);
-                                    task.inicio_real = formatDateDisplay_{project["id"]}(task.start_real);
+                                else if (etapas_pulmao.includes(etapaNome)) {{
+                                    task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                                    task.start_real = addMonths(task.start_real, offsetMeses);
+                                    task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                    task.inicio_real = formatDateDisplay(task.start_real);
                                 }}
                                 else {{
-                                    task.start_previsto = addMonths_{project["id"]}(task.start_previsto, offsetMeses);
-                                    task.end_previsto = addMonths_{project["id"]}(task.end_previsto, offsetMeses);
-                                    task.start_real = addMonths_{project["id"]}(task.start_real, offsetMeses);
+                                    task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                                    task.end_previsto = addMonths(task.end_previsto, offsetMeses);
+                                    task.start_real = addMonths(task.start_real, offsetMeses);
 
                                     if (task.end_real_original_raw) {{
-                                        task.end_real_original_raw = addMonths_{project["id"]}(task.end_real_original_raw, offsetMeses);
+                                        task.end_real_original_raw = addMonths(task.end_real_original_raw, offsetMeses);
                                         task.end_real = task.end_real_original_raw;
                                     }} else if (task.end_real) {{
-                                        task.end_real = addMonths_{project["id"]}(task.end_real, offsetMeses);
+                                        task.end_real = addMonths(task.end_real, offsetMeses);
                                     }}
-                                    task.inicio_previsto = formatDateDisplay_{project["id"]}(task.start_previsto);
-                                    task.termino_previsto = formatDateDisplay_{project["id"]}(task.end_previsto);
-                                    task.inicio_real = formatDateDisplay_{project["id"]}(task.start_real);
-                                    task.termino_real = formatDateDisplay_{project["id"]}(task.end_real_original_raw);
+                                    task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                    task.termino_previsto = formatDateDisplay(task.end_previsto);
+                                    task.inicio_real = formatDateDisplay(task.start_real);
+                                    task.termino_real = formatDateDisplay(task.end_real_original_raw);
                                 }}
                             }});
-                            
-                            allTasks_baseData_{project["id"]} = JSON.parse(JSON.stringify(baseTasks));
+
+                            allTasks_baseData = JSON.parse(JSON.stringify(baseTasks));
                         }}
                     }}
-
-                    function renderSidebar_{project["id"]}() {{
+                    function renderSidebar() {{
                         const sidebarContent = document.getElementById('gantt-sidebar-content-{project["id"]}');
                         const gruposGantt = JSON.parse(document.getElementById('grupos-gantt-data').textContent);
-                        const tasks = projectData_{project["id"]}[0].tasks;
+                        const tasks = projectData[0].tasks;
+                        
+                        if (!tasks || tasks.length === 0) {{
+                            sidebarContent.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">Nenhuma tarefa disponível</div>';
+                            return;
+                        }}
+                        
                         let html = '';
                         let globalRowIndex = 0;
                         const groupKeys = Object.keys(gruposGantt);
@@ -1033,32 +1078,31 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         sidebarContent.innerHTML = html;
                     }}
 
-                    function renderHeader_{project["id"]}() {{
+                    function renderHeader() {{
                         const yearHeader = document.getElementById('year-header-{project["id"]}');
                         const monthHeader = document.getElementById('month-header-{project["id"]}');
                         let yearHtml = '', monthHtml = '';
                         const yearsData = [];
-                        
-                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        // Usa as datas ATIVAS
-                        let currentDate = parseDate(activeDataMinStr_{project["id"]});
-                        const dataMax = parseDate(activeDataMaxStr_{project["id"]});
-                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
 
-                        let currentYear = -1, monthsInCurrentYear = 0;
-                        
+                        let currentDate = parseDate(activeDataMinStr);
+                        const dataMax = parseDate(activeDataMaxStr);
+
                         if (!currentDate || !dataMax || isNaN(currentDate.getTime()) || isNaN(dataMax.getTime())) {{
                              yearHeader.innerHTML = "Datas inválidas";
                              monthHeader.innerHTML = "";
                              return;
                         }}
 
-                        let totalMonths = 0; // Prevenção de loop infinito
-                        while (currentDate <= dataMax && totalMonths < 240) {{ // Limite de 20 anos
+                        // DECLARE estas variáveis
+                        let currentYear = -1, monthsInCurrentYear = 0;
+
+                        let totalMonths = 0;
+                        while (currentDate <= dataMax && totalMonths < 240) {{
                             const year = currentDate.getUTCFullYear();
                             if (year !== currentYear) {{
                                 if (currentYear !== -1) yearsData.push({{ year: currentYear, count: monthsInCurrentYear }});
-                                currentYear = year; monthsInCurrentYear = 0;
+                                currentYear = year; 
+                                monthsInCurrentYear = 0;
                             }}
                             const monthNumber = String(currentDate.getUTCMonth() + 1).padStart(2, '0');
                             monthHtml += `<div class="month-cell">${{monthNumber}}</div>`;
@@ -1067,9 +1111,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             totalMonths++;
                         }}
                         if (currentYear !== -1) yearsData.push({{ year: currentYear, count: monthsInCurrentYear }});
-                        yearsData.forEach(data => {{ const yearWidth = data.count * PIXELS_PER_MONTH; yearHtml += `<div class="year-section" style="width:${{yearWidth}}px">${{data.year}}</div>`; }});
-                        
-                        // Atualiza a largura total do container do gráfico
+                        yearsData.forEach(data => {{ 
+                            const yearWidth = data.count * PIXELS_PER_MONTH; 
+                            yearHtml += `<div class="year-section" style="width:${{yearWidth}}px">${{data.year}}</div>`; 
+                        }});
+
                         const chartContainer = document.getElementById('chart-container-{project["id"]}');
                         if (chartContainer) {{
                              chartContainer.style.minWidth = `${{totalMonths * PIXELS_PER_MONTH}}px`;
@@ -1078,11 +1124,16 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         yearHeader.innerHTML = yearHtml;
                         monthHeader.innerHTML = monthHtml;
                     }}
-
-                    function renderChart_{project["id"]}() {{
+                    function renderChart() {{
                         const chartBody = document.getElementById('chart-body-{project["id"]}');
                         const gruposGantt = JSON.parse(document.getElementById('grupos-gantt-data').textContent);
-                        const tasks = projectData_{project["id"]}[0].tasks;
+                        const tasks = projectData[0].tasks;
+                        
+                        if (!tasks || tasks.length === 0) {{
+                            chartBody.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">Nenhuma tarefa disponível</div>';
+                            return;
+                        }}
+                        
                         chartBody.innerHTML = '';
                         const groupKeys = Object.keys(gruposGantt);
                         for (let i = 0; i < groupKeys.length; i++) {{
@@ -1092,15 +1143,25 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             gruposGantt[grupo].forEach(etapaNome => {{
                                 const task = tasks.find(t => t.name === etapaNome);
                                 if (task) {{
-                                    const row = document.createElement('div'); row.className = 'gantt-row';
+                                    const row = document.createElement('div'); 
+                                    row.className = 'gantt-row';
                                     let barPrevisto = null;
-                                    if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{ barPrevisto = createBar_{project["id"]}(task, 'previsto'); row.appendChild(barPrevisto); }}
+                                    if (tipoVisualizacao === 'Ambos' || tipoVisualizacao === 'Previsto') {{ 
+                                        barPrevisto = createBar(task, 'previsto'); 
+                                        row.appendChild(barPrevisto); 
+                                    }}
                                     let barReal = null;
-                                    if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && (task.end_real_original_raw || task.end_real)) {{ barReal = createBar_{project["id"]}(task, 'real'); row.appendChild(barReal); }}
+                                    if ((tipoVisualizacao === 'Ambos' || tipoVisualizacao === 'Real') && task.start_real && (task.end_real_original_raw || task.end_real)) {{ 
+                                        barReal = createBar(task, 'real'); 
+                                        row.appendChild(barReal); 
+                                    }}
                                     if (barPrevisto && barReal) {{
                                         const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real_original_raw || task.end_real);
-                                        if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{ barPrevisto.style.zIndex = '8'; barReal.style.zIndex = '7'; }}
-                                        renderOverlapBar_{project["id"]}(task, row);
+                                        if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{ 
+                                            barPrevisto.style.zIndex = '8'; 
+                                            barReal.style.zIndex = '7'; 
+                                        }}
+                                        renderOverlapBar(task, row);
                                     }}
                                     chartBody.appendChild(row);
                                 }}
@@ -1117,44 +1178,47 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         }}
                     }}
 
-                    function createBar_{project["id"]}(task, tipo) {{
+                    function createBar(task, tipo) {{
                         const startDate = parseDate(tipo === 'previsto' ? task.start_previsto : task.start_real);
-                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        // Garante que usa a data final correta (a original ou a calculada)
                         const endDate = parseDate(tipo === 'previsto' ? task.end_previsto : (task.end_real_original_raw || task.end_real));
-                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        
+
                         if (!startDate || !endDate) return document.createElement('div');
-                        const left = getPosition_{project["id"]}(startDate);
-                        const width = getPosition_{project["id"]}(endDate) - left + (PIXELS_PER_MONTH / 30);
-                        const bar = document.createElement('div'); bar.className = `gantt-bar ${{tipo}}`;
-                        const coresSetor = coresPorSetor_{project["id"]}[task.setor] || coresPorSetor_{project["id"]}['Não especificado'] || {{previsto: '#cccccc', real: '#888888'}};
+                        const left = getPosition(startDate);
+                        const width = getPosition(endDate) - left + (PIXELS_PER_MONTH / 30);
+                        const bar = document.createElement('div'); 
+                        bar.className = `gantt-bar ${{tipo}}`;
+                        const coresSetor = coresPorSetor[task.setor] || coresPorSetor['Não especificado'] || {{previsto: '#cccccc', real: '#888888'}};
                         bar.style.backgroundColor = tipo === 'previsto' ? coresSetor.previsto : coresSetor.real;
-                        bar.style.left = `${{left}}px`; bar.style.width = `${{width}}px`;
-                        const barLabel = document.createElement('span'); barLabel.className = 'bar-label'; barLabel.textContent = `${{task.name}} (${{task.progress}}%)`; bar.appendChild(barLabel);
-                        bar.addEventListener('mousemove', e => showTooltip_{project["id"]}(e, task, tipo));
-                        bar.addEventListener('mouseout', () => hideTooltip_{project["id"]}());
+                        bar.style.left = `${{left}}px`; 
+                        bar.style.width = `${{width}}px`;
+                        const barLabel = document.createElement('span'); 
+                        barLabel.className = 'bar-label'; 
+                        barLabel.textContent = `${{task.name}} (${{task.progress}}%)`; 
+                        bar.appendChild(barLabel);
+                        bar.addEventListener('mousemove', e => showTooltip(e, task, tipo));
+                        bar.addEventListener('mouseout', () => hideTooltip());
                         return bar;
                     }}
 
-                    function renderOverlapBar_{project["id"]}(task, row) {{
+                    function renderOverlapBar(task, row) {{
                        if (!task.start_real || !(task.end_real_original_raw || task.end_real)) return;
-                       // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
                         const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real_original_raw || task.end_real);
-                       // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
                         const overlap_start = new Date(Math.max(s_prev, s_real)), overlap_end = new Date(Math.min(e_prev, e_real));
                         if (overlap_start < overlap_end) {{
-                            const left = getPosition_{project["id"]}(overlap_start), width = getPosition_{project["id"]}(overlap_end) - left + (PIXELS_PER_MONTH / 30);
-                            if (width > 0) {{ const overlapBar = document.createElement('div'); overlapBar.className = 'gantt-bar-overlap'; overlapBar.style.left = `${{left}}px`; overlapBar.style.width = `${{width}}px`; row.appendChild(overlapBar); }}
+                            const left = getPosition(overlap_start), width = getPosition(overlap_end) - left + (PIXELS_PER_MONTH / 30);
+                            if (width > 0) {{ 
+                                const overlapBar = document.createElement('div'); 
+                                overlapBar.className = 'gantt-bar-overlap'; 
+                                overlapBar.style.left = `${{left}}px`; 
+                                overlapBar.style.width = `${{width}}px`; 
+                                row.appendChild(overlapBar); 
+                            }}
                         }}
                     }}
 
-                    function getPosition_{project["id"]}(date) {{
+                    function getPosition(date) {{
                         if (!date) return 0;
-                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        // Usa a data ATIVA
-                        const chartStart = parseDate(activeDataMinStr_{project["id"]});
-                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        const chartStart = parseDate(activeDataMinStr);
                         if (!chartStart || isNaN(chartStart.getTime())) return 0;
 
                         const monthsOffset = (date.getUTCFullYear() - chartStart.getUTCFullYear()) * 12 + (date.getUTCMonth() - chartStart.getUTCMonth());
@@ -1164,17 +1228,15 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         return (monthsOffset + fractionOfMonth) * PIXELS_PER_MONTH;
                     }}
 
-                    function positionTodayLine_{project["id"]}() {{
+                    function positionTodayLine() {{
                         const todayLine = document.getElementById('today-line-{project["id"]}');
                         const today = new Date(), todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
-                        
-                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        const chartStart = parseDate(activeDataMinStr_{project["id"]});
-                        const chartEnd = parseDate(activeDataMaxStr_{project["id"]});
-                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+
+                        const chartStart = parseDate(activeDataMinStr);
+                        const chartEnd = parseDate(activeDataMaxStr);
 
                         if (chartStart && chartEnd && !isNaN(chartStart.getTime()) && !isNaN(chartEnd.getTime()) && todayUTC >= chartStart && todayUTC <= chartEnd) {{ 
-                            const offset = getPosition_{project["id"]}(todayUTC); 
+                            const offset = getPosition(todayUTC); 
                             todayLine.style.left = `${{offset}}px`; 
                             todayLine.style.display = 'block'; 
                         }} else {{ 
@@ -1182,19 +1244,17 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         }}
                     }}
 
-                    function positionMetaLine_{project["id"]}() {{
+                    function positionMetaLine() {{
                         const metaLine = document.getElementById('meta-line-{project["id"]}'), metaLabel = document.getElementById('meta-line-label-{project["id"]}');
-                        const metaDateStr = projectData_{project["id"]}[0].meta_assinatura_date;
+                        const metaDateStr = projectData[0].meta_assinatura_date;
                         if (!metaDateStr) {{ metaLine.style.display = 'none'; metaLabel.style.display = 'none'; return; }}
-                        
+
                         const metaDate = parseDate(metaDateStr);
-                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        const chartStart = parseDate(activeDataMinStr_{project["id"]});
-                        const chartEnd = parseDate(activeDataMaxStr_{project["id"]});
-                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        
+                        const chartStart = parseDate(activeDataMinStr);
+                        const chartEnd = parseDate(activeDataMaxStr);
+
                         if (metaDate && chartStart && chartEnd && !isNaN(metaDate.getTime()) && !isNaN(chartStart.getTime()) && !isNaN(chartEnd.getTime()) && metaDate >= chartStart && metaDate <= chartEnd) {{ 
-                            const offset = getPosition_{project["id"]}(metaDate); 
+                            const offset = getPosition(metaDate); 
                             metaLine.style.left = `${{offset}}px`; 
                             metaLabel.style.left = `${{offset}}px`; 
                             metaLine.style.display = 'block'; 
@@ -1206,7 +1266,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         }}
                     }}
 
-                    function showTooltip_{project["id"]}(e, task, tipo) {{
+                    function showTooltip(e, task, tipo) {{
                         const tooltip = document.getElementById('tooltip-{project["id"]}');
                         let content = `<b>${{task.name}}</b><br>`;
                         if (tipo === 'previsto') {{ content += `Previsto: ${{task.inicio_previsto}} - ${{task.termino_previsto}}<br>Duração: ${{task.duracao_prev_meses}}M`; }} else {{ content += `Real: ${{task.inicio_real}} - ${{task.termino_real}}<br>Duração: ${{task.duracao_real_meses}}M<br>Variação Término: ${{task.vt_text}}<br>Variação Duração: ${{task.vd_text}}`; }}
@@ -1237,43 +1297,45 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         tooltip.style.top = `${{top}}px`;
                     }}
 
-                    function hideTooltip_{project["id"]}() {{ document.getElementById('tooltip-{project["id"]}').classList.remove('show'); }}
+                    function hideTooltip() {{ 
+                        document.getElementById('tooltip-{project["id"]}').classList.remove('show'); 
+                    }}
 
-                    function renderMonthDividers_{project["id"]}() {{
+                    function renderMonthDividers() {{
                         const chartContainer = document.getElementById('chart-container-{project["id"]}');
                         chartContainer.querySelectorAll('.month-divider, .month-divider-label').forEach(el => el.remove());
-                        
-                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        let currentDate = parseDate(activeDataMinStr_{project["id"]});
-                        const dataMax = parseDate(activeDataMaxStr_{project["id"]});
-                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+
+                        let currentDate = parseDate(activeDataMinStr);
+                        const dataMax = parseDate(activeDataMaxStr);
 
                         if (!currentDate || !dataMax || isNaN(currentDate.getTime()) || isNaN(dataMax.getTime())) return;
 
-                        let totalMonths = 0; // Prevenção de loop infinito
-                        while (currentDate <= dataMax && totalMonths < 240) {{ // Limite de 20 anos
-                            const left = getPosition_{project["id"]}(currentDate);
-                            const divider = document.createElement('div'); divider.className = 'month-divider';
+                        let totalMonths = 0;
+                        while (currentDate <= dataMax && totalMonths < 240) {{
+                            const left = getPosition(currentDate);
+                            const divider = document.createElement('div'); 
+                            divider.className = 'month-divider';
                             if (currentDate.getUTCMonth() === 0) divider.classList.add('first');
-                            divider.style.left = `${{left}}px`; chartContainer.appendChild(divider);
+                            divider.style.left = `${{left}}px`; 
+                            chartContainer.appendChild(divider);
                             currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
                             totalMonths++;
                         }}
                     }}
 
-                    function setupEventListeners_{project["id"]}() {{
+                    function setupEventListeners() {{
                         const ganttChartContent = document.getElementById('gantt-chart-content-{project["id"]}'), sidebarContent = document.getElementById('gantt-sidebar-content-{project['id']}');
                         const fullscreenBtn = document.getElementById('fullscreen-btn-{project["id"]}'), toggleBtn = document.getElementById('toggle-sidebar-btn-{project['id']}');
                         const container = document.getElementById('gantt-container-{project["id"]}');
 
                         const applyBtn = document.getElementById('filter-apply-btn-{project["id"]}');
-                        if (applyBtn) applyBtn.addEventListener('click', () => applyFiltersAndRedraw_{project["id"]}());
+                        if (applyBtn) applyBtn.addEventListener('click', () => applyFiltersAndRedraw());
 
-                        if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreenOrMenu_{project["id"]}());
+                        if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreenOrMenu());
 
-                        if (container) container.addEventListener('fullscreenchange', () => handleFullscreenChange_{project["id"]}());
+                        if (container) container.addEventListener('fullscreenchange', () => handleFullscreenChange());
 
-                        if (toggleBtn) toggleBtn.addEventListener('click', () => toggleSidebar_{project["id"]}());
+                        if (toggleBtn) toggleBtn.addEventListener('click', () => toggleSidebar());
                         if (ganttChartContent && sidebarContent) {{
                             let isSyncing = false;
                             ganttChartContent.addEventListener('scroll', () => {{ if (!isSyncing) {{ isSyncing = true; sidebarContent.scrollTop = ganttChartContent.scrollTop; isSyncing = false; }} }});
@@ -1286,11 +1348,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         }}
                     }}
 
-                    function toggleSidebar_{project["id"]}() {{ document.getElementById('gantt-sidebar-wrapper-{project["id"]}').classList.toggle('collapsed'); }}
+                    function toggleSidebar() {{ 
+                        document.getElementById('gantt-sidebar-wrapper-{project["id"]}').classList.toggle('collapsed'); 
+                    }}
 
-                    // --- INÍCIO DAS NOVAS FUNÇÕES JS ---
-
-                    function updatePulmaoInputVisibility_{project["id"]}() {{
+                    function updatePulmaoInputVisibility() {{
                         const radioCom = document.getElementById('filter-pulmao-com-{project["id"]}');
                         const mesesGroup = document.getElementById('pulmao-meses-group-{project["id"]}');
                         if (radioCom && mesesGroup) {{ 
@@ -1302,32 +1364,27 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         }}
                     }}
 
-                    function resetToInitialState_{project["id"]}() {{
-                        // 1. Resetar o índice e os dados do projeto
-                        currentProjectIndex_{project["id"]} = initialProjectIndex_{project["id"]};
-                        const initialProject = allProjectsData_{project["id"]}[initialProjectIndex_{project["id"]}];
-                        
-                        projectData_{project["id"]} = [JSON.parse(JSON.stringify(initialProject))];
-                        allTasks_baseData_{project["id"]} = JSON.parse(JSON.stringify(initialProject.tasks));
-                        
-                        // 2. Resetar variáveis de estado globais
-                        tipoVisualizacao_{project["id"]} = initialTipoVisualizacao_{project["id"]};
-                        pulmaoStatus_{project["id"]} = initialPulmaoStatus_{project["id"]};
-                        
-                        applyInitialPulmaoState_{project["id"]}();
+                    function resetToInitialState() {{
+                        currentProjectIndex = initialProjectIndex;
+                        const initialProject = allProjectsData[initialProjectIndex];
 
-                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        // 3. Resetar o range de datas ativo para o original do Python
-                        activeDataMinStr_{project["id"]} = dataMinStr_{project["id"]};
-                        activeDataMaxStr_{project["id"]} = dataMaxStr_{project["id"]};
-                        
-                        // 3b. RE-CALCULAR o range inicial se o pulmão da sidebar estava ativo
-                        if (initialPulmaoStatus_{project["id"]} === 'Com Pulmão' && initialPulmaoMeses_{project["id"]} > 0) {{
-                            const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange_{project["id"]}(projectData_{project["id"]}[0].tasks);
+                        projectData = [JSON.parse(JSON.stringify(initialProject))];
+                        allTasks_baseData = JSON.parse(JSON.stringify(initialProject.tasks));
+
+                        tipoVisualizacao = initialTipoVisualizacao;
+                        pulmaoStatus = initialPulmaoStatus;
+
+                        applyInitialPulmaoState();
+
+                        activeDataMinStr = dataMinStr;
+                        activeDataMaxStr = dataMaxStr;
+
+                        if (initialPulmaoStatus === 'Com Pulmão' && initialPulmaoMeses > 0) {{
+                            const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange(projectData[0].tasks);
                             const newMin = parseDate(newMinStr);
                             const newMax = parseDate(newMaxStr);
-                            const originalMin = parseDate(activeDataMinStr_{project["id"]});
-                            const originalMax = parseDate(activeDataMaxStr_{project["id"]});
+                            const originalMin = parseDate(activeDataMinStr);
+                            const originalMax = parseDate(activeDataMaxStr);
 
                             let finalMinDate = originalMin;
                             if (newMin && newMin < finalMinDate) {{
@@ -1342,281 +1399,315 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             finalMaxDate = new Date(finalMaxDate.getTime());
                             finalMinDate.setUTCDate(1);
                             finalMaxDate.setUTCMonth(finalMaxDate.getUTCMonth() + 1, 0);
-                            
-                            activeDataMinStr_{project["id"]} = finalMinDate.toISOString().split('T')[0];
-                            activeDataMaxStr_{project["id"]} = finalMaxDate.toISOString().split('T')[0];
+
+                            activeDataMinStr = finalMinDate.toISOString().split('T')[0];
+                            activeDataMaxStr = finalMaxDate.toISOString().split('T')[0];
                         }}
-                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
 
-
-                        // 4. Resetar a UI do menu de filtros
-                        document.getElementById('filter-project-{project["id"]}').value = initialProjectIndex_{project["id"]};
-                        document.getElementById('filter-setor-{project["id"]}').value = 'Todos';
-                        document.getElementById('filter-grupo-{project["id"]}').value = 'Todos';
-                        document.getElementById('filter-etapa-{project["id"]}').value = 'Todas';
+                        document.getElementById('filter-project-{project["id"]}').value = initialProjectIndex;
+                        
+                        // *** CORREÇÃO: Reset Virtual Select ***
+                        if(vsSetor) vsSetor.setValue(["Todos"]);
+                        if(vsGrupo) vsGrupo.setValue(["Todos"]);
+                        if(vsEtapa) vsEtapa.setValue(["Todas"]);
+                        
                         document.getElementById('filter-concluidas-{project["id"]}').checked = false;
-                        
-                        const visRadio = document.querySelector(`input[name="filter-vis-{project['id']}"][value="${{initialTipoVisualizacao_{project["id"]}}}"]`);
+
+                        const visRadio = document.querySelector('input[name="filter-vis-{project['id']}"][value="' + initialTipoVisualizacao + '"]');
                         if (visRadio) visRadio.checked = true;
-                        
-                        const pulmaoRadio = document.querySelector(`input[name="filter-pulmao-{project['id']}"][value="${{initialPulmaoStatus_{project["id"]}}}"]`);
+
+                        const pulmaoRadio = document.querySelector('input[name="filter-pulmao-{project['id']}"][value="' + initialPulmaoStatus + '"]');
                         if (pulmaoRadio) pulmaoRadio.checked = true;
 
-                        document.getElementById('filter-pulmao-meses-{project["id"]}').value = initialPulmaoMeses_{project["id"]};
-                        
-                        updatePulmaoInputVisibility_{project["id"]}();
+                        document.getElementById('filter-pulmao-meses-{project["id"]}').value = initialPulmaoMeses;
 
-                        // 5. Redesenhar TUDO (inclusive o header)
-                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        renderHeader_{project["id"]}();
-                        renderMonthDividers_{project["id"]}();
-                        renderSidebar_{project["id"]}();
-                        renderChart_{project["id"]}();
-                        positionTodayLine_{project["id"]}();
-                        positionMetaLine_{project["id"]}();
-                        updateProjectTitle_{project["id"]}();
-                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
+                        updatePulmaoInputVisibility();
+
+                        renderHeader();
+                        renderMonthDividers();
+                        renderSidebar();
+                        renderChart();
+                        positionTodayLine();
+                        positionMetaLine();
+                        updateProjectTitle();
                     }}
 
-
-                    function updateProjectTitle_{project["id"]}() {{
-                        const projectTitle = document.querySelector(`#gantt-sidebar-wrapper-{project["id"]} .project-title-row span`);
+                    function updateProjectTitle() {{
+                        const projectTitle = document.querySelector('#gantt-sidebar-wrapper-{project["id"]} .project-title-row span');
                         if (projectTitle) {{
-                            projectTitle.textContent = projectData_{project["id"]}[0].name;
+                            projectTitle.textContent = projectData[0].name;
                         }}
                     }}
 
-                    function toggleFullscreen_{project["id"]}() {{
+                    function toggleFullscreen() {{
                         const container = document.getElementById('gantt-container-{project["id"]}');
                         if (!document.fullscreenElement) {{
-                            container.requestFullscreen().catch(err => alert(`Erro: ${{err.message}}`));
+                            container.requestFullscreen().catch(err => alert('Erro: ' + err.message));
                         }} else {{
                             document.exitFullscreen();
                         }}
                     }}
 
-                    function toggleFilterMenu_{project["id"]}() {{
+                    function toggleFilterMenu() {{
                         document.getElementById('filter-menu-{project["id"]}').classList.toggle('is-open');
                     }}
 
-                    function toggleFullscreenOrMenu_{project["id"]}() {{
+                    function toggleFullscreenOrMenu() {{
                         const container = document.getElementById('gantt-container-{project["id"]}');
                         if (document.fullscreenElement === container) {{
-                            toggleFilterMenu_{project["id"]}();
+                            toggleFilterMenu();
                         }} else {{
-                            toggleFullscreen_{project["id"]}();
+                            toggleFullscreen();
                         }}
                     }}
 
-                    function handleFullscreenChange_{project["id"]}() {{
+                    function handleFullscreenChange() {{
                         const btn = document.getElementById('fullscreen-btn-{project["id"]}');
                         const container = document.getElementById('gantt-container-{project["id"]}');
                         if (document.fullscreenElement === container) {{
-                            btn.innerHTML = '<span>&#9776;</span>'; 
+                            btn.innerHTML = '<span>&#9776;</span>';
                             btn.classList.add('is-fullscreen');
                         }} else {{
                             btn.innerHTML = '<span>📺</span> <span>Tela Cheia</span>';
                             btn.classList.remove('is-fullscreen');
                             document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
-                            resetToInitialState_{project["id"]}();
+                            resetToInitialState();
                         }}
                     }}
 
-                    function populateFilters_{project["id"]}() {{
-                        if (filtersPopulated_{project["id"]}) return; 
+                    function populateFilters() {{
+                        if (filtersPopulated) return;
 
+                        // Popula o select normal de Projeto
                         const selProject = document.getElementById('filter-project-{project["id"]}');
-                        allProjectsData_{project["id"]}.forEach((proj, index) => {{
-                            const isSelected = (index === initialProjectIndex_{project["id"]}) ? 'selected' : '';
-                            selProject.innerHTML += `<option value="${{index}}" ${{isSelected}}>${{proj.name}}</option>`;
+                        allProjectsData.forEach((proj, index) => {{
+                            const isSelected = (index === initialProjectIndex) ? 'selected' : '';
+                            selProject.innerHTML += '<option value="' + index + '" ' + isSelected + '>' + proj.name + '</option>';
                         }});
 
-                        const selSetor = document.getElementById('filter-setor-{project["id"]}');
-                        filterOptions_{project["id"]}.setores.forEach(s => {{
-                            selSetor.innerHTML += `<option value="${{s}}">${{s}}</option>`;
+                        // Configurações comuns para Virtual Select
+                        const vsConfig = {{
+                            multiple: true,
+                            search: true,
+                            optionsCount: 6,
+                            showResetButton: true,
+                            resetButtonText: 'Limpar',
+                            selectAllText: 'Selecionar Todos',
+                            allOptionsSelectedText: 'Todos',
+                            optionsSelectedText: 'selecionados',
+                            searchPlaceholderText: 'Buscar...',
+                            optionHeight: '30px',
+                            popupDropboxBreakpoint: '3000px',
+                            noOptionsText: 'Nenhuma opção encontrada',
+                            noSearchResultsText: 'Nenhum resultado encontrado',
+                        }};
+
+                        // Prepara opções e inicializa Virtual Select para Setor
+                        const setorOptions = filterOptions.setores.map(s => ({{ label: s, value: s }}));
+                        vsSetor = VirtualSelect.init({{
+                            ...vsConfig,
+                            ele: '#filter-setor-{project["id"]}',
+                            options: setorOptions,
+                            placeholder: "Selecionar Setor(es)",
+                            selectedValue: ["Todos"]
                         }});
 
-                        const selGrupo = document.getElementById('filter-grupo-{project["id"]}');
-                        filterOptions_{project["id"]}.grupos.forEach(g => {{
-                            selGrupo.innerHTML += `<option value="${{g}}">${{g}}</option>`;
+                        // Prepara opções e inicializa Virtual Select para Grupo
+                        const grupoOptions = filterOptions.grupos.map(g => ({{ label: g, value: g }}));
+                        vsGrupo = VirtualSelect.init({{
+                            ...vsConfig,
+                            ele: '#filter-grupo-{project["id"]}',
+                            options: grupoOptions,
+                            placeholder: "Selecionar Grupo(s)",
+                            selectedValue: ["Todos"]
                         }});
 
-                        const selEtapa = document.getElementById('filter-etapa-{project["id"]}');
-                        filterOptions_{project["id"]}.etapas.forEach(e => {{
-                            selEtapa.innerHTML += `<option value="${{e}}">${{e}}</option>`;
+                         // Prepara opções e inicializa Virtual Select para Etapa
+                        const etapaOptions = filterOptions.etapas.map(e => ({{ label: e, value: e }}));
+                        vsEtapa = VirtualSelect.init({{
+                            ...vsConfig,
+                            ele: '#filter-etapa-{project["id"]}',
+                            options: etapaOptions,
+                            placeholder: "Selecionar Etapa(s)",
+                            selectedValue: ["Todas"]
                         }});
 
-                        document.querySelector(`input[name="filter-vis-{project['id']}"][value="${{initialTipoVisualizacao_{project["id"]}}}"]`).checked = true;
+                        // Configura os radios de visualização
+                        const visRadio = document.querySelector('input[name="filter-vis-{project['id']}"][value="' + initialTipoVisualizacao + '"]');
+                         if (visRadio) visRadio.checked = true;
 
+                        // Configura os radios e input de Pulmão
                         const radioCom = document.getElementById('filter-pulmao-com-{project["id"]}');
                         const radioSem = document.getElementById('filter-pulmao-sem-{project["id"]}');
-                        
-                        radioCom.addEventListener('change', updatePulmaoInputVisibility_{project["id"]});
-                        radioSem.addEventListener('change', updatePulmaoInputVisibility_{project["id"]});
 
-                        document.querySelector(`input[name="filter-pulmao-{project['id']}"][value="${{initialPulmaoStatus_{project["id"]}}}"]`).checked = true;
+                        radioCom.addEventListener('change', updatePulmaoInputVisibility);
+                        radioSem.addEventListener('change', updatePulmaoInputVisibility);
 
-                        document.getElementById('filter-pulmao-meses-{project["id"]}').value = initialPulmaoMeses_{project["id"]};
+                        const pulmaoRadioInitial = document.querySelector('input[name="filter-pulmao-{project['id']}"][value="' + initialPulmaoStatus + '"]');
+                         if(pulmaoRadioInitial) pulmaoRadioInitial.checked = true;
 
-                        updatePulmaoInputVisibility_{project["id"]}();
+                        document.getElementById('filter-pulmao-meses-{project["id"]}').value = initialPulmaoMeses;
 
-                        filtersPopulated_{project["id"]} = true;
+                        updatePulmaoInputVisibility();
+
+                        filtersPopulated = true;
                     }}
 
-                    function applyFiltersAndRedraw_{project["id"]}() {{
-                        
-                        const selProjectIndex = parseInt(document.getElementById('filter-project-{project["id"]}').value, 10);
-                        const selSetor = document.getElementById('filter-setor-{project["id"]}').value;
-                        const selGrupo = document.getElementById('filter-grupo-{project["id"]}').value;
-                        const selEtapa = document.getElementById('filter-etapa-{project["id"]}').value;
-                        const selConcluidas = document.getElementById('filter-concluidas-{project["id"]}').checked;
-                        const selVis = document.querySelector(`input[name="filter-vis-{project['id']}"]:checked`).value;
-                        const selPulmao = document.querySelector(`input[name="filter-pulmao-{project['id']}"]:checked`).value;
-                        const selPulmaoMeses = parseInt(document.getElementById('filter-pulmao-meses-{project["id"]}').value, 10) || 0;
-
-
-                        if (selProjectIndex !== currentProjectIndex_{project["id"]}) {{
-                            currentProjectIndex_{project["id"]} = selProjectIndex;
-                            const newProject = allProjectsData_{project["id"]}[selProjectIndex];
+                    // *** FUNÇÃO applyFiltersAndRedraw CORRIGIDA ***
+                    function applyFiltersAndRedraw() {{
+                        try {{
+                            const selProjectIndex = parseInt(document.getElementById('filter-project-{project["id"]}').value, 10);
                             
-                            projectData_{project["id"]} = [JSON.parse(JSON.stringify(newProject))];
+                            // *** LEITURA CORRIGIDA dos Virtual Select ***
+                            const selSetorArray = vsSetor ? vsSetor.getValue() || [] : [];
+                            const selGrupoArray = vsGrupo ? vsGrupo.getValue() || [] : [];
+                            const selEtapaArray = vsEtapa ? vsEtapa.getValue() || [] : [];
                             
-                            allTasks_baseData_{project["id"]} = JSON.parse(JSON.stringify(newProject.tasks));
-                        }}
+                            const selConcluidas = document.getElementById('filter-concluidas-{project["id"]}').checked;
+                            const selVis = document.querySelector('input[name="filter-vis-{project['id']}"]:checked').value;
+                            const selPulmao = document.querySelector('input[name="filter-pulmao-{project['id']}"]:checked').value;
+                            const selPulmaoMeses = parseInt(document.getElementById('filter-pulmao-meses-{project["id"]}').value, 10) || 0;
 
-                        
-                        let baseTasks = JSON.parse(JSON.stringify(allTasks_baseData_{project["id"]}));
-
-                        if (selPulmao === 'Com Pulmão' && selPulmaoMeses > 0) {{
-                            const offsetMeses = -selPulmaoMeses; 
-
-                            baseTasks.forEach(task => {{
-                                const etapaNome = task.name; 
-
-                                if (etapas_sem_alteracao_{project["id"]}.includes(etapaNome)) {{
-                                }}
-                                else if (etapas_pulmao_{project["id"]}.includes(etapaNome)) {{
-                                    task.start_previsto = addMonths_{project["id"]}(task.start_previsto, offsetMeses);
-                                    task.start_real = addMonths_{project["id"]}(task.start_real, offsetMeses);
-                                    task.inicio_previsto = formatDateDisplay_{project["id"]}(task.start_previsto);
-                                    task.inicio_real = formatDateDisplay_{project["id"]}(task.start_real);
-                                }}
-                                else {{
-                                    task.start_previsto = addMonths_{project["id"]}(task.start_previsto, offsetMeses);
-                                    task.end_previsto = addMonths_{project["id"]}(task.end_previsto, offsetMeses);
-                                    task.start_real = addMonths_{project["id"]}(task.start_real, offsetMeses);
-
-                                    if (task.end_real_original_raw) {{
-                                        task.end_real_original_raw = addMonths_{project["id"]}(task.end_real_original_raw, offsetMeses);
-                                        task.end_real = task.end_real_original_raw;
-                                    }} else if (task.end_real) {{
-                                        task.end_real = addMonths_{project["id"]}(task.end_real, offsetMeses);
-                                    }}
-                                    
-                                    task.inicio_previsto = formatDateDisplay_{project["id"]}(task.start_previsto);
-                                    task.termino_previsto = formatDateDisplay_{project["id"]}(task.end_previsto);
-                                    task.inicio_real = formatDateDisplay_{project["id"]}(task.start_real);
-                                    task.termino_real = formatDateDisplay_{project["id"]}(task.end_real_original_raw);
-                                }}
+                            console.log('Filtros aplicados:', {{
+                                setor: selSetorArray,
+                                grupo: selGrupoArray,
+                                etapa: selEtapaArray,
+                                concluidas: selConcluidas,
+                                visualizacao: selVis,
+                                pulmao: selPulmao,
+                                mesesPulmao: selPulmaoMeses
                             }});
+
+                            if (selProjectIndex !== currentProjectIndex) {{
+                                currentProjectIndex = selProjectIndex;
+                                const newProject = allProjectsData[selProjectIndex];
+                                projectData = [JSON.parse(JSON.stringify(newProject))];
+                                allTasks_baseData = JSON.parse(JSON.stringify(newProject.tasks));
+                            }}
+
+                            let baseTasks = JSON.parse(JSON.stringify(allTasks_baseData));
+
+                            if (selPulmao === 'Com Pulmão' && selPulmaoMeses > 0) {{
+                                const offsetMeses = -selPulmaoMeses;
+                                baseTasks.forEach(task => {{
+                                    const etapaNome = task.name;
+                                    if (etapas_sem_alteracao.includes(etapaNome)) {{
+                                    }}
+                                    else if (etapas_pulmao.includes(etapaNome)) {{
+                                        task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                                        task.start_real = addMonths(task.start_real, offsetMeses);
+                                        task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                        task.inicio_real = formatDateDisplay(task.start_real);
+                                    }}
+                                    else {{
+                                        task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                                        task.end_previsto = addMonths(task.end_previsto, offsetMeses);
+                                        task.start_real = addMonths(task.start_real, offsetMeses);
+
+                                        if (task.end_real_original_raw) {{
+                                            task.end_real_original_raw = addMonths(task.end_real_original_raw, offsetMeses);
+                                            task.end_real = task.end_real_original_raw;
+                                        }} else if (task.end_real) {{
+                                            task.end_real = addMonths(task.end_real, offsetMeses);
+                                        }}
+
+                                        task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                        task.termino_previsto = formatDateDisplay(task.end_previsto);
+                                        task.inicio_real = formatDateDisplay(task.start_real);
+                                        task.termino_real = formatDateDisplay(task.end_real_original_raw);
+                                    }}
+                                }});
+                            }}
+
+                            let filteredTasks = baseTasks;
+
+                            // *** LÓGICA DE FILTRO CORRIGIDA ***
+                            if (selSetorArray.length > 0 && !selSetorArray.includes('Todos')) {{
+                                filteredTasks = filteredTasks.filter(t => selSetorArray.includes(t.setor));
+                            }}
+                            
+                            if (selGrupoArray.length > 0 && !selGrupoArray.includes('Todos')) {{
+                                filteredTasks = filteredTasks.filter(t => selGrupoArray.includes(t.grupo));
+                            }}
+                            
+                            if (selEtapaArray.length > 0 && !selEtapaArray.includes('Todas')) {{
+                                filteredTasks = filteredTasks.filter(t => selEtapaArray.includes(t.name));
+                            }}
+
+                            if (selConcluidas) {{
+                                filteredTasks = filteredTasks.filter(t => t.progress < 100);
+                            }}
+
+                            console.log('Tasks após filtros:', filteredTasks.length);
+
+                            // Recalcular range de datas
+                            const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange(filteredTasks);
+                            const newMin = parseDate(newMinStr);
+                            const newMax = parseDate(newMaxStr);
+                            const originalMin = parseDate(dataMinStr);
+                            const originalMax = parseDate(dataMaxStr);
+
+                            let finalMinDate = originalMin;
+                            if (newMin && newMin < finalMinDate) {{
+                                finalMinDate = newMin;
+                            }}
+
+                            let finalMaxDate = originalMax;
+                            if (newMax && newMax > finalMaxDate) {{
+                                finalMaxDate = newMax;
+                            }}
+
+                            finalMinDate = new Date(finalMinDate.getTime());
+                            finalMaxDate = new Date(finalMaxDate.getTime());
+                            finalMinDate.setUTCDate(1);
+                            finalMaxDate.setUTCMonth(finalMaxDate.getUTCMonth() + 1, 0);
+
+                            activeDataMinStr = finalMinDate.toISOString().split('T')[0];
+                            activeDataMaxStr = finalMaxDate.toISOString().split('T')[0];
+
+                            // Atualizar dados e redesenhar
+                            projectData[0].tasks = filteredTasks;
+                            tipoVisualizacao = selVis;
+
+                            renderSidebar();
+                            renderHeader();
+                            renderChart();
+                            positionTodayLine();
+                            positionMetaLine();
+                            updateProjectTitle();
+
+                            // Esconder menu
+                            toggleFilterMenu();
+
+                        }} catch (error) {{
+                            console.error('Erro ao aplicar filtros:', error);
+                            alert('Erro ao aplicar filtros: ' + error.message);
                         }}
-                        
-                        let filteredTasks = baseTasks; 
-                        
-                        if (selSetor !== 'Todos') {{
-                            filteredTasks = filteredTasks.filter(t => t.setor === selSetor);
-                        }}
-                        if (selGrupo !== 'Todos') {{
-                            filteredTasks = filteredTasks.filter(t => t.grupo === selGrupo);
-                        }}
-                        if (selEtapa !== 'Todas') {{
-                            filteredTasks = filteredTasks.filter(t => t.name === selEtapa);
-                        }}
-                        if (selConcluidas) {{
-                            filteredTasks = filteredTasks.filter(t => t.progress < 100);
-                        }}
-
-                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        // 6. Recalcular o range de datas
-                        
-                        // Pega as datas originais do Python (do projeto ATUAL)
-                        // NOTA: dataMinStr_ e dataMaxStr_ são do PRIMEIRO projeto renderizado
-                        // Se o usuário MUDAR de projeto, precisamos das datas desse NOVO projeto
-                        // Para simplificar, vamos usar as datas do projeto original do Python
-                        // (dataMinStr_) E expandir a partir daí.
-                        
-                        const originalMin = parseDate(dataMinStr_{project["id"]});
-                        const originalMax = parseDate(dataMaxStr_{project["id"]});
-                        
-                        const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange_{project["id"]}(filteredTasks);
-                        const newMin = parseDate(newMinStr);
-                        const newMax = parseDate(newMaxStr);
-
-                        let finalMinDate = originalMin;
-                        // Se a nova data mínima (com pulmão) for anterior, use-a
-                        if (newMin && newMin < finalMinDate) {{
-                            finalMinDate = newMin;
-                        }}
-                        
-                        let finalMaxDate = originalMax;
-                        // Se a nova data máxima (com pulmão) for posterior, use-a
-                        if (newMax && newMax > finalMaxDate) {{
-                            finalMaxDate = newMax;
-                        }}
-
-                        // Copia as datas para não modificar as originais
-                        finalMinDate = new Date(finalMinDate.getTime());
-                        finalMaxDate = new Date(finalMaxDate.getTime());
-                        
-                        // Garante que o range do gráfico comece no dia 01 do mês
-                        finalMinDate.setUTCDate(1);
-                        // Garante que o range do gráfico termine no último dia do mês
-                        finalMaxDate.setUTCMonth(finalMaxDate.getUTCMonth() + 1, 0);
-
-                        activeDataMinStr_{project["id"]} = finalMinDate.toISOString().split('T')[0];
-                        activeDataMaxStr_{project["id"]} = finalMaxDate.toISOString().split('T')[0];
-                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-
-
-                        // 7. Atualizar os dados globais do JS
-                        projectData_{project["id"]}[0].tasks = filteredTasks;
-                        tipoVisualizacao_{project["id"]} = selVis; 
-                        pulmaoStatus_{project["id"]} = selPulmao; 
-
-                        // 8. Redesenhar TUDO (inclusive o header)
-                        // ### INÍCIO DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-                        renderHeader_{project["id"]}();
-                        renderMonthDividers_{project["id"]}();
-                        renderSidebar_{project["id"]}();
-                        renderChart_{project["id"]}();
-                        positionTodayLine_{project["id"]}();
-                        positionMetaLine_{project["id"]}(); 
-                        updateProjectTitle_{project["id"]}();
-                        // ### FIM DA MODIFICAÇÃO (DATAS DINÂMICAS) ###
-
-                        // 9. Esconder o menu de filtros
-                        toggleFilterMenu_{project["id"]}();
                     }}
+
+                    // DEBUG: Verificar se há dados antes de inicializar
+                    console.log('Dados do projeto:', projectData);
+                    console.log('Tasks base:', allTasks_baseData);
                     
-                    initGantt_{project["id"]}();
+                    // Inicializar o Gantt
+                    initGantt();
                 </script>
             </body>
             </html>
-        """
+            """
         # Exibe o componente HTML no Streamlit
         components.html(gantt_html, height=altura_gantt, scrolling=True)
         st.markdown("---")
-
-
+# --- *** FUNÇÃO gerar_gantt_consolidado MODIFICADA *** ---
 # Substitua sua função gerar_gantt_consolidado inteira por esta
 def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses):
     """
     Gera um gráfico de Gantt HTML consolidado (baseado no ..._por_projeto)
     com funcionalidades completas de filtro e ordenação dinâmica.
     """
-    
+
     # --- 1. Preparação dos Dados (similar ao antigo consolidado) ---
-    etapa_sigla = df['Etapa'].iloc[0]
+    etapa_sigla = df['Etapa'].iloc[0] if not df.empty else "N/A"
     etapa_nome_completo = sigla_para_nome_completo.get(etapa_sigla, etapa_sigla)
 
     df_gantt = df.copy()
@@ -1657,7 +1748,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 
         # Variação de Término (VT)
         vt = calculate_business_days(end_date, end_real_original)
-        
+
         # Duração em dias úteis
         duracao_prevista_uteis = calculate_business_days(start_date, end_date)
         duracao_real_uteis = calculate_business_days(start_real, end_real_original)
@@ -1666,7 +1757,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         vd = None
         if pd.notna(duracao_real_uteis) and pd.notna(duracao_prevista_uteis):
             vd = duracao_real_uteis - duracao_prevista_uteis
-        
+
         # Lógica de Cor do Status
         status_color_class = 'status-default'
         hoje = pd.Timestamp.now().normalize()
@@ -1677,7 +1768,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 else:
                     status_color_class = 'status-red'
         elif progress < 100 and pd.notna(end_date) and (end_date < hoje):
-                status_color_class = 'status-yellow'
+            status_color_class = 'status-yellow'
 
         task = {
             "id": f"t{i}", "name": row["Empreendimento"], "numero_etapa": i + 1,
@@ -1693,17 +1784,17 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
             "termino_previsto": end_date.strftime("%d/%m/%y"),
             "inicio_real": pd.to_datetime(start_real).strftime("%d/%m/%y") if pd.notna(start_real) else "N/D",
             "termino_real": pd.to_datetime(end_real_original).strftime("%d/%m/%y") if pd.notna(end_real_original) else "N/D",
-            
+
             "duracao_prev_meses": f"{(end_date - start_date).days / 30.4375:.1f}".replace('.', ',') if pd.notna(start_date) and pd.notna(end_date) else "-",
             "duracao_real_meses": f"{(end_real_original - start_real).days / 30.4375:.1f}".replace('.', ',') if pd.notna(start_real) and pd.notna(end_real_original) else "-",
 
             "vt_text": f"{int(vt):+d}d" if pd.notna(vt) else "-",
             "vd_text": f"{int(vd):+d}d" if pd.notna(vd) else "-",
-            
+
             "status_color_class": status_color_class
         }
         tasks_base_data.append(task)
-    
+
     if not tasks_base_data:
         st.warning("Nenhum dado válido para o Gantt Consolidado após a conversão.")
         return
@@ -1718,12 +1809,12 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
     # Criar um "projeto" único que contém os empreendimentos como "tarefas"
     project_id = f"p_cons_{random.randint(1000, 9999)}"
     project = {
-        "id": project_id, 
+        "id": project_id,
         "name": f"Comparativo: {etapa_nome_completo}",
         "tasks": tasks_base_data, # Passa os dados "base" (sem pulmão)
         "meta_assinatura_date": None # Sem meta de assinatura nesta visão
     }
-    
+
     # O estado inicial do pulmão (da sidebar) é usado para a renderização inicial
     # O JS recalculará depois
     df_para_datas = df_gantt_agg
@@ -1732,9 +1823,9 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
     total_meses_proj = ((data_max_proj.year - data_min_proj.year) * 12) + (data_max_proj.month - data_min_proj.month) + 1
 
     num_tasks = len(project["tasks"])
-    if num_tasks == 0: 
+    if num_tasks == 0:
         st.warning("Nenhum empreendimento para exibir.")
-        return 
+        return
 
     altura_gantt = max(400, (num_tasks * 30) + 150) # 30px por linha de empreendimento
 
@@ -1746,9 +1837,12 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            {'''
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/virtual-select-plugin@1.0.39/dist/virtual-select.min.css">
+            '''}
             <style>
-                /* CSS idêntico ao de gerar_gantt_por_projeto */
-                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                /* CSS idêntico ao de gerar_gantt_por_projeto, exceto adaptações para consolidado */
+                 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
                 html, body {{ width: 100%; height: 100%; font-family: 'Segoe UI', sans-serif; background-color: #f5f5f5; color: #333; overflow: hidden; }}
                 .gantt-container {{ width: 100%; height: 100%; background-color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; display: flex; flex-direction: column; }}
                 .gantt-main {{ display: flex; flex: 1; overflow: hidden; }}
@@ -1757,24 +1851,21 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 .project-title-row {{ display: flex; justify-content: space-between; align-items: center; padding: 0 15px; height: 30px; color: white; font-weight: 600; font-size: 14px; }}
                 .toggle-sidebar-btn {{ background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 5px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s, transform 0.3s ease-in-out; }}
                 .toggle-sidebar-btn:hover {{ background: rgba(255,255,255,0.4); }}
-                .sidebar-grid-header-wrapper {{ display: grid; grid-template-columns: 30px 1fr; color: #d1d5db; font-size: 9px; font-weight: 600; text-transform: uppercase; height: 30px; align-items: center; }}
+                .sidebar-grid-header-wrapper {{ display: grid; grid-template-columns: 0px 1fr; color: #d1d5db; font-size: 9px; font-weight: 600; text-transform: uppercase; height: 30px; align-items: center; }} /* Coluna 0px para esconder grupo */
                 .sidebar-grid-header {{ display: grid; grid-template-columns: 2.5fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr; padding: 0 10px; align-items: center; }}
                 .sidebar-row {{ display: grid; grid-template-columns: 2.5fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr; border-bottom: 1px solid #eff2f5; height: 30px; padding: 0 10px; background-color: white; transition: all 0.2s ease-in-out; }}
                 .sidebar-cell {{ display: flex; align-items: center; justify-content: center; font-size: 11px; color: #4a5568; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; border: none; }}
                 .header-cell {{ text-align: center; }}
                 .header-cell.task-name-cell {{ text-align: left; }}
                 .gantt-sidebar-content {{ background-color: #f8f9fa; flex: 1; overflow-y: auto; overflow-x: hidden; }}
-                
+
                 /* Remove a borda do grupo, pois não há grupos */
-                .sidebar-group-wrapper {{
-                    display: flex;
-                    border-bottom: none; 
-                }}
+                .sidebar-group-wrapper {{ display: flex; border-bottom: none; }}
                 .gantt-sidebar-content > .sidebar-group-wrapper:last-child {{ border-bottom: none; }}
-                
+
                 /* Esconde o título vertical do grupo */
                 .sidebar-group-title-vertical {{ display: none; }}
-                
+
                 .sidebar-group-spacer {{ display: none; }}
                 .sidebar-rows-container {{ flex-grow: 1; }}
                 .sidebar-row.odd-row {{ background-color: #fdfdfd; }}
@@ -1827,7 +1918,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 .today-line {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #fdf1f1; z-index: 5; box-shadow: 0 0 1px rgba(229, 62, 62, 0.6); }}
                 .month-divider {{ position: absolute; top: 60px; bottom: 0; width: 1px; background-color: #fcf6f6; z-index: 4; pointer-events: none; }}
                 .month-divider.first {{ background-color: #eeeeee; width: 1px; }}
-                
+
                 /* Esconde a linha da meta, pois não é usada aqui */
                 .meta-line, .meta-line-label {{ display: none; }}
 
@@ -1865,7 +1956,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     color: #4a5568; margin-bottom: 4px;
                     text-transform: uppercase;
                 }}
-                .filter-group select, .filter-group input {{
+                /* Ajusta o select padrão e o input */
+                .filter-group select, .filter-group input[type=number] {{
                     width: 100%; padding: 6px 8px;
                     border: 1px solid #cbd5e0; border-radius: 4px;
                     font-size: 13px;
@@ -1886,6 +1978,25 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     border: none; border-radius: 4px; cursor: pointer;
                     margin-top: 5px;
                 }}
+                /* *** INÍCIO: Estilos para Virtual Select no Menu Flutuante *** */
+                .floating-filter-menu .vscomp-toggle-button {{
+                    border: 1px solid #cbd5e0;
+                    border-radius: 4px;
+                    padding: 6px 8px;
+                    font-size: 13px;
+                    min-height: 30px; /* Ajuste a altura se necessário */
+                }}
+                .floating-filter-menu .vscomp-options {{
+                    font-size: 13px;
+                }}
+                .floating-filter-menu .vscomp-option {{
+                    min-height: 30px; /* Altura da opção */
+                }}
+                .floating-filter-menu .vscomp-search-input {{
+                    height: 30px;
+                    font-size: 13px;
+                }}
+                /* *** FIM: Estilos para Virtual Select *** */
             </style>
         </head>
         <body>
@@ -1893,17 +2004,21 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 <button class="fullscreen-btn" id="fullscreen-btn-{project["id"]}"><span>📺</span> <span>Tela Cheia</span></button>
 
                 <div class="floating-filter-menu" id="filter-menu-{project['id']}">
+                    {''''''}
                     <div class="filter-group">
                         <label for="filter-setor-{project['id']}">Setor</label>
-                        <select id="filter-setor-{project['id']}"></select>
+                        {''''''}
+                        <div id="filter-setor-{project['id']}"></div>
                     </div>
                     <div class="filter-group">
                         <label for="filter-grupo-{project['id']}">Grupo</label>
-                        <select id="filter-grupo-{project['id']}"></select>
+                        {''''''}
+                        <div id="filter-grupo-{project['id']}"></div>
                     </div>
                     <div class="filter-group">
                         <label for="filter-etapa-{project['id']}">Empreendimento</label>
-                        <select id="filter-etapa-{project['id']}"></select>
+                        {''''''}
+                        <div id="filter-etapa-{project['id']}"></div>
                     </div>
                     <div class="filter-group">
                         <div class="filter-group-checkbox">
@@ -1955,7 +2070,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                             <div class="sidebar-grid-header-wrapper">
                                 <div style="width: 0px;"></div> 
                                 <div class="sidebar-grid-header">
-                                    <div class="header-cell task-name-cell">EMPREENDIMENTO</div>
+                                    <div class="header-cell task-name-cell">EMPREENDIMENTO</div> 
                                     <div class="header-cell">INÍCIO-P</div>
                                     <div class="header-cell">TÉRMINO-P</div>
                                     <div class="header-cell">DUR-P</div>
@@ -1978,18 +2093,23 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                             </div>
                             <div class="chart-body" id="chart-body-{project["id"]}"></div>
                             <div class="today-line" id="today-line-{project["id"]}"></div>
-                            <div class="meta-line" id="meta-line-{project["id"]}"></div>
-                            <div class="meta-line-label" id="meta-line-label-{project["id"]}"></div>
+                            {''''''}
+                            <div class="meta-line" id="meta-line-{project["id"]}" style="display: none;"></div>
+                            <div class="meta-line-label" id="meta-line-label-{project["id"]}" style="display: none;"></div>
                         </div>
                     </div>
                 </div>
                 <div class="tooltip" id="tooltip-{project["id"]}"></div>
             </div>
-            
+
+            {''''''}
+            <script src="https://cdn.jsdelivr.net/npm/virtual-select-plugin@1.0.39/dist/virtual-select.min.js"></script>
+            {''''''}
+
             <script>
                 const coresPorSetor_{project["id"]} = {json.dumps(StyleConfig.CORES_POR_SETOR)};
                 // Passa um *único* projeto
-                const projectData_{project["id"]} = [{json.dumps(project)}]; 
+                const projectData_{project["id"]} = [{json.dumps(project)}];
                 const dataMinStr_{project["id"]} = '{data_min_proj.strftime("%Y-%m-%d")}';
                 const dataMaxStr_{project["id"]} = '{data_max_proj.strftime("%Y-%m-%d")}';
                 let tipoVisualizacao_{project["id"]} = '{tipo_visualizacao}';
@@ -2020,52 +2140,31 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     }}
                     return date.toISOString().split('T')[0];
                 }}
-                
+
                 function parseDate(dateStr) {{ if (!dateStr) return null; const [year, month, day] = dateStr.split('-').map(Number); return new Date(Date.UTC(year, month - 1, day)); }}
 
                 // --- Dados de Filtro e Tasks (Adaptados) ---
                 const filterOptions_{project["id"]} = {json.dumps(filter_options)};
                 // Passa a lista de tasks "base" (empreendimentos)
                 const allTasks_baseData_{project["id"]} = {json.dumps(tasks_base_data)};
-                
+
                 let pulmaoStatus_{project["id"]} = '{pulmao_status}';
                 let filtersPopulated_{project["id"]} = false;
 
-                function initGantt_{project["id"]}() {{
-                    applyInitialPulmaoState_{project["id"]}();
-                    renderSidebar_{project["id"]}(); // Esta função agora também ordena
-                    renderHeader_{project["id"]}();
-                    renderChart_{project["id"]}();
-                    renderMonthDividers_{project["id"]}();
-                    setupEventListeners_{project["id"]}();
-                    positionTodayLine_{project["id"]}();
-                    positionMetaLine_{project["id"]}(); // Esta função não fará nada (display: none)
-                    populateFilters_{project["id"]}();
-                }}
+                // *** INÍCIO: Variáveis Globais para Virtual Select ***
+                let vsSetor_{project["id"]}, vsGrupo_{project["id"]}, vsEtapa_{project["id"]};
+                // *** FIM: Variáveis Globais para Virtual Select ***
 
-                // --- applyInitialPulmaoState (Idêntica) ---
-                // Esta lógica funciona perfeitamente, pois a "etapa" (PROSPEC, etc.)
-                // está armazenada em `etapa_nome_completo` no Python, e não nos dados da task.
-                // A lógica de pulmão do JS se baseia no *nome* da etapa (task.name),
-                // que no nosso caso é o NOME DO EMPREENDIMENTO, então não vai bater
-                // com "PULMÃO VENDA", etc.
-                //
-                // !!! CORREÇÃO !!!
-                // A lógica de pulmão do JS *não vai funcionar* porque `task.name` é "Residencial Alfa"
-                // e não "PULMÃO VENDA". A lógica de pulmão deve ser aplicada com base na
-                // *etapa consolidada* que estamos vendo.
-                
-                // Vamos buscar a etapa sigla do python
-                const etapaConsolidada_sigla_{project["id"]} = "{etapa_sigla}";
-                
+
                 // Mapeamento de siglas (para o JS)
+                const etapaConsolidada_sigla_{project["id"]} = "{etapa_sigla}";
                 const etapas_pulmao_js_{project["id"]} = ["PULVENDA", "PUL.INFRA", "PUL.RAD"];
                 const etapas_sem_alteracao_js_{project["id"]} = ["PROSPEC", "RAD", "DEM.MIN"];
 
-                // --- Lógica de Pulmão (Adaptada para Visão Consolidada) ---
+                 // --- Lógica de Pulmão (Adaptada para Visão Consolidada) ---
                 function aplicarLogicaPulmaoConsolidado(tasks, offsetMeses) {{
                     // Verifica se a *etapa inteira* que estamos vendo deve ser afetada
-                    
+
                     // 1. Etapas que não mudam
                     if (etapas_sem_alteracao_js_{project["id"]}.includes(etapaConsolidada_sigla_{project["id"]})) {{
                         // Nenhuma data é alterada
@@ -2092,7 +2191,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                             }} else if (task.end_real) {{
                                 task.end_real = addMonths_{project["id"]}(task.end_real, offsetMeses);
                             }}
-                            
+
                             task.inicio_previsto = formatDateDisplay_{project["id"]}(task.start_previsto);
                             task.termino_previsto = formatDateDisplay_{project["id"]}(task.end_previsto);
                             task.inicio_real = formatDateDisplay_{project["id"]}(task.start_real);
@@ -2109,23 +2208,36 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     if (initialPulmaoStatus === 'Com Pulmão' && initialPulmaoMeses > 0) {{
                         const offsetMeses = -initialPulmaoMeses;
                         let baseTasks = projectData_{project["id"]}[0].tasks; // Modifica os dados do projeto diretamente
-                        
+
                         // Aplica a nova lógica consolidada
                         projectData_{project["id"]}[0].tasks = aplicarLogicaPulmaoConsolidado(baseTasks, offsetMeses);
                     }}
                 }}
 
+                function initGantt_{project["id"]}() {{
+                    applyInitialPulmaoState_{project["id"]}();
+                    renderSidebar_{project["id"]}(); // Esta função agora também ordena
+                    renderHeader_{project["id"]}();
+                    renderChart_{project["id"]}();
+                    renderMonthDividers_{project["id"]}();
+                    setupEventListeners_{project["id"]}();
+                    positionTodayLine_{project["id"]}();
+                    // positionMetaLine_{project["id"]}(); // Esta função não fará nada (display: none)
+                    populateFilters_{project["id"]}();
+                }}
+
+
                 // --- ### FUNÇÃO renderSidebar MODIFICADA ### ---
                 // Esta é a principal mudança para a ordenação
                 function renderSidebar_{project["id"]}() {{
                     const sidebarContent = document.getElementById('gantt-sidebar-content-{project["id"]}');
-                    
+
                     // Usa as tarefas filtradas do projectData (que são os empreendimentos)
                     let tasks = projectData_{project["id"]}[0].tasks;
-                    
+
                     // ### INÍCIO DA NOVA LÓGICA DE ORDENAÇÃO (SOLICITADA PELO USUÁRIO) ###
                     const dateSortFallback = new Date(8640000000000000); // Data muito no futuro para nulos
-                    
+
                     if (tipoVisualizacao_{project["id"]} === 'Real') {{
                         // Ordena por data de início real
                         tasks.sort((a, b) => {{
@@ -2150,17 +2262,17 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                     let html = '';
                     let globalRowIndex = 0;
-                    
+
                     // Não há grupos, apenas um container de linhas
                     html += `<div class="sidebar-rows-container">`;
-                    
+
                     tasks.forEach(task => {{
                         globalRowIndex++;
                         const rowClass = globalRowIndex % 2 !== 0 ? 'odd-row' : '';
-                        
+
                         // Re-numera as tasks com base na nova ordem
-                        task.numero_etapa = globalRowIndex; 
-                        
+                        task.numero_etapa = globalRowIndex;
+
                         // 'task.name' é o nome do Empreendimento
                         html += `<div class="sidebar-row ${{rowClass}}">
                             <div class="sidebar-cell task-name-cell" title="${{task.numero_etapa}}. ${{task.name}}">${{task.numero_etapa}}. ${{task.name}}</div>
@@ -2188,7 +2300,15 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     let currentDate = parseDate(dataMinStr_{project["id"]});
                     const dataMax = parseDate(dataMaxStr_{project["id"]});
                     let currentYear = -1, monthsInCurrentYear = 0;
-                    while (currentDate <= dataMax) {{
+
+                    if (!currentDate || !dataMax || isNaN(currentDate.getTime()) || isNaN(dataMax.getTime())) {{
+                         yearHeader.innerHTML = "Datas inválidas";
+                         monthHeader.innerHTML = "";
+                         return;
+                    }}
+
+                    let totalMonths = 0;
+                    while (currentDate <= dataMax && totalMonths < 240) {{
                         const year = currentDate.getUTCFullYear();
                         if (year !== currentYear) {{
                             if (currentYear !== -1) yearsData.push({{ year: currentYear, count: monthsInCurrentYear }});
@@ -2198,9 +2318,16 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         monthHtml += `<div class="month-cell">${{monthNumber}}</div>`;
                         monthsInCurrentYear++;
                         currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
+                        totalMonths++;
                     }}
                     if (currentYear !== -1) yearsData.push({{ year: currentYear, count: monthsInCurrentYear }});
                     yearsData.forEach(data => {{ const yearWidth = data.count * PIXELS_PER_MONTH; yearHtml += `<div class="year-section" style="width:${{yearWidth}}px">${{data.year}}</div>`; }});
+
+                    const chartContainer = document.getElementById('chart-container-{project["id"]}');
+                    if (chartContainer) {{
+                        chartContainer.style.minWidth = `${{totalMonths * PIXELS_PER_MONTH}}px`;
+                    }}
+
                     yearHeader.innerHTML = yearHtml;
                     monthHeader.innerHTML = monthHtml;
                 }}
@@ -2211,16 +2338,16 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     // Lê as tarefas (que já foram ordenadas pela renderSidebar)
                     const tasks = projectData_{project["id"]}[0].tasks;
                     chartBody.innerHTML = '';
-                    
+
                     // Itera diretamente sobre as tarefas, sem grupos
                     tasks.forEach(task => {{
                         const row = document.createElement('div'); row.className = 'gantt-row';
                         let barPrevisto = null;
                         if (tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Previsto') {{ barPrevisto = createBar_{project["id"]}(task, 'previsto'); row.appendChild(barPrevisto); }}
                         let barReal = null;
-                        if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && task.end_real) {{ barReal = createBar_{project["id"]}(task, 'real'); row.appendChild(barReal); }}
+                        if ((tipoVisualizacao_{project["id"]} === 'Ambos' || tipoVisualizacao_{project["id"]} === 'Real') && task.start_real && (task.end_real_original_raw || task.end_real)) {{ barReal = createBar_{project["id"]}(task, 'real'); row.appendChild(barReal); }}
                         if (barPrevisto && barReal) {{
-                            const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real);
+                            const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real_original_raw || task.end_real);
                             if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{ barPrevisto.style.zIndex = '8'; barReal.style.zIndex = '7'; }}
                             renderOverlapBar_{project["id"]}(task, row);
                         }}
@@ -2229,10 +2356,10 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     // Remove a lógica de spacer de grupo
                 }}
 
-                // --- createBar (Idêntica, 'task.name' agora é Empreendimento, o que é correto) ---
+                 // --- createBar (Idêntica, 'task.name' agora é Empreendimento) ---
                 function createBar_{project["id"]}(task, tipo) {{
                     const startDate = parseDate(tipo === 'previsto' ? task.start_previsto : task.start_real);
-                    const endDate = parseDate(tipo === 'previsto' ? task.end_previsto : task.end_real);
+                    const endDate = parseDate(tipo === 'previsto' ? task.end_previsto : (task.end_real_original_raw || task.end_real));
                     if (!startDate || !endDate) return document.createElement('div');
                     const left = getPosition_{project["id"]}(startDate);
                     const width = getPosition_{project["id"]}(endDate) - left + (PIXELS_PER_MONTH / 30);
@@ -2240,7 +2367,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     const coresSetor = coresPorSetor_{project["id"]}[task.setor] || coresPorSetor_{project["id"]}['Não especificado'] || {{previsto: '#cccccc', real: '#888888'}};
                     bar.style.backgroundColor = tipo === 'previsto' ? coresSetor.previsto : coresSetor.real;
                     bar.style.left = `${{left}}px`; bar.style.width = `${{width}}px`;
-                    const barLabel = document.createElement('span'); barLabel.className = 'bar-label'; 
+                    const barLabel = document.createElement('span'); barLabel.className = 'bar-label';
                     barLabel.textContent = `${{task.name}} (${{task.progress}}%)`; // task.name é o Empreendimento
                     bar.appendChild(barLabel);
                     bar.addEventListener('mousemove', e => showTooltip_{project["id"]}(e, task, tipo));
@@ -2250,8 +2377,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                 // --- renderOverlapBar (Idêntica) ---
                 function renderOverlapBar_{project["id"]}(task, row) {{
-                   if (!task.start_real || !task.end_real) return;
-                    const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real);
+                   if (!task.start_real || !(task.end_real_original_raw || task.end_real)) return;
+                    const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real_original_raw || task.end_real);
                     const overlap_start = new Date(Math.max(s_prev, s_real)), overlap_end = new Date(Math.min(e_prev, e_real));
                     if (overlap_start < overlap_end) {{
                         const left = getPosition_{project["id"]}(overlap_start), width = getPosition_{project["id"]}(overlap_end) - left + (PIXELS_PER_MONTH / 30);
@@ -2263,6 +2390,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 function getPosition_{project["id"]}(date) {{
                     if (!date) return 0;
                     const chartStart = parseDate(dataMinStr_{project["id"]});
+                    if (!chartStart || isNaN(chartStart.getTime())) return 0;
                     const monthsOffset = (date.getUTCFullYear() - chartStart.getUTCFullYear()) * 12 + (date.getUTCMonth() - chartStart.getUTCMonth());
                     const dayOfMonth = date.getUTCDate() - 1;
                     const daysInMonth = new Date(date.getUTCFullYear(), date.getUTCMonth() + 1, 0).getUTCDate();
@@ -2275,16 +2403,9 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     const todayLine = document.getElementById('today-line-{project["id"]}');
                     const today = new Date(), todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
                     const chartStart = parseDate(dataMinStr_{project["id"]}), chartEnd = parseDate(dataMaxStr_{project["id"]});
-                    if (todayUTC >= chartStart && todayUTC <= chartEnd) {{ const offset = getPosition_{project["id"]}(todayUTC); todayLine.style.left = `${{offset}}px`; todayLine.style.display = 'block'; }} else {{ todayLine.style.display = 'none'; }}
+                    if (chartStart && chartEnd && !isNaN(chartStart.getTime()) && !isNaN(chartEnd.getTime()) && todayUTC >= chartStart && todayUTC <= chartEnd) {{ const offset = getPosition_{project["id"]}(todayUTC); todayLine.style.left = `${{offset}}px`; todayLine.style.display = 'block'; }} else {{ todayLine.style.display = 'none'; }}
                 }}
 
-                // --- positionMetaLine (Idêntica, mas não fará nada) ---
-                function positionMetaLine_{project["id"]}() {{
-                    const metaLine = document.getElementById('meta-line-{project["id"]}'), metaLabel = document.getElementById('meta-line-label-{project["id"]}');
-                    const metaDateStr = projectData_{project["id"]}[0].meta_assinatura_date;
-                    if (!metaDateStr) {{ metaLine.style.display = 'none'; metaLabel.style.display = 'none'; return; }}
-                    // ... (o resto do código não será executado)
-                }}
 
                 // --- showTooltip (Idêntica, 'task.name' é Empreendimento) ---
                 function showTooltip_{project["id"]}(e, task, tipo) {{
@@ -2292,9 +2413,9 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     let content = `<b>${{task.name}}</b><br>`; // task.name é Empreendimento
                     if (tipo === 'previsto') {{ content += `Previsto: ${{task.inicio_previsto}} - ${{task.termino_previsto}}<br>Duração: ${{task.duracao_prev_meses}}M`; }} else {{ content += `Real: ${{task.inicio_real}} - ${{task.termino_real}}<br>Duração: ${{task.duracao_real_meses}}M<br>Variação Término: ${{task.vt_text}}<br>Variação Duração: ${{task.vd_text}}`; }}
                     content += `<br><b>Progresso: ${{task.progress}}%</b><br>Setor: ${{task.setor}}<br>Grupo: ${{task.grupo}}`;
-                    
+
                     tooltip.innerHTML = content;
-                    tooltip.classList.add('show'); 
+                    tooltip.classList.add('show');
                     const tooltipWidth = tooltip.offsetWidth, tooltipHeight = tooltip.offsetHeight;
                     const viewportWidth = window.innerWidth, viewportHeight = window.innerHeight;
                     const mouseX = e.clientX, mouseY = e.clientY;
@@ -2309,19 +2430,22 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 }}
 
                 function hideTooltip_{project["id"]}() {{ document.getElementById('tooltip-{project["id"]}').classList.remove('show'); }}
-                
+
                 // --- renderMonthDividers (Idêntica) ---
                 function renderMonthDividers_{project["id"]}() {{
                     const chartContainer = document.getElementById('chart-container-{project["id"]}');
                     chartContainer.querySelectorAll('.month-divider, .month-divider-label').forEach(el => el.remove());
                     let currentDate = parseDate(dataMinStr_{project["id"]});
                     const dataMax = parseDate(dataMaxStr_{project["id"]});
-                    while (currentDate <= dataMax) {{
+                     if (!currentDate || !dataMax || isNaN(currentDate.getTime()) || isNaN(dataMax.getTime())) return;
+                    let totalMonths = 0;
+                    while (currentDate <= dataMax && totalMonths < 240) {{
                         const left = getPosition_{project["id"]}(currentDate);
                         const divider = document.createElement('div'); divider.className = 'month-divider';
                         if (currentDate.getUTCMonth() === 0) divider.classList.add('first');
                         divider.style.left = `${{left}}px`; chartContainer.appendChild(divider);
                         currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
+                        totalMonths++;
                     }}
                 }}
 
@@ -2379,52 +2503,100 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         btn.innerHTML = '<span>📺</span> <span>Tela Cheia</span>';
                         btn.classList.remove('is-fullscreen');
                         document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
+                         // Na visão consolidada, não há necessidade de resetar ao sair da tela cheia,
+                         // pois não há troca de "projeto".
+                         // Se quiser resetar os filtros ao sair, descomente a linha abaixo:
+                         // applyFiltersAndRedraw_{project["id"]}(); // Ou uma função de reset específica
                     }}
                 }}
+                function updatePulmaoInputVisibility_{project["id"]}() {{
+                    const radioCom = document.getElementById('filter-pulmao-com-{project["id"]}');
+                    const mesesGroup = document.getElementById('pulmao-meses-group-{project["id"]}');
+                    if (radioCom && mesesGroup) {{
+                        if (radioCom.checked) {{ mesesGroup.style.display = 'block'; }}
+                        else {{ mesesGroup.style.display = 'none'; }}
+                    }}
+                 }};
 
-                // --- populateFilters (Idêntica, usa filterOptions_... adaptado) ---
+                // --- *** populateFilters MODIFICADA para Consolidado *** ---
                 function populateFilters_{project["id"]}() {{
-                    if (filtersPopulated_{project["id"]}) return; 
+                    if (filtersPopulated_{project["id"]}) return;
 
-                    const selSetor = document.getElementById('filter-setor-{project["id"]}');
-                    filterOptions_{project["id"]}.setores.forEach(s => {{
-                        selSetor.innerHTML += `<option value="${{s}}">${{s}}</option>`;
+                     // Configurações comuns para Virtual Select
+                    const vsConfig = {{
+                        multiple: true,
+                        search: true,
+                        optionsCount: 6,
+                        showResetButton: true,
+                        resetButtonText: 'Limpar',
+                        selectAllText: 'Selecionar Todos',
+                        allOptionsSelectedText: 'Todos',
+                        optionsSelectedText: 'selecionados',
+                        searchPlaceholderText: 'Buscar...',
+                        optionHeight: '30px',
+                        popupDropboxBreakpoint: '3000px', // Força popup
+                        noOptionsText: 'Nenhuma opção encontrada',
+                        noSearchResultsText: 'Nenhum resultado encontrado',
+                    }};
+
+                    // Prepara opções e inicializa Virtual Select para Setor
+                    const setorOptions = filterOptions_{project["id"]}.setores.map(s => ({{ label: s, value: s }}));
+                    vsSetor_{project["id"]} = VirtualSelect.init({{
+                        ...vsConfig,
+                        ele: '#filter-setor-{project["id"]}',
+                        options: setorOptions,
+                        placeholder: "Selecionar Setor(es)",
+                        selectedValue: ["Todos"] // Valor inicial
                     }});
 
-                    const selGrupo = document.getElementById('filter-grupo-{project["id"]}');
-                    filterOptions_{project["id"]}.grupos.forEach(g => {{
-                        selGrupo.innerHTML += `<option value="${{g}}">${{g}}</option>`;
+                    // Prepara opções e inicializa Virtual Select para Grupo
+                    const grupoOptions = filterOptions_{project["id"]}.grupos.map(g => ({{ label: g, value: g }}));
+                    vsGrupo_{project["id"]} = VirtualSelect.init({{
+                        ...vsConfig,
+                        ele: '#filter-grupo-{project["id"]}',
+                        options: grupoOptions,
+                        placeholder: "Selecionar Grupo(s)",
+                        selectedValue: ["Todos"] // Valor inicial
                     }});
 
-                    const selEtapa = document.getElementById('filter-etapa-{project["id"]}');
-                    filterOptions_{project["id"]}.etapas.forEach(e => {{
-                        selEtapa.innerHTML += `<option value="${{e}}">${{e}}</option>`;
+                    // Prepara opções e inicializa Virtual Select para Etapa (que é Empreendimento aqui)
+                    const etapaOptions = filterOptions_{project["id"]}.etapas.map(e => ({{ label: e, value: e }})); // e = nome do empreendimento
+                    vsEtapa_{project["id"]} = VirtualSelect.init({{
+                        ...vsConfig,
+                        ele: '#filter-etapa-{project["id"]}',
+                        options: etapaOptions,
+                        placeholder: "Selecionar Empreendimento(s)",
+                        selectedValue: ["Todos"] // Valor inicial
                     }});
 
-                    document.querySelector(`input[name="filter-vis-{project['id']}"][value="${{tipoVisualizacao_{project["id"]}}}"]`).checked = true;
-                    
+
+                    // Configura os radios de visualização
+                    const visRadio = document.querySelector(`input[name="filter-vis-{project['id']}"][value="${{tipoVisualizacao_{project["id"]}}}"]`);
+                    if(visRadio) visRadio.checked = true;
+
+                    // Configura os radios e input de Pulmão
                     const radioCom = document.getElementById('filter-pulmao-com-{project["id"]}');
                     const radioSem = document.getElementById('filter-pulmao-sem-{project["id"]}');
-                    const mesesGroup = document.getElementById('pulmao-meses-group-{project["id"]}');
-                    const updatePulmaoInputVisibility_{project["id"]} = () => {{
-                        if (radioCom.checked) {{ mesesGroup.style.display = 'block'; }} 
-                        else {{ mesesGroup.style.display = 'none'; }}
-                    }};
+
                     radioCom.addEventListener('change', updatePulmaoInputVisibility_{project["id"]});
                     radioSem.addEventListener('change', updatePulmaoInputVisibility_{project["id"]});
-                    document.querySelector(`input[name="filter-pulmao-{project['id']}"][value="${{pulmaoStatus_{project["id"]}}}"]`).checked = true;
+
+                    const pulmaoRadioInitial = document.querySelector(`input[name="filter-pulmao-{project['id']}"][value="${{pulmaoStatus_{project["id"]}}}"]`);
+                    if(pulmaoRadioInitial) pulmaoRadioInitial.checked = true;
+
+
                     document.getElementById('filter-pulmao-meses-{project["id"]}').value = {pulmao_meses};
                     updatePulmaoInputVisibility_{project["id"]}();
-                    
+
                     filtersPopulated_{project["id"]} = true;
                 }}
 
-                // --- ### FUNÇÃO applyFiltersAndRedraw MODIFICADA ### ---
+                // --- ### FUNÇÃO applyFiltersAndRedraw MODIFICADA para Consolidado ### ---
                 function applyFiltersAndRedraw_{project["id"]}() {{
                     // 1. Ler os valores dos filtros
-                    const selSetor = document.getElementById('filter-setor-{project["id"]}').value;
-                    const selGrupo = document.getElementById('filter-grupo-{project["id"]}').value;
-                    const selEtapa = document.getElementById('filter-etapa-{project["id"]}').value; // Este é o Empreendimento
+                    const selSetorArray = vsSetor_{project["id"]}.value || [];
+                    const selGrupoArray = vsGrupo_{project["id"]}.value || [];
+                    const selEtapaArray = vsEtapa_{project["id"]}.value || []; // Este é o Empreendimento
                     const selConcluidas = document.getElementById('filter-concluidas-{project["id"]}').checked;
                     const selVis = document.querySelector(`input[name="filter-vis-{project['id']}"]:checked`).value;
                     const selPulmao = document.querySelector(`input[name="filter-pulmao-{project['id']}"]:checked`).value;
@@ -2439,23 +2611,29 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         // Aplica a lógica de pulmão *consolidada*
                         baseTasks = aplicarLogicaPulmaoConsolidado(baseTasks, offsetMeses);
                     }}
-                    
+
                     let filteredTasks = baseTasks;
 
                     // 4. Aplicar filtros de Setor, Grupo, Etapa(Empreendimento) e Concluídas
-                    if (selSetor !== 'Todos') {{
-                        filteredTasks = filteredTasks.filter(t => t.setor === selSetor);
+                    if (selSetorArray.length > 0 && !selSetorArray.includes('Todos')) {{
+                        filteredTasks = filteredTasks.filter(t => selSetorArray.includes(t.setor));
                     }}
-                    if (selGrupo !== 'Todos') {{
-                        filteredTasks = filteredTasks.filter(t => t.grupo === selGrupo);
+                    if (selGrupoArray.length > 0 && !selGrupoArray.includes('Todos')) {{
+                        filteredTasks = filteredTasks.filter(t => selGrupoArray.includes(t.grupo));
                     }}
-                    if (selEtapa !== 'Todos') {{
-                        // 'selEtapa' agora é um nome de Empreendimento
-                        filteredTasks = filteredTasks.filter(t => t.name === selEtapa); 
+                    if (selEtapaArray.length > 0 && !selEtapaArray.includes('Todos')) {{
+                        // 'selEtapaArray' agora contém nomes de Empreendimento
+                        filteredTasks = filteredTasks.filter(t => selEtapaArray.includes(t.name));
                     }}
                     if (selConcluidas) {{
                         filteredTasks = filteredTasks.filter(t => t.progress < 100);
                     }}
+
+                     // Recalcular range de datas para o Header (opcional, pode manter fixo se preferir)
+                     // const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange_{project["id"]}(filteredTasks);
+                     // // ... lógica para atualizar activeDataMinStr/activeDataMaxStr ...
+                     // renderHeader_{project["id"]}();
+                     // renderMonthDividers_{project["id"]}();
 
                     // 5. Atualizar os dados globais do JS
                     projectData_{project["id"]}[0].tasks = filteredTasks;
@@ -2464,7 +2642,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                     // 6. Redesenhar o gráfico e a tabela
                     // renderSidebar irá ler o novo 'tipoVisualizacao_' e ordenar corretamente
-                    renderSidebar_{project["id"]}(); 
+                    renderSidebar_{project["id"]}();
                     renderChart_{project["id"]}();
 
                     // 7. Esconder o menu de filtros
@@ -2479,6 +2657,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
     components.html(gantt_html, height=altura_gantt, scrolling=True)
     # st.markdown("---") no consolidado, pois ele não é parte de um loop
 
+
 # --- FUNÇÃO PRINCIPAL DE GANTT (DISPATCHER) ---
 def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_ordenacao, pulmao_status, pulmao_meses):
     if df.empty:
@@ -2490,41 +2669,18 @@ def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_
 
     if is_single_etapa_view:
         st.info("Exibindo visão comparativa para a etapa selecionada.")
-        
+
         # --- Aplicar lógica de pulmão AQUI para a visão consolidada ---
+        # (A lógica de pulmão será aplicada no JS agora, mas deixamos esta parte
+        # caso precise reverter ou para outras partes do código Python)
         df_para_consolidado = df.copy()
-        if pulmao_status == "Com Pulmão" and pulmao_meses > 0:
-            colunas_data_todas = ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]
-            colunas_data_inicio = ["Inicio_Prevista", "Inicio_Real"]
-            
-            for col in colunas_data_todas:
-                if col in df_para_consolidado.columns:
-                    df_para_consolidado[col] = pd.to_datetime(df_para_consolidado[col], errors='coerce')
-
-            offset_meses = -int(pulmao_meses)
-            
-            def aplicar_offset_meses(data):
-                if pd.isna(data) or data is pd.NaT: return pd.NaT
-                try: return data + relativedelta(months=offset_meses)
-                except Exception: return pd.NaT
-
-            etapas_pulmao = ["PULVENDA", "PUL.INFRA", "PUL.RAD"]
-            etapas_sem_alteracao = ["PROSPEC", "RAD", "DEM.MIN"]
-            
-            mask_nao_mexer = df_para_consolidado['Etapa'].isin(etapas_sem_alteracao)
-            mask_shift_inicio_apenas = df_para_consolidado['Etapa'].isin(etapas_pulmao)
-            mask_shift_tudo = (~mask_nao_mexer) & (~mask_shift_inicio_apenas)
-
-            for col in colunas_data_todas:
-                if col in df_para_consolidado.columns:
-                    df_para_consolidado.loc[mask_shift_tudo, col] = df_para_consolidado.loc[mask_shift_tudo, col].apply(aplicar_offset_meses)
-            
-            for col in colunas_data_inicio:
-                if col in df_para_consolidado.columns:
-                    df_para_consolidado.loc[mask_shift_inicio_apenas, col] = df_para_consolidado.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses)
+        # if pulmao_status == "Com Pulmão" and pulmao_meses > 0:
+        #     # ... (lógica Python de pulmão removida daqui, pois o JS cuidará disso) ...
+        #     pass
 
         gerar_gantt_consolidado(df_para_consolidado, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses)
     else:
+        # Passa o DF SEM pulmão para a função por projeto. O JS aplicará o pulmão inicial.
         gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses)
 
 # O restante do código Streamlit...
@@ -2599,7 +2755,7 @@ def load_data():
         except Exception as e:
             st.warning(f"Erro ao carregar dados previstos: {e}")
             df_previsto = pd.DataFrame()
-            
+
     if df_real.empty and df_previsto.empty:
         st.warning("Nenhuma fonte de dados carregada. Usando dados de exemplo.")
         return criar_dados_exemplo()
@@ -2612,7 +2768,7 @@ def load_data():
         etapas_nos_dados.update(df_previsto["Etapa"].unique())
 
     etapas_nao_mapeadas = etapas_nos_dados - etapas_base_oficial
-    
+
     if "UNKNOWN" in etapas_nao_mapeadas:
        etapas_nao_mapeadas.remove("UNKNOWN")
 
@@ -2686,7 +2842,7 @@ with st.spinner("Carregando e processando dados..."):
     # --- INÍCIO DE LÓGICA E INDENTAÇÃO ---
     # Verifica se os dados foram carregados com sucesso
     if df_data is not None and not df_data.empty:
-        
+
         # Todo o código da aplicação agora está DENTRO deste 'if'
         with st.sidebar:
             st.markdown("<br>", unsafe_allow_html=True)
@@ -2699,7 +2855,7 @@ with st.spinner("Carregando e processando dados..."):
 
 
             ugb_options = get_unique_values(df_data, "UGB")
-            
+
             # Tente usar o dropdown customizado. Se falhar, use o multiselect padrão.
             try:
                 selected_ugb = simple_multiselect_dropdown(label="Filtrar por UGB", options=ugb_options, key="ugb_filter", default_selected=ugb_options)
@@ -2712,7 +2868,7 @@ with st.spinner("Carregando e processando dados..."):
 
 
             emp_options = get_unique_values(df_data[df_data["UGB"].isin(selected_ugb)], "Empreendimento") if selected_ugb else []
-            
+
             try:
                 selected_emp = simple_multiselect_dropdown(label="Filtrar por EMP", options=emp_options, key="empreendimento_filter", default_selected=emp_options)
             except NameError:
@@ -2725,7 +2881,7 @@ with st.spinner("Carregando e processando dados..."):
             if selected_emp:
                 df_temp = df_temp[df_temp["Empreendimento"].isin(selected_emp)]
             grupo_options = get_unique_values(df_temp, "GRUPO")
-            
+
             try:
                 selected_grupo = simple_multiselect_dropdown(label="Filtrar por GRUPO", options=grupo_options, key="grupo_filter", default_selected=grupo_options)
             except NameError:
@@ -2740,7 +2896,7 @@ with st.spinner("Carregando e processando dados..."):
             if selected_grupo:
                 df_temp_setor = df_temp_setor[df_temp_setor["GRUPO"].isin(selected_grupo)]
             setor_options = list(SETOR.keys())
-            
+
             try:
                 selected_setor = simple_multiselect_dropdown(label="Filtrar por SETOR", options=setor_options, key="setor_filter", default_selected=setor_options)
             except NameError:
@@ -2780,7 +2936,7 @@ with st.spinner("Carregando e processando dados..."):
                     step=1,
                     key="pulmao_meses_input"
                 )
-        
+
             st.markdown("---")
             filtrar_nao_concluidas = st.checkbox("Etapas não concluídas", value=False, help="Quando marcado, mostra apenas etapas com menos de 100% de conclusão")
             st.markdown("---")
@@ -2798,10 +2954,9 @@ with st.spinner("Carregando e processando dados..."):
 
         # --- LÓGICA DE APLICAÇÃO DO PULMÃO FOI MOVIDA ---
         # A lógica de pulmão não é mais aplicada aqui para o gráfico principal.
-        # Ela é aplicada dentro de gerar_gantt (para visão consolidada)
-        # ou dentro de gerar_gantt_por_projeto (para a visão por projeto)
+        # O JS cuidará da aplicação inicial e das mudanças no menu flutuante.
         df_para_exibir = df_filtered.copy() # df_para_exibir agora é os dados filtrados, mas SEM pulmão
-        
+
         # --- FIM DA MODIFICAÇÃO DA LÓGICA DE PULMÃO ---
 
         st.title("Macrofluxo")
