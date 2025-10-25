@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -404,8 +403,14 @@ def obter_data_meta_assinatura(df_original, empreendimento):
     return pd.Timestamp.max
 
 def criar_ordenacao_empreendimentos(df_original):
-    # Use abreviar_nome para consistência com o que é exibido no gráfico
-    empreendimentos_meta = {abreviar_nome(emp): obter_data_meta_assinatura(df_original, emp) for emp in df_original["Empreendimento"].unique()}
+    """
+    Cria uma lista ordenada dos nomes COMPLETOS dos empreendimentos
+    com base na data da meta de assinatura (DEMANDA MÍNIMA).
+    """
+    # Use o nome COMPLETO como chave no dicionário
+    empreendimentos_meta = {emp: obter_data_meta_assinatura(df_original, emp)
+                           for emp in df_original["Empreendimento"].unique()}
+    # Retorna a lista de nomes COMPLETOS ordenados pela data meta
     return sorted(empreendimentos_meta.keys(), key=empreendimentos_meta.get)
 
 
@@ -423,33 +428,28 @@ def aplicar_ordenacao_final(df, empreendimentos_ordenados):
 def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses):
     """
     Gera e exibe um gráfico de Gantt interativo para cada projeto.
-    
-    Args:
-        df (pd.DataFrame): O DataFrame filtrado pelo Streamlit (estado "Sem Pulmão").
-        tipo_visualizacao (str): "Ambos", "Previsto" ou "Real".
-        df_original_para_ordenacao (pd.DataFrame): O DF original, não filtrado, 
-                                                 usado para determinar a ordem dos projetos.
-        pulmao_status (str): "Com Pulmão" ou "Sem Pulmão" (da sidebar).
-        pulmao_meses (int): Número de meses de pulmão (da sidebar).
+    (Com correções para não abreviar nomes antes do groupby)
     """
 
     # --- Processar DF SEM PULMÃO (AGORA O ÚNICO DF) ---
     df_sem_pulmao = df.copy()
-    
+
     df_gantt_sem_pulmao = df_sem_pulmao.copy()
-    if "Empreendimento" in df_gantt_sem_pulmao.columns:
-        df_gantt_sem_pulmao["Empreendimento"] = df_gantt_sem_pulmao["Empreendimento"].apply(abreviar_nome)
-    
+
+    # REMOVIDO: A abreviação não deve ser feita aqui para evitar agrupar nomes diferentes
+    # if "Empreendimento" in df_gantt_sem_pulmao.columns:
+    #     df_gantt_sem_pulmao["Empreendimento"] = df_gantt_sem_pulmao["Empreendimento"].apply(abreviar_nome)
+
     for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
         if col in df_gantt_sem_pulmao.columns:
             df_gantt_sem_pulmao[col] = pd.to_datetime(df_gantt_sem_pulmao[col], errors="coerce")
-    
-    if "% concluído" not in df_gantt_sem_pulmao.columns: 
+
+    if "% concluído" not in df_gantt_sem_pulmao.columns:
         df_gantt_sem_pulmao["% concluído"] = 0
-    
+
     df_gantt_sem_pulmao["% concluído"] = df_gantt_sem_pulmao["% concluído"].fillna(0).apply(converter_porcentagem)
-    
-    # Agrega os dados
+
+    # Agrega os dados (agora usando nomes completos de Empreendimento)
     df_gantt_agg_sem_pulmao = df_gantt_sem_pulmao.groupby(['Empreendimento', 'Etapa']).agg(
         Inicio_Prevista=('Inicio_Prevista', 'min'),
         Termino_Prevista=('Termino_Prevista', 'max'),
@@ -458,13 +458,13 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         **{'% concluído': ('% concluído', 'max')},
         SETOR=('SETOR', 'first')
     ).reset_index()
-    
-    # Mapeia siglas para nomes completos
+
+    # Mapeia siglas para nomes completos (Etapa)
     df_gantt_agg_sem_pulmao["Etapa"] = df_gantt_agg_sem_pulmao["Etapa"].map(sigla_para_nome_completo).fillna(df_gantt_agg_sem_pulmao["Etapa"])
 
     # Converte o DataFrame agregado em uma lista de projetos (formato JSON)
     # Esta é a fonte de dados única para o JS
-    gantt_data_base = converter_dados_para_gantt(df_gantt_agg_sem_pulmao)
+    gantt_data_base = converter_dados_para_gantt(df_gantt_agg_sem_pulmao) # converter_dados_para_gantt já recebe o nome completo
 
     if not gantt_data_base:
         st.warning("Nenhum dado válido para o Gantt após a conversão.")
@@ -477,53 +477,55 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         "etapas": ["Todas"] + ORDEM_ETAPAS_NOME_COMPLETO
     }
 
-    # Obtém a lista ordenada de projetos (nomes completos)
+    # Obtém a lista ordenada de projetos (nomes COMPLETOS)
     empreendimentos_ordenados = criar_ordenacao_empreendimentos(df_original_para_ordenacao)
 
-    # Dicionário de projetos com nomes ABREVIADOS como chaves
+    # Dicionário de projetos com nomes COMPLETOS como chaves
     projects_base_dict = {project['name']: project for project in gantt_data_base}
-    
-    # Mapa de nome ABREVIADO -> Índice na lista gantt_data_base
+
+    # Mapa de nome COMPLETO -> Índice na lista gantt_data_base
     project_name_to_index_map = {project['name']: i for i, project in enumerate(gantt_data_base)}
 
 
-    # Itera sobre os projetos na ordem definida
+    # Itera sobre os projetos (nomes completos) na ordem definida
     for project_index_loop, empreendimento_nome_original in enumerate(empreendimentos_ordenados):
 
-        # ### CORREÇÃO DO BUG "TELA BRANCA" ###
-        # Abrevia o nome para corresponder às chaves do dicionário
-        empreendimento_nome_abreviado = abreviar_nome(empreendimento_nome_original)
+        # REMOVIDO: Não precisamos mais abreviar aqui
+        # empreendimento_nome_abreviado = abreviar_nome(empreendimento_nome_original)
 
-        # Busca o projeto usando o nome abreviado
-        project_base = projects_base_dict.get(empreendimento_nome_abreviado)
-        
+        # Busca o projeto usando o nome ORIGINAL (completo)
+        project_base = projects_base_dict.get(empreendimento_nome_original)
+
         # Define o projeto inicial (sempre "sem pulmão" do Python)
-        project = project_base 
-        
-        # Filtra o DF agregado para calcular o range de datas inicial
-        df_para_datas = df_gantt_agg_sem_pulmao[df_gantt_agg_sem_pulmao["Empreendimento"] == empreendimento_nome_abreviado]
+        project = project_base
+
+        # Filtra o DF agregado usando o nome ORIGINAL (completo) para calcular o range de datas inicial
+        df_para_datas = df_gantt_agg_sem_pulmao[df_gantt_agg_sem_pulmao["Empreendimento"] == empreendimento_nome_original]
 
         if not project:
-            st.warning(f"Projeto '{empreendimento_nome_original}' (abreviado para '{empreendimento_nome_abreviado}') não foi encontrado nos dados do Gantt. Pulando.")
-            continue 
-
-        # Obtém o índice correto deste projeto dentro da lista gantt_data_base
-        correct_project_index_for_js = project_name_to_index_map.get(empreendimento_nome_abreviado)
-        
-        if correct_project_index_for_js is None:
-            st.warning(f"Projeto '{empreendimento_nome_abreviado}' não foi encontrado no mapa de índice. Pulando.")
+            # A mensagem já usava o nome original, o que é bom
+            st.warning(f"Projeto '{empreendimento_nome_original}' não foi encontrado nos dados do Gantt. Pulando.")
             continue
-        
+
+        # Obtém o índice correto deste projeto dentro da lista gantt_data_base usando o nome ORIGINAL (completo)
+        correct_project_index_for_js = project_name_to_index_map.get(empreendimento_nome_original)
+
+        if correct_project_index_for_js is None:
+             # A mensagem já usava o nome original, o que é bom
+            st.warning(f"Projeto '{empreendimento_nome_original}' não foi encontrado no mapa de índice. Pulando.")
+            continue
+
         # Pega as tarefas base (sempre "sem pulmão")
         tasks_base_data = project_base['tasks'] if project_base else []
-        
+
         # Calcula o período de datas inicial (para o zoom do Python)
         data_min_proj, data_max_proj = calcular_periodo_datas(df_para_datas)
         total_meses_proj = ((data_max_proj.year - data_min_proj.year) * 12) + (data_max_proj.month - data_min_proj.month) + 1
 
-        num_tasks = len(project["tasks"]) if project else 0 
-        if num_tasks == 0: 
-            st.warning(f"Projeto '{empreendimento_nome_abreviado}' não possui tarefas válidas. Pulando.")
+        num_tasks = len(project["tasks"]) if project else 0
+        if num_tasks == 0:
+            # A mensagem deve mostrar o nome original
+            st.warning(f"Projeto '{empreendimento_nome_original}' não possui tarefas válidas. Pulando.")
             continue # Pula se não houver tarefas
 
         # Define a altura do componente HTML
