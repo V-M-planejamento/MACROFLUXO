@@ -34,12 +34,14 @@ except ImportError:
 
 # --- Bloco de Importação de Dados ---
 try:
-    from tratamento_dados_reais import processar_cronograma
+    from tratamento_dados_reais import buscar_e_processar_dados_completos
     from tratamento_macrofluxo import tratar_macrofluxo
+    MODO_REAL = True
 except ImportError:
     st.warning("Scripts de processamento não encontrados. O app usará dados de exemplo.")
-    processar_cronograma = None
+    buscar_e_processar_dados_completos = None
     tratar_macrofluxo = None
+    MODO_REAL = False
 
 # --- ORDEM DAS ETAPAS (DEFINIDA PELO USUÁRIO) ---
 ORDEM_ETAPAS_GLOBAL = [
@@ -2863,26 +2865,54 @@ def load_data():
     df_real = pd.DataFrame()
     df_previsto = pd.DataFrame()
 
-    if processar_cronograma:
+    if buscar_e_processar_dados_completos:
         try:
-            df_real_resultado = processar_cronograma("GRÁFICO MACROFLUXO.xlsx")
+            # --- CORREÇÃO APLICADA AQUI ---
+            df_real_resultado = buscar_e_processar_dados_completos()
+            # -------------------------------
+
             if df_real_resultado is not None and not df_real_resultado.empty:
                 df_real = df_real_resultado.copy()
                 df_real["Etapa"] = df_real["Etapa"].apply(padronizar_etapa)
+                # Renomeia colunas ANTES do pivot se os nomes originais forem diferentes
                 df_real = df_real.rename(columns={"EMP": "Empreendimento", "%_Concluido": "% concluído"})
+
+                # Converte porcentagem antes do pivot
                 if "% concluído" in df_real.columns:
                     df_real["% concluído"] = df_real["% concluído"].apply(converter_porcentagem)
-                df_real_pivot = df_real.pivot_table(index=["Empreendimento", "Etapa", "% concluído"], columns="Inicio_Fim", values="Valor", aggfunc="first").reset_index()
-                df_real_pivot.columns.name = None
-                if "INICIO" in df_real_pivot.columns:
-                    df_real_pivot = df_real_pivot.rename(columns={"INICIO": "Inicio_Real"})
-                if "TERMINO" in df_real_pivot.columns:
-                    df_real_pivot = df_real_pivot.rename(columns={"TERMINO": "Termino_Real"})
-                df_real = df_real_pivot
+                else:
+                    # Adiciona a coluna se não existir, para evitar erro no pivot
+                    df_real["% concluído"] = 0.0
+
+                # Verifica se 'Inicio_Fim' e 'Valor' existem antes de pivotar
+                if "Inicio_Fim" in df_real.columns and "Valor" in df_real.columns:
+                    df_real_pivot = df_real.pivot_table(
+                        index=["Empreendimento", "Etapa", "% concluído"], # Inclui % concluído no índice
+                        columns="Inicio_Fim",
+                        values="Valor",
+                        aggfunc="first"
+                    ).reset_index()
+                    df_real_pivot.columns.name = None # Remove o nome do índice das colunas
+
+                    # Renomeia APÓS o pivot
+                    if "INICIO" in df_real_pivot.columns:
+                        df_real_pivot = df_real_pivot.rename(columns={"INICIO": "Inicio_Real"})
+                    if "TERMINO" in df_real_pivot.columns:
+                        df_real_pivot = df_real_pivot.rename(columns={"TERMINO": "Termino_Real"})
+                    df_real = df_real_pivot # Atualiza df_real com o resultado pivotado
+                else:
+                     st.warning("Colunas 'Inicio_Fim' ou 'Valor' não encontradas nos dados reais. Pivot não aplicado.")
+                     # Mantém df_real como está, mas garante colunas esperadas
+                     if "Inicio_Real" not in df_real.columns: df_real["Inicio_Real"] = pd.NaT
+                     if "Termino_Real" not in df_real.columns: df_real["Termino_Real"] = pd.NaT
+
             else:
-                df_real = pd.DataFrame()
+                st.info("Nenhum dado real retornado por buscar_e_processar_dados_completos().")
+                df_real = pd.DataFrame() # Garante que seja um DF vazio
         except Exception as e:
-            st.warning(f"Erro ao carregar dados reais: {e}")
+            st.error(f"Erro detalhado ao processar dados reais: {e}")
+            import traceback
+            st.error(traceback.format_exc()) # Mostra o traceback completo para depuração
             df_real = pd.DataFrame()
 
     if tratar_macrofluxo:
@@ -3619,3 +3649,4 @@ with st.spinner("Carregando e processando dados..."):
 
     else:
         st.error("❌ Não foi possível carregar ou gerar os dados.")
+
