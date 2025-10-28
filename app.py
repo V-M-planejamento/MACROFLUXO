@@ -15,7 +15,7 @@ import traceback
 import streamlit.components.v1 as components
 import json
 import random
-
+import time
 try:
     from dropdown_component import simple_multiselect_dropdown
     from popup import show_welcome_screen
@@ -43,6 +43,7 @@ except ImportError:
     tratar_macrofluxo = None
     MODO_REAL = False
 
+    
 # --- ORDEM DAS ETAPAS (DEFINIDA PELO USUÁRIO) ---
 ORDEM_ETAPAS_GLOBAL = [
     "PROSPEC", "LEGVENDA", "PULVENDA", "PL.LIMP", "LEG.LIMP", "ENG.LIMP", "EXECLIMP",
@@ -3649,4 +3650,3 @@ with st.spinner("Carregando e processando dados..."):
 
     else:
         st.error("❌ Não foi possível carregar ou gerar os dados.")
-
