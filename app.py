@@ -651,6 +651,10 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         border: 2px solid;
                         box-shadow: none;
                     }}
+                    .gantt-bar.parent-task-real.expanded .bar-label {{
+                        color: #000000 !important;
+                        text-shadow: 0 1px 2px rgba(255,255,255,0.8);
+                    }}
                     
                     .sidebar-group-wrapper {{
                         display: flex;
