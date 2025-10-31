@@ -5,14 +5,14 @@ import matplotlib as mpl
 mpl.use("agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch, Rectangle
-from matplotlib.legend_handler import HandlerTuple 
+from matplotlib.legend_handler import HandlerTuple
 import matplotlib.dates as mdates
 import matplotlib.gridspec as gridspec
 from datetime import datetime, timedelta
 import holidays
-from dateutil.relativedelta import relativedelta #applyFiltersAndRedraw
+from dateutil.relativedelta import relativedelta
 import traceback
-import streamlit.components.v1 as components 
+import streamlit.components.v1 as components #applyInitialPulmaoState
 import json
 import random
 import time
@@ -172,24 +172,17 @@ def ajustar_datas_com_pulmao(df, meses_pulmao=0):
     if meses_pulmao > 0:
         for i, row in df_copy.iterrows():
             if "PULMÃO" in row["Etapa"].upper(): # Identifica etapas de pulmão
-                # Ajusta APENAS as datas PREVISTAS do pulmão
+                # Ajusta APENAS datas PREVISTAS do pulmão
                 if pd.notna(row["Termino_Prevista"]):
                     df_copy.loc[i, "Termino_Prevista"] = row["Termino_Prevista"] + relativedelta(months=meses_pulmao)
-                # NÃO ajusta datas reais
-                # if pd.notna(row["Termino_Real"]):
-                #     df_copy.loc[i, "Termino_Real"] = row["Termino_Real"] + relativedelta(months=meses_pulmao)
-                
-                for j in range(i + 1, len(df_copy)):
-                    # Ajusta APENAS datas PREVISTAS das etapas subsequentes
-                    if pd.notna(df_copy.loc[j, "Inicio_Prevista"]):
-                        df_copy.loc[j, "Inicio_Prevista"] = df_copy.loc[j, "Inicio_Prevista"] + relativedelta(months=meses_pulmao)
-                    if pd.notna(df_copy.loc[j, "Termino_Prevista"]):
-                        df_copy.loc[j, "Termino_Prevista"] = df_copy.loc[j, "Termino_Prevista"] + relativedelta(months=meses_pulmao)
-                    # NÃO ajusta datas reais
-                    # if pd.notna(df_copy.loc[j, "Inicio_Real"]):
-                    #     df_copy.loc[j, "Inicio_Real"] = df_copy.loc[j, "Inicio_Real"] + relativedelta(months=meses_pulmao)
-                    # if pd.notna(df_copy.loc[j, "Termino_Real"]):
-                    #     df_copy.loc[j, "Termino_Real"] = df_copy.loc[j, "Termino_Real"] + relativedelta(months=meses_pulmao)
+                # DATAS REAIS PERMANECEM INALTERADAS
+            else:
+                # Para outras etapas, ajusta APENAS datas PREVISTAS
+                if pd.notna(row["Inicio_Prevista"]):
+                    df_copy.loc[i, "Inicio_Prevista"] = row["Inicio_Prevista"] + relativedelta(months=meses_pulmao)
+                if pd.notna(row["Termino_Prevista"]):
+                    df_copy.loc[i, "Termino_Prevista"] = row["Termino_Prevista"] + relativedelta(months=meses_pulmao)
+                # DATAS REAIS PERMANECEM INALTERADAS
     return df_copy
 
 def calcular_periodo_datas(df, meses_padding_inicio=1, meses_padding_fim=36):
@@ -1215,18 +1208,29 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     function applyInitialPulmaoState() {{
                         if (initialPulmaoStatus === 'Com Pulmão' && initialPulmaoMeses > 0) {{
                             const offsetMeses = -initialPulmaoMeses;
-                            let baseTasks = JSON.parse(JSON.stringify(allTasks_baseData));
-                            
-                            console.log('Aplicando estado inicial de pulmão (APENAS PREVISTOS)');
-                            // Passa o nome da etapa inicial - APENAS PREVISTOS
-                            const tasksProcessadas = aplicarLogicaPulmaoConsolidado(baseTasks, offsetMeses, initialStageName);
-                            
-                            projectData[0].tasks = tasksProcessadas;
-                            // Atualiza também o 'allTasks_baseData' que é a fonte "crua" da etapa atual
-                            allTasks_baseData = JSON.parse(JSON.stringify(tasksProcessadas));
-                            console.log('Pulmão aplicado com sucesso (apenas dados previstos)');
-                        }} else {{
-                            console.log('Sem pulmão ou meses = 0, mantendo dados originais');
+                            let baseTasks = projectData[0].tasks;
+
+                            baseTasks.forEach(task => {{
+                                const etapaNome = task.name;
+                                if (etapas_sem_alteracao.includes(etapaNome)) {{
+                                    // Não altera datas
+                                }}
+                                else if (etapas_pulmao.includes(etapaNome)) {{
+                                    // APENAS PREVISTO
+                                    task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                                    task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                }}
+                                else {{
+                                    // APENAS PREVISTO
+                                    task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                                    task.end_previsto = addMonths(task.end_previsto, offsetMeses);
+                                    task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                    task.termino_previsto = formatDateDisplay(task.end_previsto);
+                                    // NÃO modificar dados reais
+                                }}
+                            }});
+
+                            allTasks_baseData = JSON.parse(JSON.stringify(baseTasks));
                         }}
                     }}
 
@@ -1924,22 +1928,26 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                             if (selPulmao === 'Com Pulmão' && selPulmaoMeses > 0) {{
                                 const offsetMeses = -selPulmaoMeses;
+                                console.log("Aplicando pulmão APENAS no previsto para filtros");
+                                
                                 baseTasks.forEach(task => {{
                                     const etapaNome = task.name;
+                                    
                                     if (etapas_sem_alteracao.includes(etapaNome)) {{
+                                        // Não altera datas
                                     }}
                                     else if (etapas_pulmao.includes(etapaNome)) {{
+                                        // Apenas datas previstas
                                         task.start_previsto = addMonths(task.start_previsto, offsetMeses);
-                                        
                                         task.inicio_previsto = formatDateDisplay(task.start_previsto);
-                                        
                                     }}
                                     else {{
+                                        // Apenas datas previstas
                                         task.start_previsto = addMonths(task.start_previsto, offsetMeses);
                                         task.end_previsto = addMonths(task.end_previsto, offsetMeses);
+                                        
                                         task.inicio_previsto = formatDateDisplay(task.start_previsto);
                                         task.termino_previsto = formatDateDisplay(task.end_previsto);
-                                        
                                     }}
                                 }});
                             }}
@@ -2653,8 +2661,9 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 
                 // --- Lógica de Pulmão para Consolidado ---
                 // *** FUNÇÃO MODIFICADA ***
+                // *** FUNÇÃO MODIFICADA: aplicarLogicaPulmaoConsolidado ***
                 function aplicarLogicaPulmaoConsolidado(tasks, offsetMeses, stageName) {{
-                    console.log(`Aplicando pulmão de ${{offsetMeses}}m para etapa: ${{stageName}} apenas em dados previstos`);
+                    console.log(`Aplicando pulmão de ${{offsetMeses}}m para etapa: ${{stageName}}`);
 
                     // Verifica o *tipo* de etapa que estamos processando
                     if (etapas_sem_alteracao.includes(stageName)) {{
@@ -2665,40 +2674,23 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         console.log("Etapa Pulmão: movendo apenas início PREVISTO.");
                         // Para etapas de pulmão, move apenas o Início PREVISTO
                         tasks.forEach(task => {{
-                            if (task.start_previsto) {{
-                                task.start_previsto = addMonths(task.start_previsto, offsetMeses);
-                                task.inicio_previsto = formatDateDisplay(task.start_previsto);
-                            }}
-                            // NÃO mexe em dados reais - COMENTADO
-                            // task.start_real = addMonths(task.start_real, offsetMeses);
-                            // task.inicio_real = formatDateDisplay(task.start_real);
+                            task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                            // DATAS REAIS PERMANECEM INALTERADAS
+                            task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                            // Não mexe no 'end_date' real
                         }});
                     
                     }} else {{
-                        console.log("Etapa Padrão: movendo tudo APENAS NO PREVISTO.");
-                        // Para todas as outras etapas, move Início e Fim APENAS NO PREVISTO
+                        console.log("Etapa Padrão: movendo apenas PREVISTO.");
+                        // Para todas as outras etapas, move apenas Início e Fim PREVISTOS
                         tasks.forEach(task => {{
-                            if (task.start_previsto) {{
-                                task.start_previsto = addMonths(task.start_previsto, offsetMeses);
-                                task.inicio_previsto = formatDateDisplay(task.start_previsto);
-                            }}
-                            if (task.end_previsto) {{
-                                task.end_previsto = addMonths(task.end_previsto, offsetMeses);
-                                task.termino_previsto = formatDateDisplay(task.end_previsto);
-                            }}
-                            // NÃO mexe em dados reais - COMENTADO
-                            // if (task.start_real) {{
-                            //     task.start_real = addMonths(task.start_real, offsetMeses);
-                            //     task.inicio_real = formatDateDisplay(task.start_real);
-                            // }}
-                            // if (task.end_real_original_raw) {{
-                            //     task.end_real_original_raw = addMonths(task.end_real_original_raw, offsetMeses);
-                            //     task.end_real = task.end_real_original_raw;
-                            //     task.termino_real = formatDateDisplay(task.end_real_original_raw);
-                            // }} else if (task.end_real) {{
-                            //     task.end_real = addMonths(task.end_real, offsetMeses);
-                            //     task.termino_real = formatDateDisplay(task.end_real);
-                            // }}
+                            task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                            task.end_previsto = addMonths(task.end_previsto, offsetMeses);
+                            // DATAS REAIS PERMANECEM INALTERADAS
+
+                            task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                            task.termino_previsto = formatDateDisplay(task.end_previsto);
+                            // Datas reais mantêm seus valores originais
                         }});
                     }}
                     return tasks;
@@ -2710,7 +2702,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         const offsetMeses = -initialPulmaoMeses;
                         let baseTasks = JSON.parse(JSON.stringify(allTasks_baseData));
                         
-                        // Passa o nome da etapa inicial - APENAS PREVISTOS
+                        // Passa o nome da etapa inicial - APENAS DATAS PREVISTAS SERÃO MODIFICADAS
                         const tasksProcessadas = aplicarLogicaPulmaoConsolidado(baseTasks, offsetMeses, initialStageName);
                         
                         projectData[0].tasks = tasksProcessadas;
@@ -3176,7 +3168,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         // *** 4. APLICAR LÓGICA DE PULMÃO (CORRIGIDO) ***
                         if (selPulmao === 'Com Pulmão' && selPulmaoMeses > 0) {{
                             const offsetMeses = -selPulmaoMeses;
-                            // Passa o nome da etapa atual para a lógica - APENAS PREVISTOS
+                            // Passa o nome da etapa atual para a lógica - APENAS PREVISTO AFETADO
                             baseTasks = aplicarLogicaPulmaoConsolidado(baseTasks, offsetMeses, currentStageName);
                         }}
 
@@ -3581,18 +3573,18 @@ with st.spinner("Carregando e processando dados..."):
         # Copiar o dataframe filtrado para ser usado nas tabelas
         df_detalhes = df_para_exibir.copy()
 
-        # Aplicar lógica de pulmão para a tabela detalhada - APENAS PREVISTOS
+        # Aplicar lógica de pulmão para a tabela detalhada (necessário para ambas as tabelas)
         if pulmao_status == "Com Pulmão" and pulmao_meses > 0:
-            colunas_data_previstas = ["Inicio_Prevista", "Termino_Prevista"]  # Apenas previstas
-            colunas_data_reais = ["Inicio_Real", "Termino_Real"]  # Mantidas intactas
+            colunas_data_todas = ["Inicio_Prevista", "Termino_Prevista"]
+            colunas_data_inicio = ["Inicio_Prevista", "Inicio_Real"]
             
-            for col in colunas_data_previstas + colunas_data_reais:
+            for col in colunas_data_todas:
                 if col in df_detalhes.columns:
                     df_detalhes[col] = pd.to_datetime(df_detalhes[col], errors='coerce')
 
             offset_meses = -int(pulmao_meses)
             
-            def aplicar_offset_meses_previsto(data):
+            def aplicar_offset_meses(data):
                 if pd.isna(data) or data is pd.NaT: return pd.NaT
                 try: return data + relativedelta(months=offset_meses)
                 except Exception: return pd.NaT
@@ -3604,15 +3596,13 @@ with st.spinner("Carregando e processando dados..."):
             mask_shift_inicio_apenas = df_detalhes['Etapa'].isin(etapas_pulmao)
             mask_shift_tudo = (~mask_nao_mexer) & (~mask_shift_inicio_apenas)
 
-            # Aplica APENAS nas colunas PREVISTAS
-            for col in colunas_data_previstas:
+            for col in colunas_data_todas:
                 if col in df_detalhes.columns:
-                    df_detalhes.loc[mask_shift_tudo, col] = df_detalhes.loc[mask_shift_tudo, col].apply(aplicar_offset_meses_previsto)
+                    df_detalhes.loc[mask_shift_tudo, col] = df_detalhes.loc[mask_shift_tudo, col].apply(aplicar_offset_meses)
             
-            # Para etapas de pulmão, ajusta apenas início previsto
-            for col in ["Inicio_Prevista"]:
+            for col in colunas_data_inicio:
                 if col in df_detalhes.columns:
-                    df_detalhes.loc[mask_shift_inicio_apenas, col] = df_detalhes.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses_previsto)
+                    df_detalhes.loc[mask_shift_inicio_apenas, col] = df_detalhes.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses)
         st.title("Macrofluxo")
         tab1, tab2 = st.tabs(["Gráfico de Gantt", "Tabelão Horizontal"])
 
