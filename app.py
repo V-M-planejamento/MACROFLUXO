@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import holidays
 from dateutil.relativedelta import relativedelta
 import traceback
-import streamlit.components.v1 as components
+import streamlit.components.v1 as components #status_color_class
 import json
 import random
 import time
@@ -177,12 +177,6 @@ def ajustar_datas_com_pulmao(df, meses_pulmao=0):
                     df_copy.loc[i, "Termino_Prevista"] = row["Termino_Prevista"] + relativedelta(months=meses_pulmao)
                 if pd.notna(row["Termino_Real"]):
                     df_copy.loc[i, "Termino_Real"] = row["Termino_Real"] + relativedelta(months=meses_pulmao)
-
-                # Ajusta as datas das etapas subsequentes
-                # Supondo que as etapas estão ordenadas ou que a lógica de dependência é tratada em outro lugar
-                # Para este exemplo, vamos ajustar as datas de início e término das etapas seguintes
-                # que dependem diretamente do término de uma etapa de pulmão.
-                # Isso é uma simplificação e pode precisar de uma lógica de dependência mais robusta.
                 for j in range(i + 1, len(df_copy)):
                     if pd.notna(df_copy.loc[j, "Inicio_Prevista"]):
                         df_copy.loc[j, "Inicio_Prevista"] = df_copy.loc[j, "Inicio_Prevista"] + relativedelta(months=meses_pulmao)
@@ -354,14 +348,15 @@ def converter_dados_para_gantt(df):
             # Lógica de Cor do Status
             status_color_class = 'status-default'
             hoje = pd.Timestamp.now().normalize()
+
             if progress == 100:
                 if pd.notna(end_real_original) and pd.notna(end_date):
                     if end_real_original <= end_date:
                         status_color_class = 'status-green'
                     else:
                         status_color_class = 'status-red'
-            elif progress < 100 and pd.notna(end_date) and (end_date < hoje):
-                    status_color_class = 'status-yellow' # Em andamento, mas já atrasado
+            elif progress < 100 and pd.notna(start_real) and pd.notna(end_real_original) and (end_real_original < hoje):
+                status_color_class = 'status-yellow'  # Em andamento, mas data real já passou
 
             task = {
                 "id": f"t{i}", "name": etapa_nome_completo, "numero_etapa": i + 1,
@@ -3263,8 +3258,6 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
     components.html(gantt_html, height=altura_gantt, scrolling=True)
     # st.markdown("---") no consolidado, pois ele não é parte de um loop
 
-
-# --- FUNÇÃO PRINCIPAL DE GANTT (DISPATCHER) ---
 # --- FUNÇÃO PRINCIPAL DE GANTT (DISPATCHER) ---
 def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_ordenacao, pulmao_status, pulmao_meses, etapa_selecionada_inicialmente):
     """
@@ -3281,10 +3274,6 @@ def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_
     is_consolidated_view = etapa_selecionada_inicialmente != "Todos"
 
     if is_consolidated_view:
-        # st.info("Exibindo visão comparativa por etapa.") # Movido para dentro da função
-
-        # Passa o DF completo (com todas as etapas filtradas pela sidebar)
-        # e a etapa que deve ser exibida primeiro.
         gerar_gantt_consolidado(
             df, 
             tipo_visualizacao, 
@@ -3304,8 +3293,6 @@ def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_
         )
 
 # O restante do código Streamlit...
-# O restante do código Streamlit...
-
 st.set_page_config(layout="wide", page_title="Dashboard de Gantt Comparativo")
 
 # Tente executar a tela de boas-vindas. Se os arquivos não existirem, apenas pule.
@@ -3440,33 +3427,9 @@ def load_data():
         
         # Identifica linhas onde o previsto (Inicio_Prevista) é nulo, mas a etapa é de exceção
         filtro_excecao = df_merged["Etapa"].isin(etapas_excecao) & df_merged["Inicio_Prevista"].isna()
-
-        # Preenche as colunas de previsão com string vazia " " para que apareçam no Gantt/Tabela
-        # O preenchimento com " " é para garantir que não sejam tratadas como NaN e sejam exibidas.
-        # As colunas de data (Inicio/Termino_Prevista) devem ser preenchidas com data válida (ex: data de início real) ou um valor que não seja NaN,
-        # mas o usuário pediu para preencher com " " para "dados previstos".
-        # Como são colunas de data, preencher com string vazia pode causar problemas de tipo.
-        # A melhor abordagem é preencher com uma data placeholder (ex: data de início real) e marcar as colunas de texto (se houver) com " ".
-        # No entanto, para seguir o pedido de "preenchidos com ' '", vamos focar em colunas que podem ser strings.
-        # Como o merge é 'outer', as linhas que só vieram do df_real terão NaN nas colunas do df_previsto.
-        
-        # Vamos preencher as colunas do df_previsto que são de data (Inicio_Prevista, Termino_Prevista)
-        # com a data de início real (se existir) para que a barra apareça, e preencher a coluna UGB
-        
-        # Se a linha só tem dados reais (df_previsto é NaN), e a etapa é de exceção:
         df_merged.loc[filtro_excecao, "Inicio_Prevista"] = df_merged.loc[filtro_excecao, "Inicio_Real"]
         df_merged.loc[filtro_excecao, "Termino_Prevista"] = df_merged.loc[filtro_excecao, "Termino_Real"]
-        
-        # Preenche UGB se estiver faltando
         df_merged.loc[filtro_excecao & df_merged["UGB"].isna(), "UGB"] = "UGB1"
-        
-        # Se houver outras colunas de texto/número que o usuário queira preencher com " ", 
-        # elas deveriam ser identificadas. Por enquanto, as datas são o mais importante
-        # para visualização. O preenchimento com " " em colunas de data (datetime) é 
-        # problemático. O preenchimento com a data real garante a visibilidade.
-        # Se o usuário quiser que o *rótulo* no gráfico/tabela seja " ", isso é feito na função de renderização.
-        # A alteração acima garante que a linha exista e tenha datas previstas para ser renderizada.
-        # --- Fim da Lógica de Exceção ---
 
     elif not df_previsto.empty:
         df_merged = df_previsto.copy()
@@ -3475,10 +3438,6 @@ def load_data():
         df_merged = df_real.copy()
         if "UGB" not in df_merged.columns:
             df_merged["UGB"] = "UGB1"
-        # Se só existe df_real, não é necessário tratar exceção, pois todos os dados são reais.
-        # O problema ocorre quando há df_previsto E df_real, e o outer merge remove as colunas de previsão (NaN)
-        # para as etapas que só existem no real.
-
     else:
         return criar_dados_exemplo()
 
@@ -3527,7 +3486,6 @@ def filter_dataframe(df, ugb_filter, emp_filter, grupo_filter, setor_filter):
         df_filtered = df_filtered[df_filtered["SETOR"].isin(setor_filter)]
     return df_filtered
 
-# --- Bloco Principal ---
 # --- Bloco Principal ---
 with st.spinner("Carregando e processando dados..."):
     df_data = load_data()
@@ -3618,8 +3576,6 @@ with st.spinner("Carregando e processando dados..."):
             filtrar_nao_concluidas = st.checkbox("Etapas não concluídas", value=False, help="Quando marcado, mostra apenas etapas com menos de 100% de conclusão")
             st.markdown("---")
             tipo_visualizacao = st.radio("Mostrar dados:", ("Ambos", "Previsto", "Real"))
-
-        # --- MODIFICAÇÃO PRINCIPAL DA LÓGICA ---
         
         # 1. Aplicar filtros da sidebar (UGB, EMP, GRUPO, SETOR)
         df_filtered = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo, selected_setor)
@@ -3628,8 +3584,6 @@ with st.spinner("Carregando e processando dados..."):
         is_consolidated_view = selected_etapa_nome != "Todos"
 
         # 3. NOVO: Se for visão consolidada, AINDA filtramos pela etapa aqui.
-        # A lógica da mudança do filtro de etapa foi movida para o gerar_gantt_consolidado.
-        # Mas para a TABELA, ainda precisamos da etapa selecionada.
         if is_consolidated_view and not df_filtered.empty:
             sigla_selecionada = nome_completo_para_sigla.get(selected_etapa_nome, selected_etapa_nome)
             df_filtered = df_filtered[df_filtered["Etapa"] == sigla_selecionada]
@@ -3640,7 +3594,6 @@ with st.spinner("Carregando e processando dados..."):
 
         df_para_exibir = df_filtered.copy()
         
-        # *** INÍCIO DA CORREÇÃO ***
         # Define 'df_detalhes' e 'empreendimentos_ordenados_por_meta' ANTES das abas
         
         # Criar a lista de ordenação de empreendimentos (necessário para ambas as tabelas)
@@ -3679,14 +3632,6 @@ with st.spinner("Carregando e processando dados..."):
             for col in colunas_data_inicio:
                 if col in df_detalhes.columns:
                     df_detalhes.loc[mask_shift_inicio_apenas, col] = df_detalhes.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses)
-        
-        # O filtro de "não concluídas" já foi aplicado em df_para_exibir,
-        # e df_detalhes é uma cópia dele. Então esta linha não é mais necessária aqui.
-        # if filtrar_nao_concluidas:
-        #    df_detalhes = filtrar_nao_concluidas(df_detalhes)
-            
-        # *** FIM DA CORREÇÃO ***
-
         st.title("Macrofluxo")
         tab1, tab2 = st.tabs(["Gráfico de Gantt", "Tabelão Horizontal"])
 
@@ -3703,14 +3648,6 @@ with st.spinner("Carregando e processando dados..."):
             if df_para_exibir.empty:
                 st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
             else:
-                # 5. Passar o 'selected_etapa_nome' como o indicador de modo
-                # e a etapa inicial para a visão consolidada.
-                
-                # --- MODIFICAÇÃO IMPORTANTE ---
-                # A lógica do Gantt Consolidado mudou. Ele agora espera o DF *antes*
-                # da filtragem de etapa e "não concluídas" para permitir a troca dinâmica.
-                # Portanto, precisamos recriar o DF para o Gantt Consolidado.
-                
                 df_para_gantt = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo, selected_setor)
 
                 gerar_gantt(
@@ -3722,13 +3659,9 @@ with st.spinner("Carregando e processando dados..."):
                     pulmao_meses,
                     selected_etapa_nome  # Novo parâmetro
                 )
-                # --- FIM DA MODIFICAÇÃO ---
 
             st.markdown('<div id="visao-detalhada"></div>', unsafe_allow_html=True)
             st.subheader("Visão Detalhada por Empreendimento")
-            
-            # As variáveis 'df_detalhes' e 'empreendimentos_ordenados_por_meta'
-            # já estão definidas e prontas para usar aqui.
 
             if df_detalhes.empty: # Verifique df_detalhes
                 st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
