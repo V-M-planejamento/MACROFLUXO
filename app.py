@@ -390,7 +390,6 @@ def converter_dados_para_gantt(df):
 
     return gantt_data
 # --- FIM DO CÓDIGO MODIFICADO ---
-
 # --- Funções Utilitárias ---
 def abreviar_nome(nome):
     if pd.isna(nome):
@@ -3389,32 +3388,29 @@ def load_data():
         df_merged = pd.merge(df_previsto, df_real[["Empreendimento", "Etapa", "Inicio_Real", "Termino_Real", "% concluído"]], on=["Empreendimento", "Etapa"], how="outer")
 
         # --- Lógica de Exceção para Etapas Apenas no Real ---
-        etapas_excecao = [
-            "PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.",
-            "PE. TER.", "ORÇ. TER.", "SUP. TER.",
-            "PE. INFRA", "ORÇ. INFRA", "SUP. INFRA",
-            "PE. PAV", "ORÇ. PAV", "SUP. PAV"
-        ]
+        # --- Lógica de Exceção para Etapas Apenas no Real ---
+    etapas_excecao = [
+        "PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.",
+        "PE. TER.", "ORÇ. TER.", "SUP. TER.", 
+        "PE. INFRA", "ORÇ. INFRA", "SUP. INFRA",
+        "PE. PAV", "ORÇ. PAV", "SUP. PAV"
+    ]
+
+    # Identifica linhas onde o previsto (Inicio_Prevista) é nulo, mas a etapa é de exceção
+    filtro_excecao = df_merged["Etapa"].isin(etapas_excecao) & df_merged["Inicio_Prevista"].isna()
+    df_merged.loc[filtro_excecao, "Inicio_Prevista"] = df_merged.loc[filtro_excecao, "Inicio_Real"]
+    df_merged.loc[filtro_excecao, "Termino_Prevista"] = df_merged.loc[filtro_excecao, "Termino_Real"]
+
+    # CORREÇÃO: Buscar UGB correta para as subetapas
+    if not df_previsto.empty:
+        # Criar mapeamento de UGB por empreendimento
+        ugb_por_empreendimento = df_previsto.groupby('Empreendimento')['UGB'].first().to_dict()
         
-        # Identifica linhas onde o previsto (Inicio_Prevista) é nulo, mas a etapa é de exceção
-        filtro_excecao = df_merged["Etapa"].isin(etapas_excecao) & df_merged["Inicio_Prevista"].isna()
-        df_merged.loc[filtro_excecao, "Inicio_Prevista"] = df_merged.loc[filtro_excecao, "Inicio_Real"]
-        df_merged.loc[filtro_excecao, "Termino_Prevista"] = df_merged.loc[filtro_excecao, "Termino_Real"]
-        df_merged.loc[filtro_excecao & df_merged["UGB"].isna(), "UGB"] = "UGB1"
-
-    elif not df_previsto.empty:
-        df_merged = df_previsto.copy()
-        df_merged["% concluído"] = 0.0
-    elif not df_real.empty:
-        df_merged = df_real.copy()
-        if "UGB" not in df_merged.columns:
-            df_merged["UGB"] = "UGB1"
-    else:
-        return criar_dados_exemplo()
-
-    for col in ["UGB", "Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real", "% concluído"]:
-        if col not in df_merged.columns:
-            df_merged[col] = pd.NaT if "data" in col else ("UGB1" if col == "UGB" else 0.0)
+        # Para cada subetapa sem UGB, buscar a UGB do empreendimento correspondente
+        for idx in df_merged[filtro_excecao & df_merged["UGB"].isna()].index:
+            empreendimento = df_merged.loc[idx, 'Empreendimento']
+            if empreendimento in ugb_por_empreendimento:
+                df_merged.loc[idx, 'UGB'] = ugb_por_empreendimento[empreendimento]
 
     df_merged["% concluído"] = df_merged["% concluído"].fillna(0)
     df_merged.dropna(subset=["Empreendimento", "Etapa"], inplace=True)
