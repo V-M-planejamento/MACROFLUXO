@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import holidays
 from dateutil.relativedelta import relativedelta
 import traceback
-import streamlit.components.v1 as components #applyInitialPulmaoState
+import streamlit.components.v1 as components #renderSidebar
 import json
 import random
 import time
@@ -121,7 +121,11 @@ for etapa_pai, subetapas in SUBETAPAS.items():
 ORDEM_ETAPAS_NOME_COMPLETO = [sigla_para_nome_completo.get(s, s) for s in ORDEM_ETAPAS_GLOBAL]
 nome_completo_para_sigla = {v: k for k, v in sigla_para_nome_completo.items()}
 
-GRUPO_POR_ETAPA = {mapeamento_etapas_usuario.get(etapa, etapa): grupo for grupo, etapas in GRUPOS.items() for etapa in etapas}
+GRUPO_POR_ETAPA = {}
+for grupo, etapas in GRUPOS.items():
+    for etapa in etapas:
+        GRUPO_POR_ETAPA[etapa] = grupo
+
 SETOR_POR_ETAPA = {mapeamento_etapas_usuario.get(etapa, etapa): setor for setor, etapas in SETOR.items() for etapa in etapas}
 
 
@@ -245,16 +249,19 @@ def converter_dados_para_gantt(df):
     for empreendimento in df["Empreendimento"].unique():
         df_emp = df[df["Empreendimento"] == empreendimento].copy()
 
+        # DEBUG: Verificar etapas disponíveis
+        etapas_disponiveis = df_emp["Etapa"].unique()
+        print(f"=== ETAPAS PARA {empreendimento} ===")
+        for etapa in etapas_disponiveis:
+            print(f"Etapa no DF: {etapa}")
+
         # --- NOVA LÓGICA: Calcular datas reais para etapas pai a partir das subetapas ---
-        # Primeiro processamos as subetapas e calculamos as datas das etapas pai
         etapas_pai_para_calcular = {}
         
         for etapa_pai, subetapas in SUBETAPAS.items():
-            # Encontrar todas as subetapas deste empreendimento que pertencem a esta etapa pai
             subetapas_emp = df_emp[df_emp["Etapa"].isin([nome_completo_para_sigla.get(sub, sub) for sub in subetapas])]
             
             if not subetapas_emp.empty:
-                # Calcular datas mínimas e máximas das subetapas
                 inicio_real_min = subetapas_emp["Inicio_Real"].min()
                 termino_real_max = subetapas_emp["Termino_Real"].max()
                 
@@ -281,29 +288,23 @@ def converter_dados_para_gantt(df):
             if etapa_nome_completo in etapas_pai_para_calcular:
                 dados_pai = etapas_pai_para_calcular[etapa_nome_completo]
                 
-                # Usar as datas calculadas das subetapas para a etapa pai
                 if pd.notna(dados_pai["inicio_real"]):
                     start_real = dados_pai["inicio_real"]
                 if pd.notna(dados_pai["termino_real"]):
                     end_real_original = dados_pai["termino_real"]
                 
-                # Recalcular o progresso baseado nas subetapas
                 subetapas_emp = df_emp[df_emp["Etapa"].isin([nome_completo_para_sigla.get(sub, sub) for sub in SUBETAPAS[etapa_nome_completo]])]
                 if not subetapas_emp.empty and "% concluído" in subetapas_emp.columns:
                     progress_subetapas = subetapas_emp["% concluído"].apply(converter_porcentagem)
                     progress = progress_subetapas.mean()
 
             # --- CORREÇÃO PRINCIPAL: PARA SUBETAPAS, MANTER APENAS DADOS REAIS ---
-            # Se é uma subetapa (PE. TER., ORÇ. TER., SUP. TER., etc.), limpar dados previstos
             etapa_eh_subetapa = etapa_nome_completo in ETAPA_PAI_POR_SUBETAPA
             
             if etapa_eh_subetapa:
-                # É uma subetapa - limpar completamente dados previstos
                 start_date = None
                 end_date = None
-                # Para subetapas, usar apenas dados reais
                 if pd.isna(start_real) and pd.isna(end_real_original):
-                    # Se não há dados reais, pular esta subetapa
                     continue
 
             # Lógica para tratar datas vazias (apenas para etapas que não são subetapas)
@@ -317,9 +318,18 @@ def converter_dados_para_gantt(df):
             if pd.notna(start_real) and progress < 100 and pd.isna(end_real_original):
                 end_real_visual = datetime.now()
 
-            # --- FIM DA MODIFICAÇÃO ---
-
-            grupo = GRUPO_POR_ETAPA.get(etapa_nome_completo, "Não especificado")
+            # --- CORREÇÃO DO MAPEAMENTO DE GRUPO - LÓGICA MELHORADA ---
+            grupo = "Não especificado"
+            
+            # Tenta pelo nome completo primeiro
+            if etapa_nome_completo in GRUPO_POR_ETAPA:
+                grupo = GRUPO_POR_ETAPA[etapa_nome_completo]
+            # Se não encontrar, tenta pela sigla
+            elif etapa_sigla in GRUPO_POR_ETAPA:
+                grupo = GRUPO_POR_ETAPA[etapa_sigla]
+            
+            # DEBUG: Mostrar mapeamento
+            print(f"Etapa: {etapa_nome_completo} (sigla: {etapa_sigla}) -> Grupo: {grupo}")
 
             # Duração em Meses
             dur_prev_meses = None
@@ -389,7 +399,6 @@ def converter_dados_para_gantt(df):
         gantt_data.append(project)
 
     return gantt_data
-# --- FIM DO CÓDIGO MODIFICADO ---
 # --- Funções Utilitárias ---
 def abreviar_nome(nome):
     if pd.isna(nome):
@@ -1239,7 +1248,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         const tasks = projectData[0].tasks;
                         
                         if (!tasks || tasks.length === 0) {{
-                            sidebarContent.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">Nenhuma tarefa disponível</div>';
+                            sidebarContent.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">Nenhuma tarefa disponível para os filtros aplicados</div>';
                             return;
                         }}
                         
@@ -1890,6 +1899,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     }}
 
                     // *** FUNÇÃO applyFiltersAndRedraw CORRIGIDA ***
+                    // *** FUNÇÃO applyFiltersAndRedraw CORRIGIDA ***
                     function applyFiltersAndRedraw() {{
                         try {{
                             const selProjectIndex = parseInt(document.getElementById('filter-project-{project["id"]}').value, 10);
@@ -1925,6 +1935,23 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                             let baseTasks = JSON.parse(JSON.stringify(allTasks_baseData));
 
+                            // *** DEBUG DETALHADO DOS GRUPOS ***
+                            console.log('=== DEBUG GRUPOS ===');
+                            console.log('Total de tasks base:', baseTasks.length);
+                            console.log('Grupos disponíveis nas tasks:', [...new Set(baseTasks.map(t => t.grupo))]);
+                            console.log('Filtrando por grupo:', selGrupoArray);
+                            
+                            // Verificar tasks que deveriam passar no filtro
+                            const tasksComGrupoFiltrado = baseTasks.filter(t => {{
+                                const passaFiltro = selGrupoArray.includes(t.grupo);
+                                if (passaFiltro) {{
+                                    console.log('Task que passa no filtro:', t.name, '- Grupo:', t.grupo);
+                                }}
+                                return passaFiltro;
+                            }});
+                            console.log('Tasks que pertencem ao grupo filtrado:', tasksComGrupoFiltrado.length);
+                            console.log('=== FIM DEBUG ===');
+
                             if (selPulmao === 'Com Pulmão' && selPulmaoMeses > 0) {{
                                 const offsetMeses = -selPulmaoMeses;
                                 console.log("Aplicando pulmão APENAS no previsto para filtros");
@@ -1954,48 +1981,72 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             let filteredTasks = baseTasks;
 
                             // *** LÓGICA DE FILTRO CORRIGIDA ***
+                            // Filtro por Setor
                             if (selSetorArray.length > 0 && !selSetorArray.includes('Todos')) {{
                                 filteredTasks = filteredTasks.filter(t => selSetorArray.includes(t.setor));
+                                console.log('Após filtro setor:', filteredTasks.length);
                             }}
                             
+                            // Filtro por Grupo - CORREÇÃO PRINCIPAL
                             if (selGrupoArray.length > 0 && !selGrupoArray.includes('Todos')) {{
                                 filteredTasks = filteredTasks.filter(t => selGrupoArray.includes(t.grupo));
+                                console.log('Após filtro grupo:', filteredTasks.length);
+                                
+                                // DEBUG adicional
+                                if (filteredTasks.length === 0) {{
+                                    console.warn('⚠️ NENHUMA TASK PASSOU NO FILTRO DE GRUPO!');
+                                    console.log('Grupos filtrados:', selGrupoArray);
+                                    console.log('Grupos disponíveis:', [...new Set(baseTasks.map(t => t.grupo))]);
+                                }}
                             }}
                             
+                            // Filtro por Etapa
                             if (selEtapaArray.length > 0 && !selEtapaArray.includes('Todas')) {{
                                 filteredTasks = filteredTasks.filter(t => selEtapaArray.includes(t.name));
+                                console.log('Após filtro etapa:', filteredTasks.length);
                             }}
 
+                            // Filtro por Concluídas
                             if (selConcluidas) {{
                                 filteredTasks = filteredTasks.filter(t => t.progress < 100);
+                                console.log('Após filtro concluídas:', filteredTasks.length);
                             }}
 
                             console.log('Tasks após filtros:', filteredTasks.length);
+                            console.log('Tasks filtradas:', filteredTasks);
 
-                            // Recalcular range de datas
-                            const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange(filteredTasks);
-                            const newMin = parseDate(newMinStr);
-                            const newMax = parseDate(newMaxStr);
-                            const originalMin = parseDate(dataMinStr);
-                            const originalMax = parseDate(dataMaxStr);
-
-                            let finalMinDate = originalMin;
-                            if (newMin && newMin < finalMinDate) {{
-                                finalMinDate = newMin;
+                            // Se não há tasks após filtrar, mostrar mensagem mas permitir continuar
+                            if (filteredTasks.length === 0) {{
+                                console.warn('Nenhuma task passou pelos filtros aplicados');
+                                // Não interromper o processo, deixar que o renderSidebar mostre a mensagem apropriada
                             }}
 
-                            let finalMaxDate = originalMax;
-                            if (newMax && newMax > finalMaxDate) {{
-                                finalMaxDate = newMax;
+                            // Recalcular range de datas apenas se houver tasks
+                            if (filteredTasks.length > 0) {{
+                                const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange(filteredTasks);
+                                const newMin = parseDate(newMinStr);
+                                const newMax = parseDate(newMaxStr);
+                                const originalMin = parseDate(dataMinStr);
+                                const originalMax = parseDate(dataMaxStr);
+
+                                let finalMinDate = originalMin;
+                                if (newMin && newMin < finalMinDate) {{
+                                    finalMinDate = newMin;
+                                }}
+
+                                let finalMaxDate = originalMax;
+                                if (newMax && newMax > finalMaxDate) {{
+                                    finalMaxDate = newMax;
+                                }}
+
+                                finalMinDate = new Date(finalMinDate.getTime());
+                                finalMaxDate = new Date(finalMaxDate.getTime());
+                                finalMinDate.setUTCDate(1);
+                                finalMaxDate.setUTCMonth(finalMaxDate.getUTCMonth() + 1, 0);
+
+                                activeDataMinStr = finalMinDate.toISOString().split('T')[0];
+                                activeDataMaxStr = finalMaxDate.toISOString().split('T')[0];
                             }}
-
-                            finalMinDate = new Date(finalMinDate.getTime());
-                            finalMaxDate = new Date(finalMaxDate.getTime());
-                            finalMinDate.setUTCDate(1);
-                            finalMaxDate.setUTCMonth(finalMaxDate.getUTCMonth() + 1, 0);
-
-                            activeDataMinStr = finalMinDate.toISOString().split('T')[0];
-                            activeDataMaxStr = finalMaxDate.toISOString().split('T')[0];
 
                             // Atualizar dados e redesenhar
                             projectData[0].tasks = filteredTasks;
@@ -2015,9 +2066,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             console.error('Erro ao aplicar filtros:', error);
                             alert('Erro ao aplicar filtros: ' + error.message);
                         }}
-                    }}
-
-                    // DEBUG: Verificar se há dados antes de inicializar
+                    }}                    // DEBUG: Verificar se há dados antes de inicializar
                     console.log('Dados do projeto:', projectData);
                     console.log('Tasks base:', allTasks_baseData);
                     
