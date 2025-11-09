@@ -46,9 +46,9 @@ except ImportError:
     
 # --- ORDEM DAS ETAPAS (DEFINIDA PELO USUÁRIO) ---
 ORDEM_ETAPAS_GLOBAL = [
-    "PROSPEC", "LEGVENDA", "PULVENDA", "PL.LIMP", "LEG.LIMP", "ENG.LIMP","PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.", "EXECLIMP",
-    "PL.TER", "LEG.TER", "ENG. TER.","PE. TER.", "ORÇ. TER.", "SUP. TER.", "EXECTER", "PL.INFRA", "LEG.INFRA", "ENG.INFRA","PE. INFRA", "ORÇ. INFRA", "SUP. INFRA",
-    "EXECINFRA", "ENG.PAV", "EXEC.PAV", "PE. PAV", "ORÇ. PAV", "SUP. PAV", "PUL.INFRA", "PL.RAD", "LEG.RAD", "PUL.RAD",
+    "PROSPEC", "LEGVENDA", "PULVENDA", "PL.LIMP", "LEG.LIMP", "ENG.LIMP", "PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.", "EXECLIMP",
+    "PL.TER", "LEG.TER", "ENG. TER", "PE. TER.", "ORÇ. TER.", "SUP. TER.", "EXECTER", "PL.INFRA", "LEG.INFRA", "ENG.INFRA", "PE. INFRA", "ORÇ. INFRA", "SUP. INFRA",
+    "EXECINFRA", "ENG.PAV", "PE. PAV", "ORÇ. PAV", "SUP. PAV", "EXEC.PAV", "PUL.INFRA", "PL.RAD", "LEG.RAD", "PUL.RAD",
     "RAD", "DEM.MIN",
 ]
 
@@ -3750,9 +3750,16 @@ with st.spinner("Carregando e processando dados..."):
                     ordered=True
                 )
                 
-                ordem_etapas = list(sigla_para_nome_completo.keys())
-                df_agregado['Etapa_Ordem'] = df_agregado['Etapa'].apply(lambda x: ordem_etapas.index(x) if x in ordem_etapas else len(ordem_etapas))
+                # 1. Mapear a etapa para sua ordem global (agora incluindo subetapas)
+                def get_global_order_linear(etapa):
+                    try:
+                        return ORDEM_ETAPAS_GLOBAL.index(etapa)
+                    except ValueError:
+                        return len(ORDEM_ETAPAS_GLOBAL) # Coloca no final se não for encontrada
+
+                df_agregado['Etapa_Ordem'] = df_agregado['Etapa'].apply(get_global_order_linear)
                 
+                # 2. Ordenar: Empreendimento, Ordem da Etapa (linear)
                 df_ordenado = df_agregado.sort_values(by=['ordem_empreendimento', 'Etapa_Ordem'])
 
                 st.write("---")
@@ -3931,10 +3938,24 @@ with st.spinner("Carregando e processando dados..."):
                         key="ordem_radio"
                     )
 
-                ordem_etapas_completas = list(sigla_para_nome_completo.keys())
-                df_detalhes_tabelao['Etapa_Ordem'] = df_detalhes_tabelao['Etapa'].apply(
-                    lambda x: ordem_etapas_completas.index(x) if x in ordem_etapas_completas else len(ordem_etapas_completas)
-                )
+                # 1. Mapear a etapa para sua ordem global (agora incluindo subetapas)
+                def get_global_order_linear_tabelao(etapa):
+                    try:
+                        return ORDEM_ETAPAS_GLOBAL.index(etapa)
+                    except ValueError:
+                        return len(ORDEM_ETAPAS_GLOBAL) # Coloca no final se não for encontrada
+
+                df_detalhes_tabelao['Etapa_Ordem'] = df_detalhes_tabelao['Etapa'].apply(get_global_order_linear_tabelao)
+
+                # Lógica para anular datas previstas de subetapas
+                subetapas_list = list(ETAPA_PAI_POR_SUBETAPA.keys())
+                
+                # Cria uma máscara para identificar as linhas que são subetapas
+                mask_subetapa = df_detalhes_tabelao['Etapa'].isin(subetapas_list)
+                
+                # Anula as datas previstas (Inicio_Prevista e Termino_Prevista) para as subetapas
+                df_detalhes_tabelao.loc[mask_subetapa, 'Inicio_Prevista'] = pd.NaT
+                df_detalhes_tabelao.loc[mask_subetapa, 'Termino_Prevista'] = pd.NaT
                 
                 if classificar_por in ['Data de Início Previsto (Mais antiga)', 'Data de Término Previsto (Mais recente)']:
                     coluna_data = 'Inicio_Prevista' if 'Início' in classificar_por else 'Termino_Prevista'
@@ -3978,6 +3999,9 @@ with st.spinner("Carregando e processando dados..."):
                 df_agregado = df_detalhes_tabelao.groupby(['UGB', 'Empreendimento', 'Etapa']).agg(**agg_dict).reset_index()
                 
                 df_agregado['Var. Term'] = df_agregado.apply(lambda row: calculate_business_days(row['Termino_Prevista'], row['Termino_Real']), axis=1)
+
+                # Variável que estava faltando, definida a partir da ORDEM_ETAPAS_GLOBAL
+                ordem_etapas_completas = ORDEM_ETAPAS_GLOBAL
 
                 df_agregado['Etapa_Ordem'] = df_agregado['Etapa'].apply(
                     lambda x: ordem_etapas_completas.index(x) if x in ordem_etapas_completas else len(ordem_etapas_completas)
