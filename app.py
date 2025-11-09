@@ -228,13 +228,12 @@ def converter_dados_para_gantt(df):
 
         # DEBUG: Verificar etapas disponíveis
         etapas_disponiveis = df_emp["Etapa"].unique()
-        print(f"=== ETAPAS PARA {empreendimento} ===")
+        # print(f"=== ETAPAS PARA {empreendimento} ===")
         for etapa in etapas_disponiveis:
-            print(f"Etapa no DF: {etapa}")
+            # print(f"Etapa no DF: {etapa}")
 
         # --- NOVA LÓGICA: Calcular datas reais para etapas pai a partir das subetapas ---
-        etapas_pai_para_calcular = {}
-        
+            etapas_pai_para_calcular = {}
         for etapa_pai, subetapas in SUBETAPAS.items():
             subetapas_emp = df_emp[df_emp["Etapa"].isin([nome_completo_para_sigla.get(sub, sub) for sub in subetapas])]
             
@@ -306,7 +305,7 @@ def converter_dados_para_gantt(df):
                 grupo = GRUPO_POR_ETAPA[etapa_sigla]
             
             # DEBUG: Mostrar mapeamento
-            print(f"Etapa: {etapa_nome_completo} (sigla: {etapa_sigla}) -> Grupo: {grupo}")
+            # print(f"Etapa: {etapa_nome_completo} (sigla: {etapa_sigla}) -> Grupo: {grupo}")
 
             # Duração em Meses
             dur_prev_meses = None
@@ -2193,7 +2192,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
     
     'etapa_selecionada_inicialmente' define qual etapa mostrar no carregamento.
     """
-    st.info(f"Exibindo visão comparativa. Etapa inicial: {etapa_selecionada_inicialmente}")
+    # # st.info(f"Exibindo visão comparativa. Etapa inicial: {etapa_selecionada_inicialmente}")
 
     # --- 1. Preparação dos Dados (MODIFICADO) ---
     df_gantt = df.copy() # df agora tem MÚLTIPLAS etapas
@@ -3334,18 +3333,18 @@ def load_data():
                         df_real_pivot = df_real_pivot.rename(columns={"TERMINO": "Termino_Real"})
                     df_real = df_real_pivot # Atualiza df_real com o resultado pivotado
                 else:
-                     st.warning("Colunas 'Inicio_Fim' ou 'Valor' não encontradas nos dados reais. Pivot não aplicado.")
+                     # st.warning("Colunas 'Inicio_Fim' ou 'Valor' não encontradas nos dados reais. Pivot não aplicado.")
                      # Mantém df_real como está, mas garante colunas esperadas
                      if "Inicio_Real" not in df_real.columns: df_real["Inicio_Real"] = pd.NaT
                      if "Termino_Real" not in df_real.columns: df_real["Termino_Real"] = pd.NaT
 
             else:
-                st.info("Nenhum dado real retornado por buscar_e_processar_dados_completos().")
+                # st.info("Nenhum dado real retornado por buscar_e_processar_dados_completos().")
                 df_real = pd.DataFrame() # Garante que seja um DF vazio
         except Exception as e:
             st.error(f"Erro detalhado ao processar dados reais: {e}")
             import traceback
-            st.error(traceback.format_exc()) # Mostra o traceback completo para depuração
+            # st.error(traceback.format_exc()) # Mostra o traceback completo para depuração
             df_real = pd.DataFrame()
 
     if tratar_macrofluxo:
@@ -3387,7 +3386,6 @@ def load_data():
     if not df_real.empty and not df_previsto.empty:
         df_merged = pd.merge(df_previsto, df_real[["Empreendimento", "Etapa", "Inicio_Real", "Termino_Real", "% concluído"]], on=["Empreendimento", "Etapa"], how="outer")
 
-        # --- Lógica de Exceção para Etapas Apenas no Real ---
         # --- Lógica de Exceção para Etapas Apenas no Real ---
     etapas_excecao = [
         "PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.",
@@ -3483,9 +3481,6 @@ def load_data():
         </style>
         """, unsafe_allow_html=True)
 
-        # Supondo que você tenha uma lista de etapas_nao_mapeadas
-        # etapas_nao_mapeadas = ["Etapa A", "Etapa B", "Etapa C"]  # Exemplo
-
         # HTML para o cabeçalho com título e ícone de notificação
         etapas_html = "".join([f'<div class="etapa-code">{etapa}</div>' for etapa in sorted(list(etapas_nao_mapeadas))])
 
@@ -3562,10 +3557,10 @@ with st.spinner("Carregando e processando dados..."):
                 try:
                     st.image("logoNova.png", width=200)
                 except:
-                    st.warning("Logo 'logoNova.png' não encontrada.")
+                    # st.warning("Logo 'logoNova.png' não encontrada.")
+                    pass
         
-            st.markdown("---") 
-            # Resto do código permanece igual...
+            st.markdown("---")
             # Título centralizado
             st.markdown("""
             <div style='
@@ -3677,7 +3672,7 @@ with st.spinner("Carregando e processando dados..."):
             # Exibe a etapa selecionada quando no modo consolidado (alerta abaixo do botão)
             if st.session_state.consolidated_view:
                 st.success(f"**Visão Consolidada Ativa:** {selected_etapa_nome}")
-                st.info("💡 Esta visão mostra todos os empreendimentos para uma etapa específica")
+                # # st.info("💡 Esta visão mostra todos os empreendimentos para uma etapa específica")
 
             filtrar_nao_concluidas = False
             
@@ -3685,6 +3680,7 @@ with st.spinner("Carregando e processando dados..."):
             pulmao_status = "Sem Pulmão"
             pulmao_meses = 0
             tipo_visualizacao = "Ambos"  
+
         # --- FIM DO NOVO LAYOUT ---
         # Mantemos a chamada a filter_dataframe, mas com os valores padrão para EMP, GRUPO e SETOR
         df_filtered = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo, selected_setor)
@@ -3707,6 +3703,7 @@ with st.spinner("Carregando e processando dados..."):
             st.subheader("Gantt Comparativo")
             if df_para_exibir.empty:
                 st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
+                pass
             else:
                 df_para_gantt = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo, selected_setor)
 
@@ -3724,6 +3721,7 @@ with st.spinner("Carregando e processando dados..."):
 
             if df_detalhes.empty: # Verifique df_detalhes
                 st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
+                pass
             else:
                 hoje = pd.Timestamp.now().normalize()
 
@@ -3793,7 +3791,8 @@ with st.spinner("Carregando e processando dados..."):
                         tabela_final_lista.append(grupo_formatado)
 
                 if not tabela_final_lista:
-                    st.info("ℹ️ Nenhum dado para exibir na tabela detalhada com os filtros atuais.")
+                    st.info("ℹ️ Nenhum dado para exibir na tabela detalhada com os filtros atuais")
+                    pass
                 else:
                     tabela_final = pd.concat(tabela_final_lista, ignore_index=True)
 
@@ -3882,6 +3881,7 @@ with st.spinner("Carregando e processando dados..."):
             
             if df_detalhes.empty: # Usando df_detalhes
                 st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
+                pass
             else:
                 hoje = pd.Timestamp.now().normalize()
 
