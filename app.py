@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import holidays
 from dateutil.relativedelta import relativedelta
 import traceback
-import streamlit.components.v1 as components #renderSidebar
+import streamlit.components.v1 as components #⚠️ Alerta de Dados
 import json
 import random
 import time
@@ -131,28 +131,6 @@ SETOR_POR_ETAPA = {mapeamento_etapas_usuario.get(etapa, etapa): setor for setor,
 
 # --- Configurações de Estilo ---
 class StyleConfig:
-    LARGURA_GANTT = 10
-    ALTURA_GANTT_POR_ITEM = 1
-    ALTURA_BARRA_GANTT = 0.20
-    LARGURA_TABELA = 5
-    COR_PREVISTO = "#A8C5DA"
-    COR_REAL = "#174c66"
-    COR_HOJE = "red"
-    COR_CONCLUIDO = "#047031"
-    COR_ATRASADO = "#a83232"
-    COR_META_ASSINATURA = "#8e44ad"
-    FONTE_TITULO = {"size": 10, "weight": "bold", "color": "black"}
-    FONTE_ETAPA = {"size": 12, "weight": "bold", "color": "#2c3e50"}
-    FONTE_DATAS = {"family": "monospace", "size": 10, "color": "#2c3e50"}
-    FONTE_PORCENTAGEM = {"size": 12, "weight": "bold"}
-    FONTE_VARIACAO = {"size": 8, "weight": "bold"}
-    CABECALHO = {"facecolor": "#2c3e50", "edgecolor": "none", "pad": 4.0, "color": "white"}
-    CELULA_PAR = {"facecolor": "white", "edgecolor": "#d1d5db", "lw": 0.8}
-    CELULA_IMPAR = {"facecolor": "#f1f3f5", "edgecolor": "#d1d5db", "lw": 0.8}
-    FUNDO_TABELA = "#f8f9fa"
-    ESPACO_ENTRE_EMPREENDIMENTOS = 1.5
-    OFFSET_VARIACAO_TERMINO = 0.31
-
     CORES_POR_SETOR = {
         "PROSPECÇÃO": {"previsto": "#FEEFC4", "real": "#AE8141"},
         "LEGALIZAÇÃO": {"previsto": "#fadbfe", "real": "#BF08D3"},
@@ -170,7 +148,6 @@ class StyleConfig:
         cls.OFFSET_VARIACAO_TERMINO = novo_offset
 
 # --- Funções do Novo Gráfico Gantt ---
-
 def ajustar_datas_com_pulmao(df, meses_pulmao=0):
     df_copy = df.copy()
     if meses_pulmao > 0:
@@ -457,7 +434,7 @@ def padronizar_etapa(etapa_str):
 
 
 # --- Funções de Filtragem e Ordenação ---
-def filtrar_etapas_nao_concluidas(df):
+def filtrar_etapas_nao_concluidas_func(df):
     if df.empty or "% concluído" not in df.columns: return df
     df_copy = df.copy()
     df_copy["% concluído"] = df_copy["% concluído"].apply(converter_porcentagem)
@@ -494,86 +471,83 @@ def aplicar_ordenacao_final(df, empreendimentos_ordenados):
 
 # --- *** FUNÇÃO gerar_gantt_por_projeto MODIFICADA *** ---
 def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses):
-    """
-    Gera e exibe um gráfico de Gantt interativo para cada projeto.
-    (Com correções para não abreviar nomes e pular silenciosamente projetos filtrados)
-    """
+        """
+        Gera um único gráfico de Gantt com todos os projetos.
+        """
+        
+        # --- Processar DF SEM PULMÃO ---
+        df_sem_pulmao = df.copy()
+        df_gantt_sem_pulmao = df_sem_pulmao.copy()
 
-    # --- Processar DF SEM PULMÃO ---
-    df_sem_pulmao = df.copy()
-    df_gantt_sem_pulmao = df_sem_pulmao.copy()
+        for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
+            if col in df_gantt_sem_pulmao.columns:
+                df_gantt_sem_pulmao[col] = pd.to_datetime(df_gantt_sem_pulmao[col], errors="coerce")
 
-    # (Nomes NÃO são abreviados aqui)
+        if "% concluído" not in df_gantt_sem_pulmao.columns:
+            df_gantt_sem_pulmao["% concluído"] = 0
+        df_gantt_sem_pulmao["% concluído"] = df_gantt_sem_pulmao["% concluído"].fillna(0).apply(converter_porcentagem)
 
-    for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
-        if col in df_gantt_sem_pulmao.columns:
-            df_gantt_sem_pulmao[col] = pd.to_datetime(df_gantt_sem_pulmao[col], errors="coerce")
+        # Agrega os dados (usando nomes completos)
+        df_gantt_agg_sem_pulmao = df_gantt_sem_pulmao.groupby(['Empreendimento', 'Etapa']).agg(
+            Inicio_Prevista=('Inicio_Prevista', 'min'),
+            Termino_Prevista=('Termino_Prevista', 'max'),
+            Inicio_Real=('Inicio_Real', 'min'),
+            Termino_Real=('Termino_Real', 'max'),
+            **{'% concluído': ('% concluído', 'max')},
+            SETOR=('SETOR', 'first')
+        ).reset_index()
 
-    if "% concluído" not in df_gantt_sem_pulmao.columns:
-        df_gantt_sem_pulmao["% concluído"] = 0
-    df_gantt_sem_pulmao["% concluído"] = df_gantt_sem_pulmao["% concluído"].fillna(0).apply(converter_porcentagem)
+        df_gantt_agg_sem_pulmao["Etapa"] = df_gantt_agg_sem_pulmao["Etapa"].map(sigla_para_nome_completo).fillna(df_gantt_agg_sem_pulmao["Etapa"])
+        
+        # Mapear o SETOR e GRUPO
+        df_gantt_agg_sem_pulmao["SETOR"] = df_gantt_agg_sem_pulmao["Etapa"].map(SETOR_POR_ETAPA).fillna(df_gantt_agg_sem_pulmao["SETOR"])
+        df_gantt_agg_sem_pulmao["GRUPO"] = df_gantt_agg_sem_pulmao["Etapa"].map(GRUPO_POR_ETAPA).fillna("Não especificado")
 
-    # Agrega os dados (usando nomes completos)
-    df_gantt_agg_sem_pulmao = df_gantt_sem_pulmao.groupby(['Empreendimento', 'Etapa']).agg(
-        Inicio_Prevista=('Inicio_Prevista', 'min'),
-        Termino_Prevista=('Termino_Prevista', 'max'),
-        Inicio_Real=('Inicio_Real', 'min'),
-        Termino_Real=('Termino_Real', 'max'),
-        **{'% concluído': ('% concluído', 'max')},
-        SETOR=('SETOR', 'first')
-    ).reset_index()
+        # Converte o DataFrame FILTRADO agregado em lista de projetos
+        gantt_data_base = converter_dados_para_gantt(df_gantt_agg_sem_pulmao)
 
-    df_gantt_agg_sem_pulmao["Etapa"] = df_gantt_agg_sem_pulmao["Etapa"].map(sigla_para_nome_completo).fillna(df_gantt_agg_sem_pulmao["Etapa"])
-    
-    # Mapear o SETOR e GRUPO para as etapas agregadas (agora que temos o nome completo)
-    df_gantt_agg_sem_pulmao["SETOR"] = df_gantt_agg_sem_pulmao["Etapa"].map(SETOR_POR_ETAPA).fillna(df_gantt_agg_sem_pulmao["SETOR"])
-    df_gantt_agg_sem_pulmao["GRUPO"] = df_gantt_agg_sem_pulmao["Etapa"].map(GRUPO_POR_ETAPA).fillna("Não especificado")
+        # --- SE NÃO HÁ DADOS FILTRADOS, NÃO FAZ NADA ---
+        if not gantt_data_base:
+            st.warning("Nenhum dado disponível para exibir.")
+            return
 
-    # Converte o DataFrame FILTRADO agregado em lista de projetos
-    gantt_data_base = converter_dados_para_gantt(df_gantt_agg_sem_pulmao)
+        # --- Prepara opções de filtro ---
+        filter_options = {
+            "setores": ["Todos"] + sorted(list(SETOR.keys())),
+            "grupos": ["Todos"] + sorted(list(GRUPOS.keys())),
+            "etapas": ["Todas"] + ORDEM_ETAPAS_NOME_COMPLETO
+        }
 
-    # --- SE NÃO HÁ DADOS FILTRADOS, NÃO FAZ NADA ---
-    if not gantt_data_base:
-        return
+        # --- Cria um único projeto com todos os empreendimentos ---
+        all_projects_data = gantt_data_base
+        project_id = "p_all_projects"
+        
+        # Usa o primeiro projeto como base ou cria um projeto consolidado
+        if all_projects_data:
+            project_base = {
+                "id": project_id,
+                "name": "Todos os Empreendimentos",  # Nome único
+                "tasks": [],
+                "meta_assinatura_date": None
+            }
+            
+            # Coleta todas as tasks de todos os projetos
+            all_tasks = []
+            for project in all_projects_data:
+                for task in project['tasks']:
+                    # Adiciona o nome do empreendimento à task para identificação
+                    task_with_emp = task.copy()
+                    task_with_emp['empreendimento'] = project['name']
+                    all_tasks.append(task_with_emp)
+            
+            project_base['tasks'] = all_tasks
+            project = project_base
+            correct_project_index_for_js = 0
+        else:
+            return
 
-    # --- Prepara opções de filtro ---
-    filter_options = {
-        "setores": ["Todos"] + sorted(list(SETOR.keys())),
-        "grupos": ["Todos"] + sorted(list(GRUPOS.keys())),
-        "etapas": ["Todas"] + ORDEM_ETAPAS_NOME_COMPLETO
-    }
-
-    # --- Ordenação e Mapeamento ---
-    # Obtém a lista ordenada de TODOS os projetos (nomes COMPLETOS) a partir do DF ORIGINAL
-    todos_empreendimentos_ordenados = criar_ordenacao_empreendimentos(df_original_para_ordenacao)
-
-    # Dicionário e Mapa criados a partir dos dados FILTRADOS (gantt_data_base)
-    projects_base_dict = {project['name']: project for project in gantt_data_base}
-    project_name_to_index_map = {project['name']: i for i, project in enumerate(gantt_data_base)}
-
-    # *** INÍCIO DA CORREÇÃO PRINCIPAL ***
-    # Obter o conjunto de nomes de projetos que estão REALMENTE PRESENTES nos dados filtrados
-    projetos_filtrados_presentes = set(projects_base_dict.keys())
-
-    # --- Loop Principal Modificado ---
-    # Itera sobre a lista COMPLETA ordenada, MAS SÓ PROCESSA OS PRESENTES NOS FILTROS
-    for project_index_loop, empreendimento_nome_original in enumerate(todos_empreendimentos_ordenados):
-
-        # Pula silenciosamente se o projeto da lista ordenada não estiver nos dados filtrados
-        if empreendimento_nome_original not in projetos_filtrados_presentes:
-            continue
-
-        # Se chegou aqui, o projeto EXISTE nos dados filtrados.
-        project_base = projects_base_dict.get(empreendimento_nome_original)
-        correct_project_index_for_js = project_name_to_index_map.get(empreendimento_nome_original)
-
-        if not project_base:
-             continue
-        if correct_project_index_for_js is None:
-             continue
-
-        # Filtra o DF agregado (apenas para cálculo de data_min/max local)
-        df_para_datas = df_gantt_agg_sem_pulmao[df_gantt_agg_sem_pulmao["Empreendimento"] == empreendimento_nome_original]
+        # Filtra o DF agregado para cálculo de data_min/max
+        df_para_datas = df_gantt_agg_sem_pulmao
 
         project = project_base
         tasks_base_data = project_base['tasks'] if project_base else []
@@ -583,9 +557,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
 
         num_tasks = len(project["tasks"]) if project else 0
         if num_tasks == 0:
-            continue
-
-        altura_gantt = max(400, (num_tasks * 30) + 150)
+            st.warning("Nenhuma tarefa disponível para exibir.")
+            return
+        num_tasks = len(project["tasks"]) if project else 0
+        # Reduz o fator de multiplicação para evitar excesso de espaço
+        altura_gantt = max(400, min(800, (num_tasks * 25) + 200))  # Limita a altura máxima
 
         # --- Geração do HTML ---
         gantt_html = f"""
@@ -1810,16 +1786,15 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         const btn = document.getElementById('fullscreen-btn-{project["id"]}');
                         const container = document.getElementById('gantt-container-{project["id"]}');
                         if (document.fullscreenElement === container) {{
-                            btn.innerHTML = '<span>&#9776;</span>';
+                            btn.innerHTML = '<span>☰</span>';
                             btn.classList.add('is-fullscreen');
                         }} else {{
                             btn.innerHTML = '<span>📺</span> <span>Tela Cheia</span>';
                             btn.classList.remove('is-fullscreen');
                             document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
-                            resetToInitialState();
+                            // REMOVIDO: resetToInitialState();
                         }}
                     }}
-
                     function populateFilters() {{
                         if (filtersPopulated) return;
 
@@ -2231,7 +2206,6 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         df_gantt["% concluído"] = 0
     df_gantt["% concluído"] = df_gantt["% concluído"].fillna(0).apply(converter_porcentagem)
 
-    # *** NOVA LÓGICA DE AGRUPAÇÃO ***
     # Agrupar por Etapa E Empreendimento
     df_gantt_agg = df_gantt.groupby(['Etapa', 'Empreendimento']).agg(
         Inicio_Prevista=('Inicio_Prevista', 'min'),
@@ -2241,12 +2215,9 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         **{'% concluído': ('% concluído', 'max')},
         SETOR=('SETOR', 'first')
     ).reset_index()
-
-    # --- 2. Conversão para o formato de "Tasks" (Base) (MODIFICADO) ---
     
     all_data_by_stage_js = {}
     all_stage_names_full = [] # Para o novo filtro
-    
     # Iterar por cada etapa única
     etapas_unicas_no_df = df_gantt_agg['Etapa'].unique()
     
@@ -2257,9 +2228,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         
         tasks_base_data_for_stage = []
         
-        # Agora, para esta etapa, iterar por cada empreendimento
         for j, row in df_etapa_agg.iterrows():
-            # (Lógica de conversão copiada da sua função original)
             start_date = row.get("Inicio_Prevista")
             end_date = row.get("Termino_Prevista")
             start_real = row.get("Inicio_Real")
@@ -2308,21 +2277,15 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
             }
             tasks_base_data_for_stage.append(task)
             
-        # Adicionar a lista de tarefas ao dicionário principal, usando o nome completo da etapa como chave
         all_data_by_stage_js[etapa_nome_completo] = tasks_base_data_for_stage
     
     if not all_data_by_stage_js:
         st.warning("Nenhum dado válido para o Gantt Consolidado após a conversão.")
         return
 
-    # --- 3. Preparação dos Filtros e Projeto Único (MODIFICADO) ---
-    
-    # O filtro de 'etapas' antigo agora é 'empreendimentos'
     empreendimentos_no_df = sorted(list(df_gantt_agg["Empreendimento"].unique()))
     
     filter_options = {
-        #"setores": ["Todos"] + sorted(list(df_gantt_agg["SETOR"].unique())),
-        #"grupos": ["Todos", "Consolidado"],
         "empreendimentos": ["Todos"] + empreendimentos_no_df, # Renomeado
         "etapas_consolidadas": sorted(all_stage_names_full) # Novo (sem "Todos")
     }
@@ -2339,14 +2302,11 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         "meta_assinatura_date": None
     }
 
-    # O range de datas deve ser calculado sobre o DF *inteiro*, não só da etapa inicial
     df_para_datas = df_gantt_agg
     data_min_proj, data_max_proj = calcular_periodo_datas(df_para_datas)
     total_meses_proj = ((data_max_proj.year - data_min_proj.year) * 12) + (data_max_proj.month - data_min_proj.month) + 1
 
     num_tasks = len(project["tasks"])
-    # NOTA: se a etapa inicial não tiver tarefas, num_tasks será 0.
-    # O JS lidará com a exibição de "nenhuma tarefa"
         
     altura_gantt = max(400, (len(empreendimentos_no_df) * 30) + 150)
 
@@ -3096,9 +3056,9 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         btn.innerHTML = '<span>📺</span> <span>Tela Cheia</span>';
                         btn.classList.remove('is-fullscreen');
                         document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
+                        // REMOVIDO: resetToInitialState();
                     }}
                 }}
-
                 function updatePulmaoInputVisibility() {{
                     const radioCom = document.getElementById('filter-pulmao-com-{project["id"]}');
                     const mesesGroup = document.getElementById('pulmao-meses-group-{project["id"]}');
@@ -3281,9 +3241,6 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_ordenacao, pulmao_status, pulmao_meses, etapa_selecionada_inicialmente):
     """
     Decide qual Gantt gerar com base na seleção da etapa inicial.
-    
-    Se 'etapa_selecionada_inicialmente' for "Todos", gera a visão por projeto.
-    Caso contrário, gera a visão consolidada e passa o 'df' completo para ela.
     """
     if df.empty:
         st.warning("Sem dados disponíveis para exibir o Gantt.")
@@ -3299,10 +3256,10 @@ def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_
             df_original_para_ordenacao, 
             pulmao_status, 
             pulmao_meses,
-            etapa_selecionada_inicialmente # Novo parâmetro
+            etapa_selecionada_inicialmente
         )
     else:
-        # A visão por projeto recebe o DF completo (como já fazia)
+        # Agora gera apenas UM gráfico com todos os empreendimentos
         gerar_gantt_por_projeto(
             df, 
             tipo_visualizacao, 
@@ -3427,12 +3384,6 @@ def load_data():
     if "UNKNOWN" in etapas_nao_mapeadas:
        etapas_nao_mapeadas.remove("UNKNOWN")
 
-    if etapas_nao_mapeadas:
-        with st.sidebar.expander("⚠️ Alerta de Dados"):
-            st.warning("As seguintes etapas foram encontradas nos dados, mas não são reconhecidas. Verifique a ortografia no arquivo de origem:")
-            for etapa in sorted(list(etapas_nao_mapeadas)):
-                st.code(etapa)
-
     if not df_real.empty and not df_previsto.empty:
         df_merged = pd.merge(df_previsto, df_real[["Empreendimento", "Etapa", "Inicio_Real", "Termino_Real", "% concluído"]], on=["Empreendimento", "Etapa"], how="outer")
 
@@ -3460,6 +3411,103 @@ def load_data():
             empreendimento = df_merged.loc[idx, 'Empreendimento']
             if empreendimento in ugb_por_empreendimento:
                 df_merged.loc[idx, 'UGB'] = ugb_por_empreendimento[empreendimento]
+        
+
+        if etapas_nao_mapeadas:
+
+        # CSS para estilizar o sininho e o popup
+            st.markdown("""
+        <style>
+        .macrofluxo-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .macrofluxo-title {
+            font-size: 32px;
+            font-weight: bold;
+            color: #1f77b4;
+            margin: 0;
+        }
+
+        .notification-bell {
+            position: relative;
+            display: inline-block;
+            cursor: pointer;
+            font-size: 24px;
+        }
+
+        .notification-icon {
+            width: 24px;
+            height: 24px;
+            color: #ff6b00;
+        }
+
+        .notification-bell:hover .notification-icon {
+            color: #ff4500;
+        }
+
+        .notification-popup {
+            display: none;
+            position: absolute;
+            background-color: #ffcc00;
+            border: 1px solid #ff9900;
+            border-radius: 5px;
+            padding: 15px;
+            min-width: 300px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            z-index: 1000;
+            left: 30px;
+            top: 0;
+        }
+
+        .notification-bell:hover .notification-popup {
+            display: block;
+        }
+
+        .notification-content {
+            color: #333;
+            font-size: 14px;
+        }
+
+        .etapa-code {
+            background-color: #f8f9fa;
+            padding: 5px;
+            margin: 3px 0;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # Supondo que você tenha uma lista de etapas_nao_mapeadas
+        # etapas_nao_mapeadas = ["Etapa A", "Etapa B", "Etapa C"]  # Exemplo
+
+        # HTML para o cabeçalho com título e ícone de notificação
+        etapas_html = "".join([f'<div class="etapa-code">{etapa}</div>' for etapa in sorted(list(etapas_nao_mapeadas))])
+
+        st.markdown(f"""
+        <div class="macrofluxo-header">
+            <h1 class="macrofluxo-title">Macrofluxo</h1>
+            <div class="notification-bell">
+                <svg class="notification-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                <div class="notification-popup">
+                    <div class="notification-content">
+                        <strong>⚠️ Alerta de Dados</strong><br><br>
+                        As seguintes etapas foram encontradas nos dados, mas não são reconhecidas. 
+                        Verifique a ortografia no arquivo de origem:
+                        <br><br>
+                        {etapas_html}
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)   
 
     df_merged["% concluído"] = df_merged["% concluído"].fillna(0)
     df_merged.dropna(subset=["Empreendimento", "Etapa"], inplace=True)
@@ -3493,6 +3541,7 @@ def get_unique_values(df, column):
 def filter_dataframe(df, ugb_filter, emp_filter, grupo_filter, setor_filter):
     if not ugb_filter:
         return df.iloc[0:0]
+
     df_filtered = df[df["UGB"].isin(ugb_filter)]
     if emp_filter:
         df_filtered = df_filtered[df_filtered["Empreendimento"].isin(emp_filter)]
@@ -3505,11 +3554,7 @@ def filter_dataframe(df, ugb_filter, emp_filter, grupo_filter, setor_filter):
 # --- Bloco Principal ---
 with st.spinner("Carregando e processando dados..."):
     df_data = load_data()
-
-    # --- INÍCIO DE LÓGICA E INDENTAÇÃO ---
     if df_data is not None and not df_data.empty:
-
-        # Todo o código da aplicação agora está DENTRO deste 'if'
         with st.sidebar:
             st.markdown("<br>", unsafe_allow_html=True)
             col1, col2, col3 = st.columns([1, 2, 1])
@@ -3518,59 +3563,76 @@ with st.spinner("Carregando e processando dados..."):
                     st.image("logoNova.png", width=200)
                 except:
                     st.warning("Logo 'logoNova.png' não encontrada.")
-
-
+        
+            st.markdown("---") 
+            # Resto do código permanece igual...
+            # Título centralizado
+            st.markdown("""
+            <div style='
+                margin: 1px 0 -70px 0; 
+                padding: 12px 16px;
+                border-radius: 6px;
+                height: 60px;
+                display: flex;
+                justify-content: flex-start;
+                align-items: center;
+            '>
+                <h4 style='
+                    color: #707070; 
+                    margin: 0; 
+                    font-weight: 600;
+                    font-size: 18px;
+                    text-align: left;
+                '>Filtros:</h4>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Filtro UGB centralizado
+            st.markdown("""
+            <style>
+            .stMultiSelect [data-baseweb="select"] {
+                margin: 0 auto;
+            }
+            .stMultiSelect > div > div {
+                display: flex;
+                justify-content: center;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
             ugb_options = get_unique_values(df_data, "UGB")
+            
+            # Inicializar session_state para UGB se não existir
+            if 'selected_ugb' not in st.session_state:
+                st.session_state.selected_ugb = ugb_options  # Todos selecionados por padrão
+            
+            # Usar o valor da session_state no multiselect
+            selected_ugb = simple_multiselect_dropdown(
+                "UGB",
+                options=ugb_options,
+                key="ugb_multiselect"
+            )
+            
+            # Atualizar session_state com a seleção atual
+            st.session_state.selected_ugb = selected_ugb
+            
+            # Botão centralizado
+            st.markdown("""
+            <style>
+            .stButton > button {
+                width: 100%;
+                display: block;
+                margin: 0 auto;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Definir valores padrão para os filtros removidos
+            selected_emp = get_unique_values(df_data[df_data["UGB"].isin(selected_ugb)], "Empreendimento") if selected_ugb else []
+            selected_grupo = get_unique_values(df_data, "GRUPO")
+            selected_setor = list(SETOR.keys())
 
-            # Tente usar o dropdown customizado. Se falhar, use o multiselect padrão.
-            try:
-                selected_ugb = simple_multiselect_dropdown(label="Filtrar por UGB", options=ugb_options, key="ugb_filter", default_selected=ugb_options)
-            except NameError:
-                st.warning("Arquivo `dropdown_component.py` não encontrado. Usando filtro padrão.")
-                selected_ugb = st.multiselect("Filtrar por UGB", options=ugb_options, default=ugb_options)
-            except Exception as e:
-                st.warning(f"Erro ao carregar `dropdown_component.py`: {e}. Usando filtro padrão.")
-                selected_ugb = st.multiselect("Filtrar por UGB", options=ugb_options, default=ugb_options)
-
-
-            emp_options = get_unique_values(df_data[df_data["UGB"].isin(selected_ugb)], "Empreendimento") if selected_ugb else []
-
-            try:
-                selected_emp = simple_multiselect_dropdown(label="Filtrar por EMP", options=emp_options, key="empreendimento_filter", default_selected=emp_options)
-            except NameError:
-                selected_emp = st.multiselect("Filtrar por EMP", options=emp_options, default=emp_options)
-            except Exception:
-                selected_emp = st.multiselect("Filtrar por EMP", options=emp_options, default=emp_options)
-
-
-            df_temp = df_data[df_data["UGB"].isin(selected_ugb)]
-            if selected_emp:
-                df_temp = df_temp[df_temp["Empreendimento"].isin(selected_emp)]
-            grupo_options = get_unique_values(df_temp, "GRUPO")
-
-            try:
-                selected_grupo = simple_multiselect_dropdown(label="Filtrar por GRUPO", options=grupo_options, key="grupo_filter", default_selected=grupo_options)
-            except NameError:
-                selected_grupo = st.multiselect("Filtrar por GRUPO", options=grupo_options, default=grupo_options)
-            except Exception:
-                selected_grupo = st.multiselect("Filtrar por GRUPO", options=grupo_options, default=grupo_options)
-
-
-            df_temp_setor = df_data[df_data["UGB"].isin(selected_ugb)]
-            if selected_emp:
-                df_temp_setor = df_temp_setor[df_temp_setor["Empreendimento"].isin(selected_emp)]
-            if selected_grupo:
-                df_temp_setor = df_temp_setor[df_temp_setor["GRUPO"].isin(selected_grupo)]
-            setor_options = list(SETOR.keys())
-
-            try:
-                selected_setor = simple_multiselect_dropdown(label="Filtrar por SETOR", options=setor_options, key="setor_filter", default_selected=setor_options)
-            except NameError:
-                selected_setor = st.multiselect("Filtrar por SETOR", options=setor_options, default=setor_options)
-            except Exception:
-                selected_setor = st.multiselect("Filtrar por SETOR", options=setor_options, default=setor_options)
-
-
+            # Filtrar o DataFrame com base apenas na UGB para determinar as etapas disponíveis
             df_temp_filtered = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo, selected_setor)
             if not df_temp_filtered.empty:
                 etapas_disponiveis = get_unique_values(df_temp_filtered, "Etapa")
@@ -3579,87 +3641,69 @@ with st.spinner("Carregando e processando dados..."):
             else:
                 etapas_para_exibir = ["Todos"]
             
-            # Este selectbox agora age apenas como um seletor de MODO (Todos vs Consolidado)
-            selected_etapa_nome = st.selectbox("Filtrar por Etapa", options=etapas_para_exibir)
+            # Inicializa o estado da visualização se não existir
+            if 'consolidated_view' not in st.session_state:
+                st.session_state.consolidated_view = False
+                st.session_state.selected_etapa_nome = "Todos" # Valor inicial
 
-            st.markdown("---")
-            st.markdown("##### Simulação de Cenário")
-            pulmao_status = st.radio("Opção de Pulmão:", ("Sem Pulmão", "Com Pulmão"), key="pulmao_status_radio", horizontal=True, help="Define o estado inicial do gráfico (com ou sem pulmão).")
+            # Função de callback para alternar o estado
+            def toggle_consolidated_view():
+                st.session_state.consolidated_view = not st.session_state.consolidated_view
+                if st.session_state.consolidated_view:
+                    # Se for para consolidar, pega a primeira etapa disponível (ou uma lógica mais robusta se necessário)
+                    etapa_para_consolidar = next((e for e in etapas_para_exibir if e != "Todos"), "Todos")
+                    st.session_state.selected_etapa_nome = etapa_para_consolidar
+                else:
+                    st.session_state.selected_etapa_nome = "Todos"
+
+            # Botão de ativação da visão etapa - já centralizado pelo CSS acima
+            button_label = "Aplicar Visão Etapa" if not st.session_state.consolidated_view else "Voltar para Visão EMP"
+            st.button(button_label, on_click=toggle_consolidated_view, use_container_width=True)
+            
+            # Mensagens centralizadas
+            st.markdown("""
+            <style>
+            .stSuccess, .stInfo {
+                text-align: center;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            etapas_nao_mapeadas = []  # Você precisa definir esta variável com os dados apropriados
+            
+            # Define a variável que será usada no resto do código
+            selected_etapa_nome = st.session_state.selected_etapa_nome
+
+            # Exibe a etapa selecionada quando no modo consolidado (alerta abaixo do botão)
+            if st.session_state.consolidated_view:
+                st.success(f"**Visão Consolidada Ativa:** {selected_etapa_nome}")
+                st.info("💡 Esta visão mostra todos os empreendimentos para uma etapa específica")
+
+            filtrar_nao_concluidas = False
+            
+            # Definir valores padrão para os filtros removidos
+            pulmao_status = "Sem Pulmão"
             pulmao_meses = 0
-            if pulmao_status == "Com Pulmão":
-                pulmao_meses = st.number_input("Período do Pulmão (em meses)", min_value=0, max_value=36, value=1, step=1, key="pulmao_meses_input")
-            st.markdown("---")
-            filtrar_nao_concluidas = st.checkbox("Etapas não concluídas", value=False, help="Quando marcado, mostra apenas etapas com menos de 100% de conclusão")
-            st.markdown("---")
-            tipo_visualizacao = st.radio("Mostrar dados:", ("Ambos", "Previsto", "Real"))
-        
-        # 1. Aplicar filtros da sidebar (UGB, EMP, GRUPO, SETOR)
+            tipo_visualizacao = "Ambos"  
+        # --- FIM DO NOVO LAYOUT ---
+        # Mantemos a chamada a filter_dataframe, mas com os valores padrão para EMP, GRUPO e SETOR
         df_filtered = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo, selected_setor)
 
-        # 2. Determinar o modo de visualização
-        is_consolidated_view = selected_etapa_nome != "Todos"
+        # 2. Determinar o modo de visualização (agora baseado no st.session_state)
+        is_consolidated_view = st.session_state.consolidated_view
 
         # 3. NOVO: Se for visão consolidada, AINDA filtramos pela etapa aqui.
         if is_consolidated_view and not df_filtered.empty:
             sigla_selecionada = nome_completo_para_sigla.get(selected_etapa_nome, selected_etapa_nome)
             df_filtered = df_filtered[df_filtered["Etapa"] == sigla_selecionada]
-        
-        # 4. Aplicar filtro de "não concluídas" (isso se aplica a ambos os modos)
-        if filtrar_nao_concluidas and not df_filtered.empty:
-            df_filtered = filtrar_nao_concluidas(df_filtered)
-
         df_para_exibir = df_filtered.copy()
-        
-        # Define 'df_detalhes' e 'empreendimentos_ordenados_por_meta' ANTES das abas
-        
         # Criar a lista de ordenação de empreendimentos (necessário para ambas as tabelas)
         empreendimentos_ordenados_por_meta = criar_ordenacao_empreendimentos(df_data)
-
         # Copiar o dataframe filtrado para ser usado nas tabelas
         df_detalhes = df_para_exibir.copy()
-
-        # Aplicar lógica de pulmão para a tabela detalhada (necessário para ambas as tabelas)
-        if pulmao_status == "Com Pulmão" and pulmao_meses > 0:
-            colunas_data_todas = ["Inicio_Prevista", "Termino_Prevista"]
-            colunas_data_inicio = ["Inicio_Prevista", "Inicio_Real"]
-            
-            for col in colunas_data_todas:
-                if col in df_detalhes.columns:
-                    df_detalhes[col] = pd.to_datetime(df_detalhes[col], errors='coerce')
-
-            offset_meses = -int(pulmao_meses)
-            
-            def aplicar_offset_meses(data):
-                if pd.isna(data) or data is pd.NaT: return pd.NaT
-                try: return data + relativedelta(months=offset_meses)
-                except Exception: return pd.NaT
-
-            etapas_pulmao = ["PULVENDA", "PUL.INFRA", "PUL.RAD"]
-            etapas_sem_alteracao = ["PROSPEC", "RAD", "DEM.MIN"]
-            
-            mask_nao_mexer = df_detalhes['Etapa'].isin(etapas_sem_alteracao)
-            mask_shift_inicio_apenas = df_detalhes['Etapa'].isin(etapas_pulmao)
-            mask_shift_tudo = (~mask_nao_mexer) & (~mask_shift_inicio_apenas)
-
-            for col in colunas_data_todas:
-                if col in df_detalhes.columns:
-                    df_detalhes.loc[mask_shift_tudo, col] = df_detalhes.loc[mask_shift_tudo, col].apply(aplicar_offset_meses)
-            
-            for col in colunas_data_inicio:
-                if col in df_detalhes.columns:
-                    df_detalhes.loc[mask_shift_inicio_apenas, col] = df_detalhes.loc[mask_shift_inicio_apenas, col].apply(aplicar_offset_meses)
-        st.title("Macrofluxo")
+        # A lógica de pulmão foi removida da sidebar, então não é mais aplicada aqui.
         tab1, tab2 = st.tabs(["Gráfico de Gantt", "Tabelão Horizontal"])
-
         with tab1:
-            st.markdown("""
-            <div class="nav-button-container">
-                <a href="#inicio" class="nav-link">↑</a>
-                <a href="#visao-detalhada" class="nav-link">↓</a>
-            </div>
-            """, unsafe_allow_html=True)
-            st.markdown('<div id="inicio"></div>', unsafe_allow_html=True)
-            
             st.subheader("Gantt Comparativo")
             if df_para_exibir.empty:
                 st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
@@ -3675,7 +3719,6 @@ with st.spinner("Carregando e processando dados..."):
                     pulmao_meses,
                     selected_etapa_nome  # Novo parâmetro
                 )
-
             st.markdown('<div id="visao-detalhada"></div>', unsafe_allow_html=True)
             st.subheader("Visão Detalhada por Empreendimento")
 
@@ -3836,9 +3879,6 @@ with st.spinner("Carregando e processando dados..."):
 
         with tab2:
             st.subheader("Tabelão Horizontal")
-            
-            # As variáveis 'df_detalhes' e 'empreendimentos_ordenados_por_meta'
-            # já estão definidas e prontas para usar aqui.
             
             if df_detalhes.empty: # Usando df_detalhes
                 st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
