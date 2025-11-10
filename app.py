@@ -3415,71 +3415,74 @@ def load_data():
 
         # CSS para estilizar o sininho e o popup
             st.markdown("""
-        <style>
-        .macrofluxo-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 20px;
-        }
+            <style>
+            .macrofluxo-header {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 20px;
+            }
 
-        .macrofluxo-title {
-            font-size: 32px;
-            font-weight: bold;
-            color: #1f77b4;
-            margin: 0;
-        }
+            .macrofluxo-title {
+                font-size: 32px;
+                font-weight: bold;
+                color: #1f77b4;
+                margin: 0;
+            }
 
-        .notification-bell {
-            position: relative;
-            display: inline-block;
-            cursor: pointer;
-            font-size: 24px;
-        }
+            .notification-bell {
+                position: relative;
+                display: inline-block;
+                cursor: pointer;
+                font-size: 24px;
+                /* Use margin para mover o ícone */
+                margin-left: -30px;  /* Move para a direita */
+                margin-top: 7px;   /* Move para cima (negativo) ou para baixo (positivo) */
+            }
 
-        .notification-icon {
-            width: 24px;
-            height: 24px;
-            color: #ff6b00;
-        }
+            .notification-icon {
+                width: 24px;
+                height: 24px;
+                color: #ff6b00;
+            }
 
-        .notification-bell:hover .notification-icon {
-            color: #ff4500;
-        }
+            .notification-bell:hover .notification-icon {
+                color: #ff4500;
+            }
 
-        .notification-popup {
-            display: none;
-            position: absolute;
-            background-color: #ffcc00;
-            border: 1px solid #ff9900;
-            border-radius: 5px;
-            padding: 15px;
-            min-width: 300px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            z-index: 1000;
-            left: 30px;
-            top: 0;
-        }
+            .notification-popup {
+                display: none;
+                position: absolute;
+                background-color: #ffcc00;
+                border: 1px solid #ff9900;
+                border-radius: 5px;
+                padding: 15px;
+                min-width: 300px;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                z-index: 1000;
+                left: 30px;
+                top: 0;
+            }
 
-        .notification-bell:hover .notification-popup {
-            display: block;
-        }
+            .notification-bell:hover .notification-popup {
+                display: block;
+            }
 
-        .notification-content {
-            color: #333;
-            font-size: 14px;
-        }
+            .notification-content {
+                color: #333;
+                font-size: 14px;
+            }
 
-        .etapa-code {
-            background-color: #f8f9fa;
-            padding: 5px;
-            margin: 3px 0;
-            border-radius: 3px;
-            font-family: monospace;
-            font-size: 12px;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+            .etapa-code {
+                background-color: #f8f9fa;
+                padding: 5px;
+                margin: 3px 0;
+                border-radius: 3px;
+                font-family: monospace;
+                font-size: 12px;
+            }
+            </style>
+            """, unsafe_allow_html=True)
 
         # HTML para o cabeçalho com título e ícone de notificação
         etapas_html = "".join([f'<div class="etapa-code">{etapa}</div>' for etapa in sorted(list(etapas_nao_mapeadas))])
