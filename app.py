@@ -732,22 +732,47 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     .gantt-sidebar-content:hover::-webkit-scrollbar-thumb:hover {{
                         background-color: #a8b2c1;
                     }}
-                    .fullscreen-btn {{
+                    .gantt-toolbar {{
                         position: absolute; top: 10px; right: 10px;
-                        background: rgba(255, 255, 255, 0.9); border: none; border-radius: 4px;
-                        padding: 8px 12px; font-size: 14px; cursor: pointer;
-                        z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                        transition: all 0.2s ease; display: flex; align-items: center; gap: 5px;
+                        z-index: 100;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 5px;
+                        background: rgba(45, 55, 72, 0.9); /* Cor de fundo escura para minimalismo */
+                        border-radius: 6px;
+                        padding: 5px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
                     }}
-                    .fullscreen-btn.is-fullscreen {{
-                        font-size: 24px;
-                        padding: 5px 10px;
-                        color: #2d3748;
+                    .toolbar-btn {{
+                        background: none;
+                        border: none;
+                        width: 36px;
+                        height: 36px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 20px;
+                        color: white;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        transition: background-color 0.2s, box-shadow 0.2s;
+                        padding: 0;
+                    }}
+                    .toolbar-btn:hover {{
+                        background-color: rgba(255, 255, 255, 0.1);
+                        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+                    }}
+                    .toolbar-btn.is-fullscreen {{
+                        background-color: #3b82f6; /* Cor de destaque para o botão ativo */
+                        box-shadow: 0 0 0 2px #3b82f6;
+                    }}
+                    .toolbar-btn.is-fullscreen:hover {{
+                        background-color: #2563eb;
                     }}
                     .floating-filter-menu {{
                         display: none;
                         position: absolute;
-                        top: 55px; right: 10px;
+                        top: 10px; right: 50px; /* Ajuste a posição para abrir ao lado da barra de ferramentas */
                         width: 280px;
                         background: white;
                         border-radius: 8px;
@@ -816,7 +841,10 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                 <script id="subetapas-data" type="application/json">{json.dumps(SUBETAPAS)}</script>
                 
                 <div class="gantt-container" id="gantt-container-{project['id']}">
-                    <button class="fullscreen-btn" id="fullscreen-btn-{project["id"]}"><span>📺</span> <span>Tela Cheia</span></button>
+                    <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
+                        <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros"><span>⚙️</span></button>
+                        <button class="toolbar-btn" id="fullscreen-btn-{project["id"]}" title="Tela Cheia"><span>📺</span></button>
+                    </div>
 
                     <div class="floating-filter-menu" id="filter-menu-{project['id']}">
                         <div class="filter-group">
@@ -1644,12 +1672,28 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     function setupEventListeners() {{
                         const ganttChartContent = document.getElementById('gantt-chart-content-{project["id"]}'), sidebarContent = document.getElementById('gantt-sidebar-content-{project['id']}');
                         const fullscreenBtn = document.getElementById('fullscreen-btn-{project["id"]}'), toggleBtn = document.getElementById('toggle-sidebar-btn-{project['id']}');
+                        const filterBtn = document.getElementById('filter-btn-{project["id"]}');
+                        const filterMenu = document.getElementById('filter-menu-{project['id']}');
                         const container = document.getElementById('gantt-container-{project["id"]}');
 
                         const applyBtn = document.getElementById('filter-apply-btn-{project["id"]}');
                         if (applyBtn) applyBtn.addEventListener('click', () => applyFiltersAndRedraw());
 
-                        if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreenOrMenu());
+                        if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreen());
+
+                        // Adiciona listener para o botão de filtro
+                        if (filterBtn) {{
+                            filterBtn.addEventListener('click', () => {{
+                                filterMenu.classList.toggle('is-open');
+                            }});
+                        }}
+
+                        // Fecha o menu de filtro ao clicar fora
+                        document.addEventListener('click', (event) => {{
+                            if (filterMenu && filterBtn && !filterMenu.contains(event.target) && !filterBtn.contains(event.target)) {{
+                                filterMenu.classList.remove('is-open');
+                            }}
+                        }});
 
                         if (container) container.addEventListener('fullscreenchange', () => handleFullscreenChange());
 
@@ -1768,16 +1812,14 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         }}
                     }}
 
-                    function toggleFilterMenu() {{
-                        document.getElementById('filter-menu-{project["id"]}').classList.toggle('is-open');
-                    }}
 
-                    function toggleFullscreenOrMenu() {{
+
+                    function toggleFullscreen() {{
                         const container = document.getElementById('gantt-container-{project["id"]}');
-                        if (document.fullscreenElement === container) {{
-                            toggleFilterMenu();
+                        if (!document.fullscreenElement) {{
+                            container.requestFullscreen().catch(err => console.error('Erro ao tentar entrar em tela cheia: ' + err.message));
                         }} else {{
-                            toggleFullscreen();
+                            document.exitFullscreen();
                         }}
                     }}
 
@@ -1785,13 +1827,12 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         const btn = document.getElementById('fullscreen-btn-{project["id"]}');
                         const container = document.getElementById('gantt-container-{project["id"]}');
                         if (document.fullscreenElement === container) {{
-                            btn.innerHTML = '<span>☰</span>';
+                            btn.innerHTML = '<span>❌</span>';
                             btn.classList.add('is-fullscreen');
                         }} else {{
-                            btn.innerHTML = '<span>📺</span> <span>Tela Cheia</span>';
+                            btn.innerHTML = '<span>📺</span>';
                             btn.classList.remove('is-fullscreen');
                             document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
-                            // REMOVIDO: resetToInitialState();
                         }}
                     }}
                     function populateFilters() {{
@@ -2033,8 +2074,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             positionMetaLine();
                             updateProjectTitle();
 
-                            // Esconder menu
-                            toggleFilterMenu();
+
 
                         }} catch (error) {{
                             console.error('Erro ao aplicar filtros:', error);
@@ -2395,12 +2435,42 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 .gantt-chart-content::-webkit-scrollbar-thumb, .gantt-sidebar-content::-webkit-scrollbar-thumb {{ background-color: transparent; border-radius: 4px; }}
                 .gantt-chart-content:hover::-webkit-scrollbar-thumb, .gantt-sidebar-content:hover::-webkit-scrollbar-thumb {{ background-color: #d1d5db; }}
                 .gantt-chart-content:hover::-webkit-scrollbar-thumb:hover, .gantt-sidebar-content:hover::-webkit-scrollbar-thumb:hover {{ background-color: #a8b2c1; }}
-                .fullscreen-btn {{
+                .gantt-toolbar {{
                     position: absolute; top: 10px; right: 10px;
-                    background: rgba(255, 255, 255, 0.9); border: none; border-radius: 4px;
-                    padding: 8px 12px; font-size: 14px; cursor: pointer;
-                    z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                    transition: all 0.2s ease; display: flex; align-items: center; gap: 5px;
+                    z-index: 100;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 5px;
+                    background: rgba(45, 55, 72, 0.9); /* Cor de fundo escura para minimalismo */
+                    border-radius: 6px;
+                    padding: 5px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                }}
+                .toolbar-btn {{
+                    background: none;
+                    border: none;
+                    width: 36px;
+                    height: 36px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 20px;
+                    color: white;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    transition: background-color 0.2s, box-shadow 0.2s;
+                    padding: 0;
+                }}
+                .toolbar-btn:hover {{
+                    background-color: rgba(255, 255, 255, 0.1);
+                    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+                }}
+                .toolbar-btn.is-fullscreen {{
+                    background-color: #3b82f6; /* Cor de destaque para o botão ativo */
+                    box-shadow: 0 0 0 2px #3b82f6;
+                }}
+                .toolbar-btn.is-fullscreen:hover {{
+                    background-color: #2563eb;
                 }}
                  /* *** INÍCIO: Arredondar Dropdown Virtual Select *** */
                     .floating-filter-menu .vscomp-dropbox {{
@@ -2435,16 +2505,23 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     .floating-filter-menu .vscomp-toggle-button .vscomp-value-tag .vscomp-clear-button i {{
                     }}
                 .fullscreen-btn.is-fullscreen {{
-                    font-size: 24px; padding: 5px 10px; color: #2d3748;
-                }}
-                .floating-filter-menu {{
-                    display: none; position: absolute;
-                    top: 55px; right: 10px; width: 280px;
-                    background: white; border-radius: 8px;
-                    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-                    z-index: 99; padding: 15px; border: 1px solid #e2e8f0;
-                }}
-                .floating-filter-menu.is-open {{ display: block; }}
+	                    font-size: 24px; padding: 5px 10px; color: white;
+	                }}
+	                .floating-filter-menu {{
+	                    display: none;
+	                    position: absolute;
+	                    top: 10px; right: 50px; /* Ajuste a posição para abrir ao lado da barra de ferramentas */
+	                    width: 280px;
+	                    background: white;
+	                    border-radius: 8px;
+	                    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+	                    z-index: 99;
+	                    padding: 15px;
+	                    border: 1px solid #e2e8f0;
+	                }}
+	                .floating-filter-menu.is-open {{
+	                    display: block;
+	                }}
                 .filter-group {{ margin-bottom: 12px; }}
                 .filter-group label {{
                     display: block; font-size: 11px; font-weight: 600;
@@ -2493,7 +2570,10 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         </head>
         <body>
             <div class="gantt-container" id="gantt-container-{project['id']}">
-                <button class="fullscreen-btn" id="fullscreen-btn-{project["id"]}"><span>📺</span> <span>Tela Cheia</span></button>
+                    <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
+                        <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros"><span>⚙️</span></button>
+                        <button class="toolbar-btn" id="fullscreen-btn-{project["id"]}" title="Tela Cheia"><span>📺</span></button>
+                    </div>
 
                 <div class="floating-filter-menu" id="filter-menu-{project['id']}">
                     
@@ -2997,12 +3077,28 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 function setupEventListeners() {{
                     const ganttChartContent = document.getElementById('gantt-chart-content-{project["id"]}'), sidebarContent = document.getElementById('gantt-sidebar-content-{project['id']}');
                     const fullscreenBtn = document.getElementById('fullscreen-btn-{project["id"]}'), toggleBtn = document.getElementById('toggle-sidebar-btn-{project['id']}');
+                    const filterBtn = document.getElementById('filter-btn-{project["id"]}');
+                    const filterMenu = document.getElementById('filter-menu-{project['id']}');
                     const container = document.getElementById('gantt-container-{project["id"]}');
 
                     const applyBtn = document.getElementById('filter-apply-btn-{project["id"]}');
                     if (applyBtn) applyBtn.addEventListener('click', () => applyFiltersAndRedraw());
 
-                    if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreenOrMenu());
+                    if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreen());
+
+                    // Adiciona listener para o botão de filtro
+                    if (filterBtn) {{
+                        filterBtn.addEventListener('click', () => {{
+                            filterMenu.classList.toggle('is-open');
+                        }});
+                    }}
+
+                    // Fecha o menu de filtro ao clicar fora
+                    document.addEventListener('click', (event) => {{ 
+                        if (filterMenu && filterBtn && !filterMenu.contains(event.target) && !filterBtn.contains(event.target)) {{
+                            filterMenu.classList.remove('is-open');
+                        }}
+                    }});
 
                     if (container) container.addEventListener('fullscreenchange', () => handleFullscreenChange());
 
@@ -3032,30 +3128,20 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     }}
                 }}
 
-                function toggleFilterMenu() {{
-                    document.getElementById('filter-menu-{project["id"]}').classList.toggle('is-open');
-                }}
 
-                function toggleFullscreenOrMenu() {{
-                    const container = document.getElementById('gantt-container-{project["id"]}');
-                    if (document.fullscreenElement === container) {{
-                        toggleFilterMenu();
-                    }} else {{
-                        toggleFullscreen();
-                    }}
-                }}
+
+
 
                 function handleFullscreenChange() {{
                     const btn = document.getElementById('fullscreen-btn-{project["id"]}');
                     const container = document.getElementById('gantt-container-{project["id"]}');
                     if (document.fullscreenElement === container) {{
-                        btn.innerHTML = '<span>☰</span>';
+                        btn.innerHTML = '<span>❌</span>';
                         btn.classList.add('is-fullscreen');
                     }} else {{
-                        btn.innerHTML = '<span>📺</span> <span>Tela Cheia</span>';
+                        btn.innerHTML = '<span>📺</span>';
                         btn.classList.remove('is-fullscreen');
                         document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
-                        // REMOVIDO: resetToInitialState();
                     }}
                 }}
                 function updatePulmaoInputVisibility() {{
@@ -3213,8 +3299,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         renderSidebar();
                         renderChart();
 
-                        // Esconder o menu de filtros
-                        toggleFilterMenu();
+     
 
                     }} catch (error) {{
                         console.error('Erro ao aplicar filtros no consolidado:', error);
