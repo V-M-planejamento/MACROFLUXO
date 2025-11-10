@@ -841,10 +841,22 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                 <script id="subetapas-data" type="application/json">{json.dumps(SUBETAPAS)}</script>
                 
                 <div class="gantt-container" id="gantt-container-{project['id']}">
-                    <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
-                        <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros"><span>⚙️</span></button>
-                        <button class="toolbar-btn" id="fullscreen-btn-{project["id"]}" title="Tela Cheia"><span>📺</span></button>
-                    </div>
+                <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
+                    <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros">
+                        <span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                            </svg>
+                        </span>
+                    </button>
+                    <button class="toolbar-btn" id="fullscreen-btn-{project["id"]}" title="Tela Cheia">
+                        <span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                            </svg>
+                        </span>
+                    </button>
+                </div>
 
                     <div class="floating-filter-menu" id="filter-menu-{project['id']}">
                         <div class="filter-group">
@@ -1827,10 +1839,10 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         const btn = document.getElementById('fullscreen-btn-{project["id"]}');
                         const container = document.getElementById('gantt-container-{project["id"]}');
                         if (document.fullscreenElement === container) {{
-                            btn.innerHTML = '<span>❌</span>';
+                            btn.innerHTML = '<span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 9l6 6m0-6l-6 6M3 20.29V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2v-.29"></path></svg></span>';
                             btn.classList.add('is-fullscreen');
                         }} else {{
-                            btn.innerHTML = '<span>📺</span>';
+                            btn.innerHTML = '<span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg></span>';
                             btn.classList.remove('is-fullscreen');
                             document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
                         }}
@@ -2571,9 +2583,21 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         <body>
             <div class="gantt-container" id="gantt-container-{project['id']}">
                     <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
-                        <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros"><span>⚙️</span></button>
-                        <button class="toolbar-btn" id="fullscreen-btn-{project["id"]}" title="Tela Cheia"><span>📺</span></button>
-                    </div>
+                        <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros">
+                        <span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                            </svg>
+                        </span>
+                    </button>
+                    <button class="toolbar-btn" id="fullscreen-btn-{project["id"]}" title="Tela Cheia">
+                        <span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                            </svg>
+                        </span>
+                    </button>
+                </div>
 
                 <div class="floating-filter-menu" id="filter-menu-{project['id']}">
                     
@@ -3133,17 +3157,17 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 
 
                 function handleFullscreenChange() {{
-                    const btn = document.getElementById('fullscreen-btn-{project["id"]}');
-                    const container = document.getElementById('gantt-container-{project["id"]}');
-                    if (document.fullscreenElement === container) {{
-                        btn.innerHTML = '<span>❌</span>';
-                        btn.classList.add('is-fullscreen');
-                    }} else {{
-                        btn.innerHTML = '<span>📺</span>';
-                        btn.classList.remove('is-fullscreen');
-                        document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
+                        const btn = document.getElementById('fullscreen-btn-{project["id"]}');
+                        const container = document.getElementById('gantt-container-{project["id"]}');
+                        if (document.fullscreenElement === container) {{
+                            btn.innerHTML = '<span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 9l6 6m0-6l-6 6M3 20.29V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2v-.29"></path></svg></span>';
+                            btn.classList.add('is-fullscreen');
+                        }} else {{
+                            btn.innerHTML = '<span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg></span>';
+                            btn.classList.remove('is-fullscreen');
+                            document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
+                        }}
                     }}
-                }}
                 function updatePulmaoInputVisibility() {{
                     const radioCom = document.getElementById('filter-pulmao-com-{project["id"]}');
                     const mesesGroup = document.getElementById('pulmao-meses-group-{project["id"]}');
