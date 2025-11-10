@@ -177,23 +177,29 @@ def simple_multiselect_dropdown(
     state_key_selection = f"{key}_selected"
     state_key_search = f"{key}_search"
     state_key_select_all = f"{key}_select_all"
+    state_key_initialized = f"{key}_initialized"
 
     # --- Inicialização do Estado da Sessão ---
-    if state_key_selection not in st.session_state:
-        st.session_state[state_key_selection] = default_selected.copy() if default_selected is not None else []
-    if state_key_search not in st.session_state:
+    if state_key_initialized not in st.session_state:
+        # PRIMEIRA INICIALIZAÇÃO - Forçar todas as opções selecionadas
+        st.session_state[state_key_selection] = options.copy()
         st.session_state[state_key_search] = ""
-    
-    # Inicialização dos estados dos checkboxes individuais
-    for opt in options:
-        checkbox_key = f"{key}_{opt}"
-        if checkbox_key not in st.session_state:
-            st.session_state[checkbox_key] = opt in st.session_state[state_key_selection]
+        st.session_state[state_key_select_all] = True
+        
+        # Inicializar todos os checkboxes individuais como True
+        for opt in options:
+            checkbox_key = f"{key}_{opt}"
+            st.session_state[checkbox_key] = True
+            
+        st.session_state[state_key_initialized] = True
 
-    if state_key_select_all not in st.session_state:
-        # Inicializa o 'Marcar Todos' com base na seleção padrão
-        all_visible_selected = set(options).issubset(set(st.session_state[state_key_selection]))
-        st.session_state[state_key_select_all] = all_visible_selected
+    # Se default_selected foi fornecido, usar ele
+    if default_selected is not None and state_key_initialized not in st.session_state:
+        st.session_state[state_key_selection] = default_selected.copy()
+        st.session_state[state_key_select_all] = set(options).issubset(set(default_selected))
+        for opt in options:
+            checkbox_key = f"{key}_{opt}"
+            st.session_state[checkbox_key] = opt in default_selected
 
     # --- Funções de Callback ---
     def _on_search_change():
@@ -284,3 +290,32 @@ def simple_multiselect_dropdown(
                     )
     
     return st.session_state.get(state_key_selection, [])
+
+# EXEMPLO DE USO
+def main():
+    st.set_page_config(page_title="Dashboard UGBs", layout="wide")
+    
+    # Lista de UGBs baseada na sua imagem
+    UGB_OPTIONS = ["CA", "CA02", "CA03", "GA", "IG", "JB", "SC", "eI"]
+    
+    st.title("Gantt Comparativo")
+    
+    # Conteúdo principal baseado nas seleções
+    ugbs_selecionadas = simple_multiselect_dropdown(
+        label="UGB",
+        options=UGB_OPTIONS,
+        key="filtro_ugb_principal",
+        default_selected=UGB_OPTIONS,  # Todas as UGBs selecionadas inicialmente
+        select_all_text="Marcar Todos",
+        search_placeholder="Filtre as opções...",
+        none_selected_text="Nenhum selecionado"
+    )
+    
+    # Exibir conteúdo baseado na seleção
+    if ugbs_selecionadas:
+        st.success(f"Dados carregados para {len(ugbs_selecionadas)} UGB(s)")
+    else:
+        st.warning("Nenhum dado encontrado com os filtros aplicados.")
+
+if __name__ == "__main__":
+    main()
