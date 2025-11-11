@@ -49,7 +49,7 @@ ORDEM_ETAPAS_GLOBAL = [
     "PROSPEC", "LEGVENDA", "PULVENDA", "PL.LIMP", "LEG.LIMP", "ENG.LIMP", "PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.", "EXECLIMP",
     "PL.TER", "LEG.TER", "ENG. TER", "PE. TER.", "ORÇ. TER.", "SUP. TER.", "EXECTER", "PL.INFRA", "LEG.INFRA", "ENG.INFRA", "PE. INFRA", "ORÇ. INFRA", "SUP. INFRA",
     "EXECINFRA", "ENG.PAV", "PE. PAV", "ORÇ. PAV", "SUP. PAV", "EXEC.PAV", "PUL.INFRA", "PL.RAD", "LEG.RAD", "PUL.RAD",
-    "RAD", "DEM.MIN",
+    "RAD", "DEM.MIN","PE. ÁREAS COMUNS (ENG)", "PE. ÁREAS COMUNS (URB)", "ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS",
 ]
 
 # --- Definição dos Grupos ---
@@ -62,6 +62,7 @@ GRUPOS = {
     "PULMÃO": ["PULMÃO INFRA"],
     "RADIER": ["PL.RADIER", "LEG.RADIER", "PULMÃO RADIER", "RADIER"],
     "DM": ["DEMANDA MÍNIMA"],
+    "EQUIPANENTOS COMUNS": ["PE. ÁREAS COMUNS (ENG)", "PE. ÁREAS COMUNS (URB)", "ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS"],
 }
 
 SETOR = {
@@ -69,10 +70,10 @@ SETOR = {
     "LEGALIZAÇÃO": ["LEGALIZAÇÃO PARA VENDA", "LEG.LIMP", "LEG.TER.", "LEG.INFRA", "LEG.RADIER"],
     "PULMÃO": ["PULMÃO VENDA", "PULMÃO INFRA", "PULMÃO RADIER"],
     "ENGENHARIA": ["PL.LIMP", "ENG. LIMP.", "PL.TER.", "ENG. TER.", "PL.INFRA", "ENG. INFRA", "ENG. PAV", "PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.",
-     "PE. TER.", "ORÇ. TER.", "SUP. TER.", "PE. INFRA", "ORÇ. INFRA", "SUP. INFRA", "PE. PAV", "ORÇ. PAV", "SUP. PAV"],
-    "INFRA": ["EXECUÇÃO LIMP.", "EXECUÇÃO TER.", "EXECUÇÃO INFRA", "EXECUÇÃO PAV."],
+     "PE. TER.", "ORÇ. TER.", "SUP. TER.", "PE. INFRA", "ORÇ. INFRA", "SUP. INFRA", "PE. PAV", "ORÇ. PAV", "SUP. PAV", "PE. ÁREAS COMUNS (ENG)", "ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS"],
+    "INFRA": ["EXECUÇÃO LIMP.", "EXECUÇÃO TER.", "EXECUÇÃO INFRA", "EXECUÇÃO PAV.", "EXECUÇÃO ÁREAS COMUNS"],
     "PRODUÇÃO": ["RADIER"],
-    "NOVOS PRODUTOS": ["PL.RADIER"],
+    "ARQUITETURA & URBANISMO": ["PL.RADIER", "PE. ÁREAS COMUNS (URB)"],
     "VENDA": ["DEMANDA MÍNIMA"],
 }
 
@@ -88,7 +89,8 @@ mapeamento_etapas_usuario = {
     "RADIER": "RAD", "DEMANDA MÍNIMA": "DEM.MIN",
     "PE. LIMP.":"PE. LIMP.", "ORÇ. LIMP.":"ORÇ. LIMP.", "SUP. LIMP.":"SUP. LIMP.", "PE. TER.":"PE. TER.", "ORÇ. TER.":"ORÇ. TER.", "SUP. TER.":"SUP. TER.", "PE. INFRA":"PE. INFRA", 
     "ORÇ. INFRA":"ORÇ. INFRA", "SUP. INFRA":"SUP. INFRA",
-    "PE. PAV":"PE. PAV", "ORÇ. PAV":"ORÇ. PAV", "SUP. PAV":"SUP. PAV"
+    "PE. PAV":"PE. PAV", "ORÇ. PAV":"ORÇ. PAV", "SUP. PAV":"SUP. PAV",
+    "PE. ÁREAS COMUNS (ENG)":"PE. ÁREAS COMUNS (ENG)", "PE. ÁREAS COMUNS (URB)":"PE. ÁREAS COMUNS (URB)", "ORÇ. ÁREAS COMUNS":"ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS":"SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS":"EXECUÇÃO ÁREAS COMUNS",
 }
 
 mapeamento_reverso = {v: k for k, v in mapeamento_etapas_usuario.items()}
@@ -103,8 +105,10 @@ sigla_para_nome_completo = {
     "LEG.RAD": "LEG.RADIER", "PUL.RAD": "PULMÃO RADIER", "RAD": "RADIER", "DEM.MIN": "DEMANDA MÍNIMA",
     "PE. LIMP.":"PE. LIMP.", "ORÇ. LIMP.":"ORÇ. LIMP.", "SUP. LIMP.":"SUP. LIMP.", "PE. TER.":"PE. TER.", "ORÇ. TER.":"ORÇ. TER.", "SUP. TER.":"SUP. TER.", "PE. INFRA":"PE. INFRA", 
     "ORÇ. INFRA":"ORÇ. INFRA", "SUP. INFRA":"SUP. INFRA",
+    "PE. ÁREAS COMUNS (ENG)":"PE. ÁREAS COMUNS (ENG)", "PE. ÁREAS COMUNS (URB)":"PE. ÁREAS COMUNS (URB)", "ORÇ. ÁREAS COMUNS":"ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS":"SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS":"EXECUÇÃO ÁREAS COMUNS",
     "PE. PAV":"PE. PAV", "ORÇ. PAV":"ORÇ. PAV", "SUP. PAV":"SUP. PAV"
 }
+
 SUBETAPAS = {
     "ENG. LIMP.": ["PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP."],
     "ENG. TER.": ["PE. TER.", "ORÇ. TER.", "SUP. TER."],
@@ -138,7 +142,7 @@ class StyleConfig:
         "ENGENHARIA": {"previsto": "#fbe3cf", "real": "#be5900"},
         "INFRA": {"previsto": "#daebfb", "real": "#125287"},
         "PRODUÇÃO": {"previsto": "#E1DFDF", "real": "#252424"},
-        "NOVOS PRODUTOS": {"previsto": "#D4D3F9", "real": "#453ECC"},
+        "ARQUITETURA & URBANISMO": {"previsto": "#D4D3F9", "real": "#453ECC"},
         "VENDA": {"previsto": "#dffde1", "real": "#096710"},
         "Não especificado": {"previsto": "#ffffff", "real": "#FFFFFF"}
     }
@@ -3522,78 +3526,78 @@ def load_data():
                 df_merged.loc[idx, 'UGB'] = ugb_por_empreendimento[empreendimento]
         
 
-        if etapas_nao_mapeadas:
+        # Verifica se há etapas não mapeadas
+    if etapas_nao_mapeadas:
 
         # CSS para estilizar o sininho e o popup
-            st.markdown("""
-            <style>
-            .macrofluxo-header {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                margin-bottom: 20px;
-            }
+        st.markdown("""
+        <style>
+        .macrofluxo-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
 
-            .macrofluxo-title {
-                font-size: 32px;
-                font-weight: bold;
-                color: #1f77b4;
-                margin: 0;
-            }
+        .macrofluxo-title {
+            font-size: 32px;
+            font-weight: bold;
+            color: #1f77b4;
+            margin: 0;
+        }
 
-            .notification-bell {
-                position: relative;
-                display: inline-block;
-                cursor: pointer;
-                font-size: 24px;
-                /* Use margin para mover o ícone */
-                margin-left: -30px;  /* Move para a direita */
-                margin-top: 7px;   /* Move para cima (negativo) ou para baixo (positivo) */
-            }
+        .notification-bell {
+            position: relative;
+            display: inline-block;
+            cursor: pointer;
+            font-size: 24px;
+            margin-left: -30px;
+            margin-top: 7px;
+        }
 
-            .notification-icon {
-                width: 24px;
-                height: 24px;
-                color: #ff6b00;
-            }
+        .notification-icon {
+            width: 24px;
+            height: 24px;
+            color: #ff6b00;
+        }
 
-            .notification-bell:hover .notification-icon {
-                color: #ff4500;
-            }
+        .notification-bell:hover .notification-icon {
+            color: #ff4500;
+        }
 
-            .notification-popup {
-                display: none;
-                position: absolute;
-                background-color: #ffcc00;
-                border: 1px solid #ff9900;
-                border-radius: 5px;
-                padding: 15px;
-                min-width: 300px;
-                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-                z-index: 1000;
-                left: 30px;
-                top: 0;
-            }
+        .notification-popup {
+            display: none;
+            position: absolute;
+            background-color: #ffcc00;
+            border: 1px solid #ff9900;
+            border-radius: 5px;
+            padding: 15px;
+            min-width: 300px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            z-index: 1000;
+            left: 30px;
+            top: 0;
+        }
 
-            .notification-bell:hover .notification-popup {
-                display: block;
-            }
+        .notification-bell:hover .notification-popup {
+            display: block;
+        }
 
-            .notification-content {
-                color: #333;
-                font-size: 14px;
-            }
+        .notification-content {
+            color: #333;
+            font-size: 14px;
+        }
 
-            .etapa-code {
-                background-color: #f8f9fa;
-                padding: 5px;
-                margin: 3px 0;
-                border-radius: 3px;
-                font-family: monospace;
-                font-size: 12px;
-            }
-            </style>
-            """, unsafe_allow_html=True)
+        .etapa-code {
+            background-color: #f8f9fa;
+            padding: 5px;
+            margin: 3px 0;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
         # HTML para o cabeçalho com título e ícone de notificação
         etapas_html = "".join([f'<div class="etapa-code">{etapa}</div>' for etapa in sorted(list(etapas_nao_mapeadas))])
@@ -3616,7 +3620,15 @@ def load_data():
                 </div>
             </div>
         </div>
-        """, unsafe_allow_html=True)   
+        """, unsafe_allow_html=True)
+
+    else:
+        # Quando não há etapas não mapeadas, mostra apenas o título sem o ícone
+        st.markdown("""
+        <div class="macrofluxo-header">
+            <h1 class="macrofluxo-title">Macrofluxo</h1>
+        </div>
+        """, unsafe_allow_html=True)
 
     df_merged["% concluído"] = df_merged["% concluído"].fillna(0)
     df_merged.dropna(subset=["Empreendimento", "Etapa"], inplace=True)
