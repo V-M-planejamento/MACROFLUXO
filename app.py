@@ -1951,6 +1951,9 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                 mesesPulmao: selPulmaoMeses
                             }});
 
+                            // *** FECHAR MENU DE FILTROS ***
+                            document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
+
                             if (selProjectIndex !== currentProjectIndex) {{
                                 currentProjectIndex = selProjectIndex;
                                 const newProject = allProjectsData[selProjectIndex];
@@ -3152,10 +3155,6 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     }}
                 }}
 
-
-
-
-
                 function handleFullscreenChange() {{
                         const btn = document.getElementById('fullscreen-btn-{project["id"]}');
                         const container = document.getElementById('gantt-container-{project["id"]}');
@@ -3270,6 +3269,9 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         const selVis = document.querySelector('input[name="filter-vis-{project['id']}"]:checked').value;
                         const selPulmao = document.querySelector('input[name="filter-pulmao-{project['id']}"]:checked').value;
                         const selPulmaoMeses = parseInt(document.getElementById('filter-pulmao-meses-{project["id"]}').value, 10) || 0;
+
+                        // *** FECHAR MENU DE FILTROS ***
+                        document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
 
                         // *** 3. ATUALIZAR DADOS BASE SE A ETAPA MUDOU ***
                         if (selEtapaNome !== currentStageName) {{
