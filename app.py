@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import holidays
 from dateutil.relativedelta import relativedelta
 import traceback
-import streamlit.components.v1 as components #⚠️ Alerta de Dados
+import streamlit.components.v1 as components 
 import json
 import random
 import time
@@ -49,7 +49,7 @@ ORDEM_ETAPAS_GLOBAL = [
     "PROSPEC", "LEGVENDA", "PULVENDA", "PL.LIMP", "LEG.LIMP", "ENG.LIMP", "PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.", "EXECLIMP",
     "PL.TER", "LEG.TER", "ENG. TER", "PE. TER.", "ORÇ. TER.", "SUP. TER.", "EXECTER", "PL.INFRA", "LEG.INFRA", "ENG.INFRA", "PE. INFRA", "ORÇ. INFRA", "SUP. INFRA",
     "EXECINFRA", "ENG.PAV", "PE. PAV", "ORÇ. PAV", "SUP. PAV", "EXEC.PAV", "PUL.INFRA", "PL.RAD", "LEG.RAD", "PUL.RAD",
-    "RAD", "DEM.MIN","PE. ÁREAS COMUNS (ENG)", "PE. ÁREAS COMUNS (URB)", "ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS",
+    "RAD", "DEM.MIN", "PE. ÁREAS COMUNS (URB)", "PE. ÁREAS COMUNS (ENG)", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS",
 ]
 
 # --- Definição dos Grupos ---
@@ -62,7 +62,7 @@ GRUPOS = {
     "PULMÃO": ["PULMÃO INFRA"],
     "RADIER": ["PL.RADIER", "LEG.RADIER", "PULMÃO RADIER", "RADIER"],
     "DM": ["DEMANDA MÍNIMA"],
-    "EQUIPANENTOS COMUNS": ["PE. ÁREAS COMUNS (ENG)", "PE. ÁREAS COMUNS (URB)", "ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS"],
+    "EQUIPANENTOS COMUNS": ["PE. ÁREAS COMUNS (URB)", "PE. ÁREAS COMUNS (ENG)", "ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS"],
 }
 
 SETOR = {
