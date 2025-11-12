@@ -16,23 +16,6 @@ import streamlit.components.v1 as components
 import json
 import random
 import time
-
-# Função para ler o arquivo CSS e injetá-lo
-def carregar_css_local(nome_arquivo):
-    with open(nome_arquivo) as f:
-        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-
-# Chame a função no início do seu app
-carregar_css_local("style.css")
-
-# O resto do seu aplicativo
-st.title("Meu Dashboard com CSS Externo")
-
-with st.spinner("Processando dados..."):
-    time.sleep(4)
-
-st.success("Dados processados!")
-
 try:
     from dropdown_component import simple_multiselect_dropdown
     from popup import show_welcome_screen
@@ -4315,3 +4298,4 @@ with st.spinner("Carregando e processando dados..."):
 
     else:
         st.error("❌ Não foi possível carregar ou gerar os dados.")
+
