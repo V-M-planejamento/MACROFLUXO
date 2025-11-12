@@ -30,10 +30,24 @@ def tratar_macrofluxo():
 
         # Identificar as colunas de unpivot (datas)
         # As colunas de data agora têm o formato 'ETAPA.TIPO.INICIO_FIM'
+        
+        # CORREÇÃO MÍNIMA:
+        # A coluna 'EXECUÇÃO ÁREAS COMUNS.TERMINO' (ou similar) não está sendo capturada
+        # porque não contém ".PREV.INICIO", ".PREV.TERMINO", ".REAL.INICIO" ou ".REAL.TERMINO".
+        # Vamos adicionar uma condição para capturar colunas que contenham "EXECUÇÃO ÁREAS COMUNS"
+        # e que também contenham "INICIO" ou "TERMINO", assumindo que o nome da coluna
+        # no Excel é algo como 'EXECUÇÃO ÁREAS COMUNS.TERMINO'.
+        
         colunas_unpivot = [col for col in df.columns if 
-                           (".PREV.INICIO" in str(col) or ".PREV.TERMINO" in str(col) or 
-                            ".REAL.INICIO" in str(col) or ".REAL.TERMINO" in str(col)) and 
-                           str(col) not in ['UGB', 'EMP', 'TIPO_LOTES']
+                           (
+                               ".PREV.INICIO" in str(col) or ".PREV.TERMINO" in str(col) or 
+                               ".REAL.INICIO" in str(col) or ".REAL.TERMINO" in str(col)
+                           ) or 
+                           (
+                               "EXECUÇÃO ÁREAS COMUNS" in str(col).upper() and 
+                               ("INICIO" in str(col).upper() or "TERMINO" in str(col).upper())
+                           )
+                           and str(col) not in ['UGB', 'EMP', 'TIPO_LOTES']
                           ]
         
         colunas_fixas = [col for col in df.columns if col not in colunas_unpivot]
@@ -49,7 +63,43 @@ def tratar_macrofluxo():
 
         # 3. DIVIDIR COLUNA "Atributo" para extrair Etapa, Tipo (PREV/REAL) e Inicio_Fim
         # Ex: PROSPEC.PREV.INICIO -> Etapa='PROSPEC', Tipo_Data='PREV', Inicio_Fim='INICIO'
-        split_data = df_unpivoted['Atributo'].str.extract(r'([A-ZÀ-ÚÀ-ÖØ-Þß-öø-þÿ -.]+)\.(REAL|PREV)\.(INICIO|TERMINO)', expand=True)
+        # A regex original: r'([A-ZÀ-ÚÀ-ÖØ-Þß-öø-þÿ -.]+)\.(REAL|PREV)\.(INICIO|TERMINO)'
+        # VAI FALHAR para 'EXECUÇÃO ÁREAS COMUNS.TERMINO' porque não tem o (REAL|PREV).
+        # Para manter o código original, precisamos de uma regex mais flexível.
+        
+        # NOVA REGEX: Tenta capturar o padrão completo (ETAPA.TIPO.INICIO_FIM) OU
+        # Tenta capturar o padrão incompleto (ETAPA.INICIO_FIM) e assume 'PREV'
+        
+        def extrair_atributos(atributo):
+            # Tenta o padrão completo: ETAPA.TIPO.INICIO_FIM
+            match_completo = pd.Series(atributo).str.extract(r'(.+)\.(REAL|PREV)\.(INICIO|TERMINO)').iloc[0]
+            if not match_completo.isnull().any():
+                return match_completo
+            
+            # Tenta o padrão incompleto: ETAPA.INICIO_FIM
+            # A regex precisa ser mais específica para não capturar o Tipo_Lotes ou outros campos
+            # que podem ter INICIO/TERMINO no nome.
+            # Vamos usar a regex mais simples e depois tratar o Tipo_Data
+            
+            match_simples = pd.Series(atributo).str.extract(r'(.+)\.(INICIO|TERMINO)').iloc[0]
+            if not match_simples.isnull().any():
+                # Se for o padrão incompleto, assumimos 'PREV'
+                # E tentamos separar a Etapa do Tipo_Data, se houver.
+                etapa_tipo = match_simples[0]
+                inicio_fim = match_simples[1]
+                
+                match_tipo = pd.Series(etapa_tipo).str.extract(r'(.+)\.(REAL|PREV)').iloc[0]
+                if not match_tipo.isnull().any():
+                    # Encontrou o tipo (ex: 'PULVENDA.PREV')
+                    return pd.Series([match_tipo[0], match_tipo[1], inicio_fim])
+                else:
+                    # Não encontrou o tipo (ex: 'EXECUÇÃO ÁREAS COMUNS')
+                    return pd.Series([etapa_tipo, 'PREV', inicio_fim])
+            
+            # Caso não encontre nenhum padrão, retorna nulo
+            return pd.Series([None, None, None])
+
+        split_data = df_unpivoted['Atributo'].apply(extrair_atributos)
         split_data.columns = ['Etapa', 'Tipo_Data', 'Inicio_Fim']
         
         df_final = pd.concat([df_unpivoted, split_data], axis=1)
@@ -86,9 +136,7 @@ if __name__ == "__main__":
             "UGB", "EMP", "TIPO_LOTES", "Etapa", "Tipo_Data", "Inicio_Fim", "Valor", "Ordem_Etapa"
         ]].head(20))
         
-        dados_tratados.to_csv("dados_macrofluxo_tratados.csv", index=False)
-        print("\nArquivo 'dados_macrofluxo_tratados.csv' salvo com sucesso!")
+        dados_tratados.to_csv("dados_macrofluxo_tratados_corrigido_v2.csv", index=False)
+        print("\nArquivo 'dados_macrofluxo_tratados_corrigido_v2.csv' salvo com sucesso!")
     else:
         print("\nNão foi possível obter os dados do macrofluxo.")
-
-
