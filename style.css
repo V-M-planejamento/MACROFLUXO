@@ -1,0 +1,9 @@
+/* Dentro de style.css */
+[data-testid="stStatusWidget"] {
+    display: none;
+}
+
+/* Você pode adicionar outras regras aqui */
+body {
+    background-color: #f0f2f6;
+}
