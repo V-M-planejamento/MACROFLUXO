@@ -12,10 +12,26 @@ from datetime import datetime, timedelta
 import holidays
 from dateutil.relativedelta import relativedelta
 import traceback
-import streamlit.components.v1 as components  #pulmão
+import streamlit.components.v1 as components  
 import json
 import random
 import time
+
+# Função para ler o arquivo CSS e injetá-lo
+def carregar_css_local(nome_arquivo):
+    with open(nome_arquivo) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+# Chame a função no início do seu app
+carregar_css_local("style.css")
+
+# O resto do seu aplicativo
+st.title("Meu Dashboard com CSS Externo")
+
+with st.spinner("Processando dados..."):
+    time.sleep(4)
+
+st.success("Dados processados!")
 
 try:
     from dropdown_component import simple_multiselect_dropdown
