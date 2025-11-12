@@ -16,6 +16,7 @@ import streamlit.components.v1 as components  #pulmão
 import json
 import random
 import time
+
 try:
     from dropdown_component import simple_multiselect_dropdown
     from popup import show_welcome_screen
@@ -49,7 +50,7 @@ ORDEM_ETAPAS_GLOBAL = [
     "PROSPEC", "LEGVENDA", "PULVENDA", "PL.LIMP", "LEG.LIMP", "ENG.LIMP", "PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.", "EXECLIMP",
     "PL.TER", "LEG.TER", "ENG. TER", "PE. TER.", "ORÇ. TER.", "SUP. TER.", "EXECTER", "PL.INFRA", "LEG.INFRA", "ENG.INFRA", "PE. INFRA", "ORÇ. INFRA", "SUP. INFRA",
     "EXECINFRA", "ENG.PAV", "PE. PAV", "ORÇ. PAV", "SUP. PAV", "EXEC.PAV", "PUL.INFRA", "PL.RAD", "LEG.RAD", "PUL.RAD",
-    "RAD", "DEM.MIN", "PE. ÁREAS COMUNS (URB)", "PE. ÁREAS COMUNS (ENG)", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS",
+    "RAD", "DEM.MIN", "PE. ÁREAS COMUNS (URB)", "PE. ÁREAS COMUNS (ENG)", "ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS",
 ]
 
 # --- Definição dos Grupos ---
@@ -1003,7 +1004,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                     // --- INÍCIO HELPERS DE DATA E PULMÃO ---
                     const etapas_pulmao = ["PULMÃO VENDA", "PULMÃO INFRA", "PULMÃO RADIER"];
-                    const etapas_sem_alteracao = ["PROSPECÇÃO", "RADIER", "DEMANDA MÍNIMA", "PE. ÁREAS COMUNS (URB)", "PE. ÁREAS COMUNS (ENG)", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS"];
+                    const etapas_sem_alteracao = ["PROSPECÇÃO", "RADIER", "DEMANDA MÍNIMA", "PE. ÁREAS COMUNS (URB)", "PE. ÁREAS COMUNS (ENG)", "ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS"];
 
                     const formatDateDisplay = (dateStr) => {{
                         if (!dateStr) return "N/D";
@@ -2775,7 +2776,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                 // *** CONSTANTES DE ETAPA ***
                 const etapas_pulmao = ["PULMÃO VENDA", "PULMÃO INFRA", "PULMÃO RADIER"];
-                const etapas_sem_alteracao = ["PROSPECÇÃO", "RADIER", "DEMANDA MÍNIMA", "PE. ÁREAS COMUNS (URB)", "PE. ÁREAS COMUNS (ENG)", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS"];
+                const etapas_sem_alteracao = ["PROSPECÇÃO", "RADIER", "DEMANDA MÍNIMA", "PE. ÁREAS COMUNS (URB)", "PE. ÁREAS COMUNS (ENG)", "ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS"];
                 
                 // --- Lógica de Pulmão para Consolidado ---
                 // *** aplicarLogicaPulmaoConsolidado ***
@@ -3327,8 +3328,6 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         // Redesenhar
                         renderSidebar();
                         renderChart();
-
-     
 
                     }} catch (error) {{
                         console.error('Erro ao aplicar filtros no consolidado:', error);
