@@ -4,6 +4,19 @@ import os
 def tratar_macrofluxo():
     """Carrega e trata os dados do GRÁFICOMACROFLUXO.xlsx."""
     try:
+        # ----------------------------------------------------------------------
+        # Lista de empreendimentos a serem excluídos
+        empreendimentos_a_excluir = [
+            'JARDIM DAS HOTÊNSIAS', 
+            'RECANTO DAS OLIVEIRAS'
+        ]
+        
+        # Pré-processamento da lista de exclusão para garantir a correspondência
+        empreendimentos_a_excluir_limpos = [
+            emp.strip().upper() for emp in empreendimentos_a_excluir
+        ]
+        # ----------------------------------------------------------------------
+        
         diretorio_atual = os.path.dirname(os.path.abspath(__file__))
         caminho_arquivo = os.path.join(diretorio_atual, "GRÁFICO MACROFLUXO.xlsx")
         
@@ -21,6 +34,19 @@ def tratar_macrofluxo():
             df.columns[2]: 'EMP',
             df.columns[3]: 'TIPO_LOTES' # Coluna D, índice 3
         })
+        
+        # ----------------------------------------------------------------------
+        # Pré-processar a coluna 'EMP' para string, remover espaços
+        # e converter para MAIÚSCULAS antes de aplicar o filtro de exclusão.
+        df['EMP_LIMPO'] = df['EMP'].astype(str).str.strip().str.upper()
+        
+        # Filtrar e excluir os empreendimentos indesejados
+        # Usamos a coluna 'EMP_LIMPO' para a filtragem
+        df = df[~df['EMP_LIMPO'].isin(empreendimentos_a_excluir_limpos)].copy()
+        
+        # Remove a coluna temporária de limpeza
+        df = df.drop(columns=['EMP_LIMPO'])
+        # ----------------------------------------------------------------------
 
         # Remover colunas totalmente vazias
         df = df.dropna(axis=1, how='all')
@@ -31,12 +57,8 @@ def tratar_macrofluxo():
         # Identificar as colunas de unpivot (datas)
         # As colunas de data agora têm o formato 'ETAPA.TIPO.INICIO_FIM'
         
-        # CORREÇÃO MÍNIMA:
-        # A coluna 'EXECUÇÃO ÁREAS COMUNS.TERMINO' (ou similar) não está sendo capturada
-        # porque não contém ".PREV.INICIO", ".PREV.TERMINO", ".REAL.INICIO" ou ".REAL.TERMINO".
-        # Vamos adicionar uma condição para capturar colunas que contenham "EXECUÇÃO ÁREAS COMUNS"
-        # e que também contenham "INICIO" ou "TERMINO", assumindo que o nome da coluna
-        # no Excel é algo como 'EXECUÇÃO ÁREAS COMUNS.TERMINO'.
+        # CORREÇÃO MÍNIMA (mantida):
+        # Lógica para capturar a coluna "EXECUÇÃO ÁREAS COMUNS"
         
         colunas_unpivot = [col for col in df.columns if 
                            (
@@ -62,13 +84,7 @@ def tratar_macrofluxo():
         )
 
         # 3. DIVIDIR COLUNA "Atributo" para extrair Etapa, Tipo (PREV/REAL) e Inicio_Fim
-        # Ex: PROSPEC.PREV.INICIO -> Etapa='PROSPEC', Tipo_Data='PREV', Inicio_Fim='INICIO'
-        # A regex original: r'([A-ZÀ-ÚÀ-ÖØ-Þß-öø-þÿ -.]+)\.(REAL|PREV)\.(INICIO|TERMINO)'
-        # VAI FALHAR para 'EXECUÇÃO ÁREAS COMUNS.TERMINO' porque não tem o (REAL|PREV).
-        # Para manter o código original, precisamos de uma regex mais flexível.
-        
-        # NOVA REGEX: Tenta capturar o padrão completo (ETAPA.TIPO.INICIO_FIM) OU
-        # Tenta capturar o padrão incompleto (ETAPA.INICIO_FIM) e assume 'PREV'
+        # Lógica de extração flexível (mantida)
         
         def extrair_atributos(atributo):
             # Tenta o padrão completo: ETAPA.TIPO.INICIO_FIM
@@ -77,14 +93,9 @@ def tratar_macrofluxo():
                 return match_completo
             
             # Tenta o padrão incompleto: ETAPA.INICIO_FIM
-            # A regex precisa ser mais específica para não capturar o Tipo_Lotes ou outros campos
-            # que podem ter INICIO/TERMINO no nome.
-            # Vamos usar a regex mais simples e depois tratar o Tipo_Data
-            
             match_simples = pd.Series(atributo).str.extract(r'(.+)\.(INICIO|TERMINO)').iloc[0]
             if not match_simples.isnull().any():
                 # Se for o padrão incompleto, assumimos 'PREV'
-                # E tentamos separar a Etapa do Tipo_Data, se houver.
                 etapa_tipo = match_simples[0]
                 inicio_fim = match_simples[1]
                 
@@ -136,7 +147,8 @@ if __name__ == "__main__":
             "UGB", "EMP", "TIPO_LOTES", "Etapa", "Tipo_Data", "Inicio_Fim", "Valor", "Ordem_Etapa"
         ]].head(20))
         
-        dados_tratados.to_csv("dados_macrofluxo_tratados_corrigido_v2.csv", index=False)
-        print("\nArquivo 'dados_macrofluxo_tratados_corrigido_v2.csv' salvo com sucesso!")
+        # Alterado o nome do arquivo de saída para refletir a nova funcionalidade
+        dados_tratados.to_csv("dados_macrofluxo_filtrado.csv", index=False)
+        print("\nArquivo 'dados_macrofluxo_filtrado.csv' salvo com sucesso!")
     else:
         print("\nNão foi possível obter os dados do macrofluxo.")
