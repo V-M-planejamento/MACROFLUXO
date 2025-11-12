@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import holidays
 from dateutil.relativedelta import relativedelta
 import traceback
-import streamlit.components.v1 as components 
+import streamlit.components.v1 as components  #pulmão
 import json
 import random
 import time
@@ -1003,7 +1003,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                     // --- INÍCIO HELPERS DE DATA E PULMÃO ---
                     const etapas_pulmao = ["PULMÃO VENDA", "PULMÃO INFRA", "PULMÃO RADIER"];
-                    const etapas_sem_alteracao = ["PROSPECÇÃO", "RADIER", "DEMANDA MÍNIMA"];
+                    const etapas_sem_alteracao = ["PROSPECÇÃO", "RADIER", "DEMANDA MÍNIMA", "PE. ÁREAS COMUNS (URB)", "PE. ÁREAS COMUNS (ENG)", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS"];
 
                     const formatDateDisplay = (dateStr) => {{
                         if (!dateStr) return "N/D";
@@ -2775,11 +2775,10 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                 // *** CONSTANTES DE ETAPA ***
                 const etapas_pulmao = ["PULMÃO VENDA", "PULMÃO INFRA", "PULMÃO RADIER"];
-                const etapas_sem_alteracao = ["PROSPECÇÃO", "RADIER", "DEMANDA MÍNIMA"];
+                const etapas_sem_alteracao = ["PROSPECÇÃO", "RADIER", "DEMANDA MÍNIMA", "PE. ÁREAS COMUNS (URB)", "PE. ÁREAS COMUNS (ENG)", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS"];
                 
                 // --- Lógica de Pulmão para Consolidado ---
-                // *** FUNÇÃO MODIFICADA ***
-                // *** FUNÇÃO MODIFICADA: aplicarLogicaPulmaoConsolidado ***
+                // *** aplicarLogicaPulmaoConsolidado ***
                 function aplicarLogicaPulmaoConsolidado(tasks, offsetMeses, stageName) {{
                     console.log(`Aplicando pulmão de ${{offsetMeses}}m para etapa: ${{stageName}}`);
 
