@@ -521,30 +521,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
             "etapas": ["Todas"] + ORDEM_ETAPAS_NOME_COMPLETO
         }
 
-        # --- Cria um único projeto com todos os empreendimentos ---
-        all_projects_data = gantt_data_base
-        project_id = "p_all_projects"
-        
-        # Usa o primeiro projeto como base ou cria um projeto consolidado
-        if all_projects_data:
-            project_base = {
-                "id": project_id,
-                "name": "Todos os Empreendimentos",  # Nome único
-                "tasks": [],
-                "meta_assinatura_date": None
-            }
-            
-            # Coleta todas as tasks de todos os projetos
-            all_tasks = []
-            for project in all_projects_data:
-                for task in project['tasks']:
-                    # Adiciona o nome do empreendimento à task para identificação
-                    task_with_emp = task.copy()
-                    task_with_emp['empreendimento'] = project['name']
-                    all_tasks.append(task_with_emp)
-            
-            project_base['tasks'] = all_tasks
-            project = project_base
+        # *** CORREÇÃO: USAR O PRIMEIRO PROJETO DA LISTA EM VEZ DE CRIAR "TODOS OS EMPREENDIMENTOS" ***
+        if gantt_data_base:
+            # Usa o primeiro projeto da lista
+            project = gantt_data_base[0]
+            project_id = f"p_{project['name'].replace(' ', '_').lower()}"
             correct_project_index_for_js = 0
         else:
             return
@@ -552,8 +533,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         # Filtra o DF agregado para cálculo de data_min/max
         df_para_datas = df_gantt_agg_sem_pulmao
 
-        project = project_base
-        tasks_base_data = project_base['tasks'] if project_base else []
+        tasks_base_data = project['tasks'] if project else []
 
         data_min_proj, data_max_proj = calcular_periodo_datas(df_para_datas)
         total_meses_proj = ((data_max_proj.year - data_min_proj.year) * 12) + (data_max_proj.month - data_min_proj.month) + 1
@@ -562,7 +542,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         if num_tasks == 0:
             st.warning("Nenhuma tarefa disponível para exibir.")
             return
-        num_tasks = len(project["tasks"]) if project else 0
+        
         # Reduz o fator de multiplicação para evitar excesso de espaço
         altura_gantt = max(400, min(800, (num_tasks * 25) + 200))  # Limita a altura máxima
 
@@ -4298,4 +4278,3 @@ with st.spinner("Carregando e processando dados..."):
 
     else:
         st.error("❌ Não foi possível carregar ou gerar os dados.")
-
