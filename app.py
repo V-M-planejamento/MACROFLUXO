@@ -36,23 +36,12 @@ except ImportError:
 try:
     from tratamento_dados_reais import buscar_e_processar_dados_completos
     from tratamento_macrofluxo import tratar_macrofluxo
-    from tratamento_dados_aws import buscar_dados_aws
     MODO_REAL = True
 except ImportError:
     st.warning("Scripts de processamento não encontrados. O app usará dados de exemplo.")
     buscar_e_processar_dados_completos = None
     tratar_macrofluxo = None
-    buscar_dados_aws = None
     MODO_REAL = False
-
-
-@st.cache_data(ttl=3600) # Cache data for 1 hour
-def carregar_dados_aws(gantt_baselines):
-    """Carrega dados do MySQL da AWS com cache."""
-    if buscar_dados_aws:
-        return buscar_dados_aws(gantt_baselines)
-    st.warning("Módulo de dados AWS não carregado. Retornando DataFrame vazio.")
-    return pd.DataFrame()
 
     
 # --- ORDEM DAS ETAPAS (DEFINIDA PELO USUÁRIO) ---
@@ -3673,38 +3662,6 @@ with st.spinner("Carregando e processando dados..."):
                 except:
                     # st.warning("Logo 'logoNova.png' não encontrada.")
                     pass
-        
-            st.markdown("---")
-            # --- Nova Seção para Dados AWS ---
-            st.subheader("Dados AWS (MySQL)")
-            
-            # Campo para o usuário inserir o nome da tabela
-            nome_tabela_aws = st.text_input(
-                "Nome da Tabela AWS:",
-                value="nome_da_sua_tabela", # Valor padrão, o usuário deve mudar
-                key="aws_table_name"
-            )
-            
-            # Botão para carregar os dados
-            if st.button("Carregar Dados AWS"):
-                if nome_tabela_aws and nome_tabela_aws != "nome_da_sua_tabela":
-                    with st.spinner(f"Carregando dados da tabela '{nome_tabela_aws}'..."):
-                        df_aws = carregar_dados_aws(nome_tabela_aws)
-                        if not df_aws.empty:
-                            st.session_state['df_aws'] = df_aws
-                            st.session_state['aws_table_name'] = nome_tabela_aws
-                            st.success(f"Dados da tabela '{nome_tabela_aws}' carregados com sucesso!")
-                        else:
-                            st.error(f"Falha ao carregar dados da tabela '{nome_tabela_aws}'. Verifique o nome da tabela e as credenciais.")
-                else:
-                    st.warning("Por favor, insira o nome da tabela AWS.")
-
-            # Exibir os dados carregados (se existirem)
-            if 'df_aws' in st.session_state and not st.session_state['df_aws'].empty:
-                st.subheader(f"Dados da Tabela AWS: {st.session_state['aws_table_name']}")
-                st.dataframe(st.session_state['df_aws'])
-                st.info(f"Total de linhas: {len(st.session_state['df_aws'])}")
-            # --- Fim da Nova Seção ---
         
             st.markdown("---")
             # Título centralizado
