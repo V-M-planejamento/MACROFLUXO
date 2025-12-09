@@ -10,7 +10,7 @@ import matplotlib.dates as mdates
 import matplotlib.gridspec as gridspec
 from datetime import datetime, timedelta
 import holidays
-from dateutil.relativedelta import relativedelta #Dados para JavaScript
+from dateutil.relativedelta import relativedelta #baseline
 import json
 
 import streamlit.components.v1 as components  
@@ -6252,19 +6252,1244 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
     components.html(gantt_html, height=altura_gantt, scrolling=True)
     # st.markdown("---") no consolidado, pois ele não é parte de um loop
 
-# --- FUNÇÃO PRINCIPAL DE GANTT (DISPATCHER) ---
-def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_ordenacao, pulmao_status, pulmao_meses, etapa_selecionada_inicialmente):
+# --- *** FUNÇÃO gerar_gantt_por_setor (NOVA) *** ---
+def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses, setor_selecionado_inicialmente):
     """
-    Decide qual Gantt gerar com base na seleção da etapa inicial.
+    Gera um gráfico de Gantt HTML organizado por SETOR que contém dados para TODOS os setores
+    e permite a troca de setores via menu flutuante.
+    
+    'setor_selecionado_inicialmente' define qual setor mostrar no carregamento.
+    
+    Diferente do consolidado (que agrupa por etapa), este agrupa por SETOR,
+    mostrando todas as etapas de um setor em todos os empreendimentos.
+    """
+    
+    # --- 1. Preparação dos Dados ---
+    df_gantt = df.copy()
+    
+    for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
+        if col in df_gantt.columns:
+            df_gantt[col] = pd.to_datetime(df_gantt[col], errors="coerce")
+    
+    if "% concluído" not in df_gantt.columns:
+        df_gantt["% concluído"] = 0
+    df_gantt["% concluído"] = df_gantt["% concluído"].fillna(0).apply(converter_porcentagem)
+    
+    # --- FILTRO: Remover etapas pai ANTES da agregação ---
+    # Etapas pai são aquelas que têm subetapas definidas em SUBETAPAS
+    # Incluindo todas as variações possíveis de nomes
+    etapas_pai = [
+        # Variações de ENG. LIMP.
+        "ENG. LIMP.", "ENG. LIMP", "ENG.LIMP", "ENG.LIMP.", "ENGLIMP", "ENG LIMP",
+        # Variações de ENG. TER.
+        "ENG. TER.", "ENG. TER", "ENG.TER", "ENG.TER.", "ENGTER", "ENG TER",
+        # Variações de ENG. INFRA
+        "ENG. INFRA", "ENG.INFRA", "ENGINFRA", "ENG INFRA",
+        # Variações de ENG. PAV
+        "ENG. PAV", "ENG.PAV", "ENGPAV", "ENG PAV",
+        # Adicionar também as chaves do dicionário SUBETAPAS
+    ] + list(SUBETAPAS.keys())
+    
+    # Remover duplicatas
+    etapas_pai = list(set(etapas_pai))
+    
+    # DEBUG: Imprimir etapas únicas ANTES do filtro
+    print("=" * 80)
+    print("DEBUG - ETAPAS ÚNICAS NO DATAFRAME (ANTES DO FILTRO):")
+    etapas_unicas = sorted(df_gantt['Etapa'].unique())
+    for etapa in etapas_unicas:
+        if any(pai.lower() in etapa.lower() for pai in ["eng", "limp", "ter", "infra", "pav"]):
+            print(f"  - '{etapa}'")
+    print(f"\nETAPAS PAI QUE SERÃO FILTRADAS: {etapas_pai}")
+    print("=" * 80)
+    
+    df_gantt = df_gantt[~df_gantt['Etapa'].isin(etapas_pai)]
+    
+    # DEBUG: Imprimir etapas únicas DEPOIS do filtro
+    print("DEBUG - ETAPAS ÚNICAS NO DATAFRAME (DEPOIS DO FILTRO):")
+    etapas_unicas_depois = sorted(df_gantt['Etapa'].unique())
+    for etapa in etapas_unicas_depois:
+        if any(pai.lower() in etapa.lower() for pai in ["eng", "limp", "ter", "infra", "pav"]):
+            print(f"  - '{etapa}'")
+    print("=" * 80)
+    
+    # Agrupar por SETOR, Empreendimento e Etapa
+    df_gantt_agg = df_gantt.groupby(['SETOR', 'Empreendimento', 'Etapa']).agg(
+        Inicio_Prevista=('Inicio_Prevista', 'min'),
+        Termino_Prevista=('Termino_Prevista', 'max'),
+        Inicio_Real=('Inicio_Real', 'min'),
+        Termino_Real=('Termino_Real', 'max'),
+        **{'% concluído': ('% concluído', 'max')},
+        UGB=('UGB', 'first'),
+        GRUPO=('GRUPO', 'first')
+    ).reset_index()
+    
+    # --- 2. Preparar Dados para TODOS os Setores ---
+    all_data_by_sector_js = {}
+    all_sector_names = []
+    
+    # Iterar por cada setor único
+    setores_unicos_no_df = df_gantt_agg['SETOR'].unique()
+    
+    for i, setor in enumerate(setores_unicos_no_df):
+        df_setor_agg = df_gantt_agg[df_gantt_agg['SETOR'] == setor]
+        all_sector_names.append(setor)
+        
+        tasks_base_data_for_sector = []
+        
+        # Para cada linha (empreendimento + etapa) neste setor
+        for j, row in df_setor_agg.iterrows():
+            empreendimento = row["Empreendimento"]
+            etapa = row["Etapa"]
+            etapa_nome_completo = sigla_para_nome_completo.get(etapa, etapa)
+            
+            start_date = row.get("Inicio_Prevista")
+            end_date = row.get("Termino_Prevista")
+            start_real = row.get("Inicio_Real")
+            end_real_original = row.get("Termino_Real")
+            progress = row.get("% concluído", 0)
+            
+            if pd.isna(start_date): start_date = datetime.now()
+            if pd.isna(end_date): end_date = start_date + timedelta(days=30)
+            end_real_visual = end_real_original
+            if pd.notna(start_real) and progress < 100 and pd.isna(end_real_original): 
+                end_real_visual = datetime.now()
+            
+            vt = calculate_business_days(end_date, end_real_original)
+            duracao_prevista_uteis = calculate_business_days(start_date, end_date)
+            duracao_real_uteis = calculate_business_days(start_real, end_real_original)
+            vd = None
+            if pd.notna(duracao_real_uteis) and pd.notna(duracao_prevista_uteis): 
+                vd = duracao_real_uteis - duracao_prevista_uteis
+            
+            status_color_class = 'status-default'
+            hoje = pd.Timestamp.now().normalize()
+            if progress == 100:
+                if pd.notna(end_real_original) and pd.notna(end_date):
+                    if end_real_original <= end_date: status_color_class = 'status-green'
+                    else: status_color_class = 'status-red'
+            elif progress < 100 and pd.notna(end_date) and (end_date < hoje): 
+                status_color_class = 'status-yellow'
+            
+            task = {
+                "id": f"t{j}_{i}",
+                "name": f"{empreendimento} - {etapa_nome_completo}",  # Nome composto!
+                "empreendimento": empreendimento,
+                "etapa": etapa_nome_completo,
+                "ugb": row.get("UGB", "N/D"),
+                "numero_etapa": j + 1,
+                "start_previsto": start_date.strftime("%Y-%m-%d"),
+                "end_previsto": end_date.strftime("%Y-%m-%d"),
+                "start_real": pd.to_datetime(start_real).strftime("%Y-%m-%d") if pd.notna(start_real) else None,
+                "end_real": pd.to_datetime(end_real_visual).strftime("%Y-%m-%d") if pd.notna(end_real_visual) else None,
+                "end_real_original_raw": pd.to_datetime(end_real_original).strftime("%Y-%m-%d") if pd.notna(end_real_original) else None,
+                "setor": setor,
+                "grupo": row.get("GRUPO", "N/D"),
+                "progress": int(progress),
+                "inicio_previsto": start_date.strftime("%d/%m/%y"),
+                "termino_previsto": end_date.strftime("%d/%m/%y"),
+                "inicio_real": pd.to_datetime(start_real).strftime("%d/%m/%y") if pd.notna(start_real) else "N/D",
+                "termino_real": pd.to_datetime(end_real_original).strftime("%d/%m/%y") if pd.notna(end_real_original) else "N/D",
+                "duracao_prev_meses": f"{(end_date - start_date).days / 30.4375:.1f}".replace('.', ',') if pd.notna(start_date) and pd.notna(end_date) else "-",
+                "duracao_real_meses": f"{(end_real_original - start_real).days / 30.4375:.1f}".replace('.', ',') if pd.notna(start_real) and pd.notna(end_real_original) else "-",
+                "vt_text": f"{int(vt):+d}d" if pd.notna(vt) else "-",
+                "vd_text": f"{int(vd):+d}d" if pd.notna(vd) else "-",
+                "status_color_class": status_color_class
+            }
+            tasks_base_data_for_sector.append(task)
+        
+        # Popular baselines em cada task
+        try:
+            all_baselines_dict = load_baselines()
+            
+            for task in tasks_base_data_for_sector:
+                empreendimento = task["empreendimento"]
+                etapa_nome = task["etapa"]
+                
+                task["baselines"] = {}
+                task["baselines"]["P0-(padrão)"] = {
+                    "start": task["start_previsto"],
+                    "end": task["end_previsto"]
+                }
+                
+                if empreendimento in all_baselines_dict:
+                    baselines_emp = all_baselines_dict[empreendimento]
+                    
+                    for baseline_name, baseline_info in baselines_emp.items():
+                        baseline_data = get_baseline_data(empreendimento, baseline_name)
+                        
+                        if baseline_data and 'tasks' in baseline_data:
+                            baseline_tasks = baseline_data['tasks']
+                            
+                            baseline_task = next(
+                                (bt for bt in baseline_tasks 
+                                 if bt.get('etapa') == etapa_nome or bt.get('Etapa') == etapa_nome),
+                                None
+                            )
+                            
+                            if not baseline_task:
+                                etapa_sigla = nome_completo_para_sigla.get(etapa_nome, etapa_nome)
+                                baseline_task = next(
+                                    (bt for bt in baseline_tasks 
+                                     if bt.get('etapa') == etapa_sigla or bt.get('Etapa') == etapa_sigla),
+                                    None
+                                )
+                            
+                            if baseline_task:
+                                task["baselines"][baseline_name] = {
+                                    "start": baseline_task.get('inicio_previsto', baseline_task.get('Inicio_Prevista')),
+                                    "end": baseline_task.get('termino_previsto', baseline_task.get('Termino_Prevista'))
+                                }
+                            else:
+                                task["baselines"][baseline_name] = {
+                                    "start": None,
+                                    "end": None
+                                }
+        except Exception as e:
+            print(f"Erro ao popular baselines no setor: {e}")
+        
+        # --- ORDENAÇÃO: Do mais antigo para o mais novo (por data de início prevista) ---
+        tasks_base_data_for_sector.sort(key=lambda t: (
+            datetime.strptime(t["start_previsto"], "%Y-%m-%d") if t.get("start_previsto") else datetime.max
+        ))
+        
+        all_data_by_sector_js[setor] = tasks_base_data_for_sector
+    
+    if not all_data_by_sector_js:
+        st.warning("Nenhum dado válido para o Gantt por Setor após a conversão.")
+        return
+    
+    # --- 3. Preparar Dados Iniciais ---
+    empreendimentos_no_df = sorted(list(df_gantt_agg["Empreendimento"].unique()))
+    
+    filter_options = {
+        "empreendimentos": ["Todos"] + empreendimentos_no_df,
+        "setores_disponiveis": sorted(all_sector_names)
+    }
+    
+    tasks_base_data_inicial = all_data_by_sector_js.get(setor_selecionado_inicialmente, [])
+    
+    project_id = f"p_setor_{random.randint(1000, 9999)}"
+    project = {
+        "id": project_id,
+        "name": f"Setor: {setor_selecionado_inicialmente}",
+        "tasks": tasks_base_data_inicial,
+        "meta_assinatura_date": None
+    }
+    
+    df_para_datas = df_gantt_agg
+    data_min_proj, data_max_proj = calcular_periodo_datas(df_para_datas)
+    total_meses_proj = ((data_max_proj.year - data_min_proj.year) * 12) + (data_max_proj.month - data_min_proj.month) + 1
+    
+    num_tasks = len(project["tasks"])
+    altura_gantt = max(400, (num_tasks * 30) + 150)
+    
+    # --- 4. Preparar Baselines por Empreendimento ---
+    baselines_por_empreendimento_html = {}
+    
+    try:
+        all_baselines_dict = load_baselines()
+        for emp in empreendimentos_no_df:
+            emp_baseline_options = get_baseline_options(emp)
+            if not emp_baseline_options or len(emp_baseline_options) == 0:
+                emp_baseline_options = ["P0-(padrão)"]
+            else:
+                if "P0-(padrão)" not in emp_baseline_options:
+                    emp_baseline_options.insert(0, "P0-(padrão)")
+            
+            baselines_por_empreendimento_html[emp] = emp_baseline_options
+    except Exception as e:
+        print(f"Erro ao carregar baseline options no setor: {e}")
+        for emp in empreendimentos_no_df:
+            baselines_por_empreendimento_html[emp] = ["P0-(padrão)"]
+    
+    # Gerar HTML dos dropdowns por empreendimento
+    baseline_rows_html = ""
+    for emp in empreendimentos_no_df:
+        emp_options = baselines_por_empreendimento_html.get(emp, ["P0-(padrão)"])
+        emp_json = json.dumps(emp)
+        
+        options_html = "".join([
+            f'<option value="{opt}">{opt}</option>' 
+            for opt in emp_options
+        ])
+        
+        baseline_rows_html += f"""
+        <div class="baseline-row" data-empreendimento="{emp}">
+            <label title="{emp}">{emp}</label>
+            <select class="baseline-dropdown-emp" data-emp="{emp}" onchange='applyBaselineForEmp({emp_json}, this.value); var p0=document.getElementById("apply-p0-all-{project["id"]}"); var latest=document.getElementById("apply-latest-all-{project["id"]}"); if(p0)p0.checked=false; if(latest)latest.checked=false;'>
+                {options_html}
+            </select>
+        </div>
+        """
+    
+    # Ícones por setor
+    setor_icons = {
+        "PROSPECÇÃO": "",
+        "LEGALIZAÇÃO": "",
+        "PULMÃO": "",
+        "ENGENHARIA": "",
+        "SUPRIMENTOS": "",
+        "OBRAS": "",
+        "ENTREGA": ""
+    }
+    
+    # --- 5. Gerar HTML/CSS/JavaScript ---
+    # (Baseado no consolidado mas adaptado para setores)
+    gantt_html = f"""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            html, body {{ width: 100%; height: 100%; font-family: 'Segoe UI', sans-serif; background-color: #f5f5f5; color: #333; overflow: hidden; }}
+            .gantt-container {{ width: 100%; height: 100%; background-color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; display: flex; flex-direction: column; }}
+            .gantt-main {{ display: flex; flex: 1; overflow: hidden; }}
+            .gantt-sidebar-wrapper {{ width: 750px; display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.3s ease-in-out; border-right: 2px solid #e2e8f0; overflow: hidden; }}
+            .gantt-sidebar-header {{ background: linear-gradient(135deg, #4a5568, #2d3748); display: flex; flex-direction: column; height: 60px; flex-shrink: 0; }}
+            .project-title-row {{ display: flex; justify-content: space-between; align-items: center; padding: 0 15px; height: 30px; color: white; font-weight: 600; font-size: 14px; }}
+            .toggle-sidebar-btn {{ background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 5px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s, transform 0.3s ease-in-out; }}
+            .toggle-sidebar-btn:hover {{ background: rgba(255,255,255,0.4); }}
+            .sidebar-grid-header-wrapper {{ display: grid; grid-template-columns: 0px 1fr; color: #d1d5db; font-size: 9px; font-weight: 600; text-transform: uppercase; height: 30px; align-items: center; }}
+            .sidebar-grid-header {{ display: grid; grid-template-columns: 2.8fr 0.6fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr; padding: 0 10px; align-items: center; }}
+            .sidebar-row {{ display: grid; grid-template-columns: 2.8fr 0.6fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr; border-bottom: 1px solid #eff2f5; height: 30px; padding: 0 10px; background-color: white; transition: all 0.2s ease-in-out; }}
+            .sidebar-cell {{ display: flex; align-items: center; justify-content: center; font-size: 10px; color: #4a5568; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; border: none; }}
+            .header-cell {{ text-align: center; }}
+            .header-cell.task-name-cell {{ text-align: left; }}
+            .gantt-sidebar-content {{ background-color: #f8f9fa; flex: 1; overflow-y: auto; overflow-x: hidden; }}
+            .sidebar-row:hover {{ background-color: #f5f8ff; }}
+            .sidebar-cell.task-name-cell {{ justify-content: flex-start; font-weight: 600; color: #2d3748; }}
+            .sidebar-cell.status-green {{ color: #1E8449; font-weight: 700; }}
+            .sidebar-cell.status-red {{ color: #C0392B; font-weight: 700; }}
+            .sidebar-cell.status-yellow{{ color: #B9770E; font-weight: 700; }}
+            .sidebar-cell.status-default{{ color: #566573; font-weight: 700; }}
+            .gantt-sidebar-wrapper.collapsed {{ width: 250px; }}
+            .gantt-sidebar-wrapper.collapsed .sidebar-grid-header, .gantt-sidebar-wrapper.collapsed .sidebar-row {{ grid-template-columns: 1fr; padding: 0 15px 0 10px; }}
+            .gantt-sidebar-wrapper.collapsed .header-cell:not(.task-name-cell), .gantt-sidebar-wrapper.collapsed .sidebar-cell:not(.task-name-cell) {{ display: none; }}
+            .gantt-sidebar-wrapper.collapsed .toggle-sidebar-btn {{ transform: rotate(180deg); }}
+            .gantt-chart-content {{ flex: 1; overflow: auto; position: relative; background-color: white; user-select: none; cursor: grab; }}
+            .gantt-chart-content.active {{ cursor: grabbing; }}
+            .chart-container {{ position: relative; min-width: {total_meses_proj * 30}px; }}
+            .chart-header {{ background: linear-gradient(135deg, #4a5568, #2d3748); color: white; height: 60px; position: sticky; top: 0; z-index: 9; display: flex; flex-direction: column; }}
+            .year-header {{ height: 30px; display: flex; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.2); }}
+            .year-section {{ text-align: center; font-weight: 600; font-size: 12px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.1); height: 100%; }}
+            .month-header {{ height: 30px; display: flex; align-items: center; }}
+            .month-cell {{ width: 30px; height: 30px; border-right: 1px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 500; }}
+            .chart-body {{ position: relative; }}
+            .gantt-row {{ position: relative; height: 30px; border-bottom: 1px solid #eff2f5; background-color: white; }}
+            .gantt-bar {{ position: absolute; height: 14px; top: 8px; border-radius: 3px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+            .gantt-bar-overlap {{ position: absolute; height: 14px; top: 8px; background-image: linear-gradient(45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%, transparent 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25) 75%, transparent 75%, transparent); background-size: 8px 8px; z-index: 9; pointer-events: none; border-radius: 3px; }}
+            .gantt-bar:hover {{ transform: translateY(-1px) scale(1.01); box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 10 !important; }}
+            .gantt-bar.previsto {{ z-index: 7; }}
+            .gantt-bar.real {{ z-index: 8; }}
+            .bar-label {{ font-size: 8px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }}
+            .gantt-bar.real .bar-label {{ color: white; }}
+            .gantt-bar.previsto .bar-label {{ color: #6C6C6C; }}
+            .tooltip {{ position: absolute; background-color: #2d3748; color: white; padding: 6px 10px; border-radius: 4px; font-size: 11px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none; opacity: 0; transition: opacity 0.2s ease; max-width: 220px; }}
+            .tooltip.show {{ opacity: 1; }}
+            .today-line {{ position: absolute; top: 0; bottom: 0; width: 1px; background-color: #fdf1f1; z-index: 5; box-shadow: 0 0 1px rgba(229, 62, 62, 0.6); }}
+            .month-divider {{ position: absolute; top: 0; bottom: 0; width: 1px; background-color: #fcf6f6; z-index: 4; pointer-events: none; }}
+            .month-divider.first {{ background-color: #eeeeee; width: 1px; }}
+            .gantt-toolbar {{
+                position: absolute; top: 10px; right: 10px;
+                z-index: 100;
+                display: flex;
+                flex-direction: column;
+                gap: 5px;
+                background: rgba(45, 55, 72, 0.9);
+                border-radius: 6px;
+                padding: 5px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            }}
+            .toolbar-btn {{
+                background: none;
+                border: none;
+                width: 36px;
+                height: 36px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 20px;
+                color: white;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: background-color 0.2s, box-shadow 0.2s;
+                padding: 0;
+            }}
+            .toolbar-btn:hover {{
+                background-color: rgba(255, 255, 255, 0.1);
+                box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+            }}
+            .toolbar-btn.is-fullscreen {{
+                background-color: #3b82f6;
+                box-shadow: 0 0 0 2px #3b82f6;
+            }}
+            .floating-filter-menu {{
+                display: none;
+                position: absolute;
+                top: 10px; right: 50px;
+                width: 280px;
+                background: white;
+                border-radius: 8px;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+                z-index: 99;
+                padding: 15px;
+                border: 1px solid #e2e8f0;
+            }}
+            .floating-filter-menu.is-open {{
+                display: block;
+            }}
+            .filter-group {{ margin-bottom: 12px; }}
+            .filter-group label {{
+                display: block; font-size: 11px; font-weight: 600;
+                color: #4a5568; margin-bottom: 4px;
+                text-transform: uppercase;
+            }}
+            .filter-group select {{
+                width: 100%; padding: 6px 8px;
+                border: 1px solid #cbd5e0; border-radius: 4px;
+                font-size: 13px;
+            }}
+            .filter-group-radio, .filter-group-checkbox {{
+                display: flex; align-items: center; padding: 5px 0;
+            }}
+            .filter-group-radio input, .filter-group-checkbox input {{
+                width: auto; margin-right: 8px;
+            }}
+            .filter-group-radio label, .filter-group-checkbox label {{
+                font-size: 13px; font-weight: 500;
+                color: #2d3748; margin-bottom: 0; text-transform: none;
+            }}
+            .filter-apply-btn {{
+                width: 100%; padding: 8px; font-size: 14px; font-weight: 600;
+                color: white; background-color: #2d3748;
+                border: none; border-radius: 4px; cursor: pointer;
+                margin-top: 5px;
+            }}
+            .baseline-selector {{
+                display: none;
+                position: absolute;
+                top: 10px;
+                right: 50px;
+                width: 280px;
+                min-height: 200px;
+                background: white;
+                border-radius: 8px;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+                z-index: 999;
+                padding: 15px;
+                border: 1px solid #e2e8f0;
+                overflow: hidden;
+            }}
+            .baseline-selector.is-open {{
+                display: block;
+            }}
+            .baseline-row {{
+                display: grid;
+                grid-template-columns: 1.2fr 1fr;
+                gap: 10px;
+                padding: 8px 6px;
+                border-bottom: 1px solid #e2e8f0;
+                align-items: center;
+                transition: background-color 0.15s ease;
+            }}
+            .baseline-row:hover {{
+                background-color: #f7fafc;
+            }}
+            .baseline-row label {{
+                font-size: 11px;
+                font-weight: 500;
+                color: #2d3748;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }}
+            .baseline-row select {{
+                width: 100%;
+                padding: 4px 6px;
+                border: 1px solid #cbd5e0;
+                border-radius: 4px;
+                font-size: 11px;
+            }}
+            .baseline-resize-corner {{
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 16px;
+                height: 16px;
+                cursor: nesw-resize;
+                z-index: 100;
+            }}
+            .baseline-resize-corner::before {{
+                content: '';
+                position: absolute;
+                bottom: -2px;
+                left: -2px;
+                width: 0;
+                height: 0;
+                border-style: solid;
+                border-width: 0 0 18px 18px;
+                border-color: transparent;
+                transform: rotate(-45deg);
+                transform-origin: bottom left;
+            }}
+            .baseline-resize-corner:hover::before {{
+                border-color: transparent;
+            }}
+            .baseline-resize-corner::after {{
+                content: '';
+                position: absolute;
+                bottom: 2px;
+                left: 2px;
+                width: 10px;
+                height: 10px;
+                transform: rotate(-45deg);
+                transform-origin: center;
+                background: 
+                    linear-gradient(90deg, transparent 48%, #9ca3af 48%, #9ca3af 52%, transparent 52%),
+                    linear-gradient(90deg, transparent 56%, #9ca3af 56%, #9ca3af 60%, transparent 60%),
+                    linear-gradient(90deg, transparent 64%, #9ca3af 64%, #9ca3af 68%, transparent 68%);
+            }}
+        </style>
+    </head>
+    <body>
+        <script id="all-data-by-sector" type="application/json">{json.dumps(all_data_by_sector_js)}</script>
+        
+        <div class="gantt-container" id="gantt-container-{project['id']}">
+            <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
+                <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros">
+                    <span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                        </svg>
+                    </span>
+                </button>
+                <button class="toolbar-btn" id="baseline-btn-{project["id"]}" title="Linhas de Base">
+                    <span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="3" y1="9" x2="21" y2="9"></line>
+                            <line x1="3" y1="15" x2="21" y2="15"></line>
+                        </svg>
+                    </span>
+                </button>
+                <button class="toolbar-btn" id="fullscreen-btn-{project["id"]}" title="Tela Cheia">
+                    <span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                        </svg>
+                    </span>
+                </button>
+            </div>
+            
+            <!-- Seletor de Setor (NOVO) -->
+            <div class="floating-filter-menu" id="filter-menu-{project['id']}">
+                <div class="filter-group">
+                    <label for="filter-setor-{project['id']}">Setor</label>
+                    <select id="filter-setor-{project['id']}">
+                        {"".join([f'<option value="{s}" {"selected" if s == setor_selecionado_inicialmente else ""}>{setor_icons.get(s, "")} {s}</option>' for s in sorted(all_sector_names)])}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filter-project-{project['id']}">Empreendimento</label>
+                    <select id="filter-project-{project['id']}">
+                        <option value="Todos">Todos</option>
+                        {"".join([f'<option value="{emp}">{emp}</option>' for emp in empreendimentos_no_df])}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <div class="filter-group-checkbox">
+                        <input type="checkbox" id="filter-concluidas-{project['id']}">
+                        <label for="filter-concluidas-{project['id']}">Mostrar apenas não concluídas</label>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label>Visualização</label>
+                    <div class="filter-group-radio">
+                        <input type="radio" id="filter-vis-ambos-{project['id']}" name="filter-vis-{project['id']}" value="Ambos" checked>
+                        <label for="filter-vis-ambos-{project['id']}">Ambos</label>
+                    </div>
+                    <div class="filter-group-radio">
+                        <input type="radio" id="filter-vis-previsto-{project['id']}" name="filter-vis-{project['id']}" value="Previsto">
+                        <label for="filter-vis-previsto-{project['id']}">Previsto</label>
+                    </div>
+                    <div class="filter-group-radio">
+                        <input type="radio" id="filter-vis-real-{project['id']}" name="filter-vis-{project['id']}" value="Real">
+                        <label for="filter-vis-real-{project['id']}">Real</label>
+                    </div>
+                </div>
+                <button class="filter-apply-btn" id="filter-apply-btn-{project['id']}">Aplicar Filtros</button>
+            </div>
+            
+            <!-- Seletor de Baselines -->
+            <div class="baseline-selector" id="baseline-selector-{project['id']}">
+                <div style="margin-bottom: 12px; font-weight: 700; color: #1a202c; font-size: 14px; border-bottom: 2px solid #1a202c; padding-bottom: 8px;">
+                    Selecione Linhas de Base
+                </div>
+                
+                <div style="margin-bottom: 15px; padding: 10px; background: #f7fafc; border-radius: 6px; border: 1px solid #e2e8f0;">
+                    <div style="font-weight: 600; color: #2d3748; font-size: 12px; margin-bottom: 10px;">
+                        Aplicação Rápida
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="apply-p0-all-{project['id']}" 
+                                   onchange="handleQuickApply('p0')"
+                                   style="margin-right: 6px; cursor: pointer;">
+                            <span style="font-size: 11px; color: #4a5568;">Aplicar P0 para todos</span>
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="apply-latest-all-{project['id']}" 
+                                   onchange="handleQuickApply('latest')"
+                                   style="margin-right: 6px; cursor: pointer;">
+                            <span style="font-size: 11px; color: #4a5568;">Aplicar última baseline para todos</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="baseline-selector-table" style="max-height: 400px; overflow-y: auto; margin-top: 10px;">
+                    {baseline_rows_html}
+                </div>
+                <div class="baseline-resize-corner" title="Arrastar para redimensionar"></div>
+            </div>
+            
+            <div class="gantt-main">
+                <div class="gantt-sidebar-wrapper" id="gantt-sidebar-wrapper-{project['id']}">
+                    <div class="gantt-sidebar-header">
+                        <div class="project-title-row">
+                            <span>{project["name"]}</span>
+                            <button class="toggle-sidebar-btn" id="toggle-sidebar-btn-{project['id']}" title="Recolher/Expandir Tabela">«</button>
+                        </div>
+                        <div class="sidebar-grid-header-wrapper">
+                            <div></div>
+                            <div class="sidebar-grid-header">
+                                <div class="header-cell task-name-cell">EMP + ETAPA</div>
+                                <div class="header-cell">UGB</div>
+                                <div class="header-cell">INÍCIO-P</div>
+                                <div class="header-cell">TÉRMINO-P</div>
+                                <div class="header-cell">DUR-P</div>
+                                <div class="header-cell">INÍCIO-R</div>
+                                <div class="header-cell">TÉRMINO-R</div>
+                                <div class="header-cell">DUR-R</div>
+                                <div class="header-cell">%</div>
+                                <div class="header-cell">VT</div>
+                                <div class="header-cell">VD</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="gantt-sidebar-content" id="gantt-sidebar-content-{project['id']}"></div>
+                </div>
+                <div class="gantt-chart-content" id="gantt-chart-content-{project['id']}">
+                    <div class="chart-container" id="chart-container-{project["id"]}"></div>
+                </div>
+            </div>
+            
+            <!-- Tooltip dentro do container para funcionar em fullscreen -->
+            <div class="tooltip" id="tooltip"></div>
+        </div>
+        
+        <script>
+            // Dados de todos os setores
+            const allDataBySector = JSON.parse(document.getElementById('all-data-by-sector').textContent);
+            let currentSector = "{setor_selecionado_inicialmente}";
+            let currentTasks = allDataBySector[currentSector] || [];
+            
+            // Função para trocar de setor
+            function switchSector(newSectorName) {{
+                currentSector = newSectorName;
+                currentTasks = allDataBySector[newSectorName] || [];
+                document.querySelector('.project-title-row span').textContent = `Setor: ${{newSectorName}}`;
+                renderGantt();
+            }}
+            
+            // Event listener para dropdown de setor
+            document.getElementById('filter-setor-{project["id"]}').addEventListener('change', function() {{
+                switchSector(this.value);
+            }});
+            
+            // Função para aplicar baseline em um empreendimento
+            function applyBaselineForEmp(emp, baselineName) {{
+                console.log('=== APLICANDO BASELINE ===');
+                console.log('Empreendimento:', emp);
+                console.log('Baseline:', baselineName);
+                console.log('Total de tasks antes:', currentTasks.length);
+                
+                let tasksAtualizadas = 0;
+                currentTasks.forEach(task => {{
+                    if (task.empreendimento === emp) {{
+                        console.log('Task encontrada:', task.name, 'Baselines:', task.baselines);
+                        if (task.baselines && task.baselines[baselineName]) {{
+                            const baselineData = task.baselines[baselineName];
+                            if (baselineData.start && baselineData.end) {{
+                                task.start_previsto = baselineData.start;
+                                task.end_previsto = baselineData.end;
+                                task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                task.termino_previsto = formatDateDisplay(task.end_previsto);
+                                tasksAtualizadas++;
+                                console.log('Baseline aplicada:', task.name, 'Novo início:', task.inicio_previsto);
+                            }}
+                        }}
+                    }}
+                }});
+                
+                console.log('Tasks atualizadas:', tasksAtualizadas);
+                console.log('Re-renderizando gráfico...');
+                renderGantt();
+            }}
+            
+            // Função para aplicação rápida (aplica imediatamente ao marcar checkbox)
+            function handleQuickApply(mode) {{
+                const emps = [...new Set(currentTasks.map(t => t.empreendimento))];
+                
+                emps.forEach(emp => {{
+                    const empTasks = currentTasks.filter(t => t.empreendimento === emp);
+                    if (empTasks.length === 0) return;
+                    
+                    let targetBaseline = "P0-(padrão)";
+                    
+                    if (mode === 'latest') {{
+                        const baselines = empTasks[0].baselines || {{}};
+                        const baselineNames = Object.keys(baselines).filter(b => b !== "P0-(padrão)");
+                        if (baselineNames.length > 0) {{
+                            targetBaseline = baselineNames[baselineNames.length - 1];
+                        }}
+                    }}
+                    
+                    applyBaselineForEmp(emp, targetBaseline);
+                    
+                    const dropdown = document.querySelector(`.baseline-dropdown-emp[data-emp="${{emp}}"]`);
+                    if (dropdown) dropdown.value = targetBaseline;
+                }});
+                
+                // Desmarcar o outro checkbox
+                if (mode === 'p0') {{
+                    const checkLatest = document.getElementById('apply-latest-all-{project["id"]}');
+                    if (checkLatest) checkLatest.checked = false;
+                }} else {{
+                    const checkP0 = document.getElementById('apply-p0-all-{project["id"]}');
+                    if (checkP0) checkP0.checked = false;
+                }}
+            }}
+            
+            // Funções auxiliares
+            function formatDateDisplay(dateStr) {{
+                if (!dateStr) return "N/D";
+                const d = new Date(dateStr);
+                return `${{String(d.getDate()).padStart(2,'0')}}/${{String(d.getMonth()+1).padStart(2,'0')}}/${{String(d.getFullYear()).slice(-2)}}`;
+            }}
+            
+            function parseDate(dateStr) {{
+                if (!dateStr || dateStr === "N/D") return null;
+                return new Date(dateStr);
+            }}
+            
+            // Cores por setor
+            const coresPorSetor = {{
+                "PROSPECÇÃO": {{"previsto": "#FEEFC4", "real": "#AE8141"}},
+                "LEGALIZAÇÃO": {{"previsto": "#fadbfe", "real": "#BF08D3"}},
+                "PULMÃO": {{"previsto": "#E9E8E8", "real": "#535252"}},
+                "ENGENHARIA": {{"previsto": "#fbe3cf", "real": "#be5900"}},
+                "INFRA": {{"previsto": "#daebfb", "real": "#125287"}},
+                "PRODUÇÃO": {{"previsto": "#E1DFDF", "real": "#252424"}},
+                "ARQUITETURA & URBANISMO": {{"previsto": "#D4D3F9", "real": "#453ECC"}},
+                "VENDA": {{"previsto": "#dffde1", "real": "#096710"}},
+                "Não especificado": {{"previsto": "#ffffff", "real": "#FFFFFF"}}
+            }};
+            
+            // Dados do projeto
+            const dataInicio = new Date("{data_min_proj.strftime('%Y-%m-%d')}");
+            const dataFim = new Date("{data_max_proj.strftime('%Y-%m-%d')}");
+            const totalMeses = {total_meses_proj};
+            const larguraMes = 30;
+            
+            // Renderizar Gantt completo
+            function renderGantt() {{
+                const sidebarContent = document.getElementById('gantt-sidebar-content-{project["id"]}');
+                const chartContainer = document.getElementById('chart-container-{project["id"]}');
+                
+                sidebarContent.innerHTML = '';
+                chartContainer.innerHTML = '';
+                
+                // --- ORDENAÇÃO DINÂMICA: Por data de início (prevista ou real) ---
+                // Verificar qual visualização está ativa
+                const visualizacaoReal = document.querySelector('input[name="filter-vis-{project["id"]}"]:checked')?.value === 'Real';
+                
+                // Ordenar tasks do mais antigo para o mais novo
+                currentTasks.sort((a, b) => {{
+                    let dateA, dateB;
+                    
+                    if (visualizacaoReal) {{
+                        // Se visualização for "Real", ordenar por data real
+                        dateA = a.start_real ? new Date(a.start_real) : new Date('9999-12-31');
+                        dateB = b.start_real ? new Date(b.start_real) : new Date('9999-12-31');
+                    }} else {{
+                        // Caso contrário, ordenar por data prevista
+                        dateA = a.start_previsto ? new Date(a.start_previsto) : new Date('9999-12-31');
+                        dateB = b.start_previsto ? new Date(b.start_previsto) : new Date('9999-12-31');
+                    }}
+                    
+                    return dateA - dateB;
+                }});
+                
+                // --- 1. Renderizar Sidebar ---
+                currentTasks.forEach((task, idx) => {{
+                    const row = document.createElement('div');
+                    row.className = 'sidebar-row';
+                    row.innerHTML = `
+                        <div class="sidebar-cell task-name-cell" title="${{task.name}}">${{task.name}}</div>
+                        <div class="sidebar-cell">${{task.ugb}}</div>
+                        <div class="sidebar-cell">${{task.inicio_previsto}}</div>
+                        <div class="sidebar-cell">${{task.termino_previsto}}</div>
+                        <div class="sidebar-cell">${{task.duracao_prev_meses}}</div>
+                        <div class="sidebar-cell">${{task.inicio_real}}</div>
+                        <div class="sidebar-cell">${{task.termino_real}}</div>
+                        <div class="sidebar-cell">${{task.duracao_real_meses}}</div>
+                        <div class="sidebar-cell ${{task.status_color_class}}">${{task.progress}}%</div>
+                        <div class="sidebar-cell">${{task.vt_text}}</div>
+                        <div class="sidebar-cell">${{task.vd_text}}</div>
+                    `;
+                    sidebarContent.appendChild(row);
+                }});
+                
+                // --- 2. Renderizar Header do Gráfico (Anos e Meses) ---
+                const header = document.createElement('div');
+                header.className = 'chart-header';
+                
+                // Header de anos
+                const yearHeader = document.createElement('div');
+                yearHeader.className = 'year-header';
+                
+                let currentYear = dataInicio.getFullYear();
+                let currentYearStart = 0;
+                let currentYearWidth = 0;
+                
+                for (let m = 0; m < totalMeses; m++) {{
+                    const date = new Date(dataInicio);
+                    date.setMonth(dataInicio.getMonth() + m);
+                    const year = date.getFullYear();
+                    
+                    if (year !== currentYear) {{
+                        const yearSection = document.createElement('div');
+                        yearSection.className = 'year-section';
+                        yearSection.style.width = `${{currentYearWidth}}px`;
+                        yearSection.textContent = currentYear;
+                        yearHeader.appendChild(yearSection);
+                        
+                        currentYear = year;
+                        currentYearStart = m * larguraMes;
+                        currentYearWidth = larguraMes;
+                    }} else {{
+                        currentYearWidth += larguraMes;
+                    }}
+                }}
+                
+                // Adicionar último ano
+                const lastYearSection = document.createElement('div');
+                lastYearSection.className = 'year-section';
+                lastYearSection.style.width = `${{currentYearWidth}}px`;
+                lastYearSection.textContent = currentYear;
+                yearHeader.appendChild(lastYearSection);
+                
+                header.appendChild(yearHeader);
+                
+                // Header de meses
+                const monthHeader = document.createElement('div');
+                monthHeader.className = 'month-header';
+                
+                for (let m = 0; m < totalMeses; m++) {{
+                    // CORREÇÃO: Criar data corretamente usando UTC para evitar problemas de timezone
+                    const year = dataInicio.getFullYear();
+                    const month = dataInicio.getMonth();
+                    const date = new Date(year, month + m, 1);
+                    
+                    const monthCell = document.createElement('div');
+                    monthCell.className = 'month-cell';
+                    // Usar número do mês com 2 dígitos (01, 02, 03...) igual aos outros gráficos
+                    const monthNumber = String(date.getMonth() + 1).padStart(2, '0');
+                    monthCell.textContent = monthNumber;
+                    monthHeader.appendChild(monthCell);
+                }}
+                
+                header.appendChild(monthHeader);
+                chartContainer.appendChild(header);
+                
+                // --- 3. Renderizar Body do Gráfico (Barras) ---
+                const body = document.createElement('div');
+                body.className = 'chart-body';
+                body.style.minWidth = `${{totalMeses * larguraMes}}px`;
+                
+                currentTasks.forEach((task, idx) => {{
+                    const row = document.createElement('div');
+                    row.className = 'gantt-row';
+                    
+                    // Obter cores do setor
+                    const cores = coresPorSetor[task.setor] || coresPorSetor["Não especificado"];
+                    
+                    // Verificar qual visualização está selecionada
+                    const tipoVisualizacao = document.querySelector('input[name="filter-vis-{project["id"]}"]:checked')?.value || 'Ambos';
+                    
+                    let barPrevisto = null;
+                    let barReal = null;
+                    
+                    // Barra Prevista (só criar se visualização for "Previsto" ou "Ambos")
+                    if ((tipoVisualizacao === 'Previsto' || tipoVisualizacao === 'Ambos') && task.start_previsto && task.end_previsto) {{
+                        const startDate = new Date(task.start_previsto);
+                        const endDate = new Date(task.end_previsto);
+                        
+                        const diffStart = (startDate - dataInicio) / (1000 * 60 * 60 * 24);
+                        const diffEnd = (endDate - dataInicio) / (1000 * 60 * 60 * 24);
+                        
+                        const left = (diffStart / 30.4375) * larguraMes;
+                        const width = ((diffEnd - diffStart) / 30.4375) * larguraMes;
+                        
+                        if (width > 0) {{
+                            barPrevisto = document.createElement('div');
+                            barPrevisto.className = 'gantt-bar previsto';
+                            barPrevisto.style.left = `${{left}}px`;
+                            barPrevisto.style.width = `${{width}}px`;
+                            barPrevisto.style.backgroundColor = cores.previsto;
+                            
+                            const label = document.createElement('div');
+                            label.className = 'bar-label';
+                            label.textContent = task.empreendimento || task.name;
+                            barPrevisto.appendChild(label);
+                            
+                            // Tooltip
+                            barPrevisto.addEventListener('mouseenter', (e) => {{
+                                showTooltip(e, task, 'previsto');
+                            }});
+                            barPrevisto.addEventListener('mouseleave', hideTooltip);
+                            
+                            row.appendChild(barPrevisto);
+                        }}
+                    }}
+                    
+                    // Barra Real (só criar se visualização for "Real" ou "Ambos")
+                    if ((tipoVisualizacao === 'Real' || tipoVisualizacao === 'Ambos') && task.start_real && task.end_real) {{
+                        const startDate = new Date(task.start_real);
+                        const endDate = new Date(task.end_real);
+                        
+                        const diffStart = (startDate - dataInicio) / (1000 * 60 * 60 * 24);
+                        const diffEnd = (endDate - dataInicio) / (1000 * 60 * 60 * 24);
+                        
+                        const left = (diffStart / 30.4375) * larguraMes;
+                        const width = ((diffEnd - diffStart) / 30.4375) * larguraMes;
+                        
+                        if (width > 0) {{
+                            barReal = document.createElement('div');
+                            barReal.className = 'gantt-bar real';
+                            barReal.style.left = `${{left}}px`;
+                            barReal.style.width = `${{width}}px`;
+                            barReal.style.backgroundColor = cores.real;
+                            
+                            const label = document.createElement('div');
+                            label.className = 'bar-label';
+                            label.textContent = `${{task.progress}}%`;
+                            barReal.appendChild(label);
+                            
+                            // Tooltip
+                            barReal.addEventListener('mouseenter', (e) => {{
+                                showTooltip(e, task, 'real');
+                            }});
+                            barReal.addEventListener('mouseleave', hideTooltip);
+                            
+                            row.appendChild(barReal);
+                        }}
+                    }}
+                    
+                    // --- SOBREPOSIÇÃO: Ajustar z-index se real engloba previsto ---
+                    if (barPrevisto && barReal) {{
+                        const s_prev = new Date(task.start_previsto);
+                        const e_prev = new Date(task.end_previsto);
+                        const s_real = new Date(task.start_real);
+                        const e_real = new Date(task.end_real);
+                        
+                        if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{
+                            barPrevisto.style.zIndex = '8';
+                            barReal.style.zIndex = '7';
+                        }}
+                        
+                        // Renderizar barra de overlap hachurada
+                        const overlap_start = new Date(Math.max(s_prev, s_real));
+                        const overlap_end = new Date(Math.min(e_prev, e_real));
+                        
+                        if (overlap_start < overlap_end) {{
+                            const diffStart = (overlap_start - dataInicio) / (1000 * 60 * 60 * 24);
+                            const diffEnd = (overlap_end - dataInicio) / (1000 * 60 * 60 * 24);
+                            
+                            const left = (diffStart / 30.4375) * larguraMes;
+                            const width = ((diffEnd - diffStart) / 30.4375) * larguraMes;
+                            
+                            if (width > 0) {{
+                                const overlapBar = document.createElement('div');
+                                overlapBar.className = 'gantt-bar-overlap';
+                                overlapBar.style.left = `${{left}}px`;
+                                overlapBar.style.width = `${{width}}px`;
+                                row.appendChild(overlapBar);
+                            }}
+                        }}
+                    }}
+                    
+                    body.appendChild(row);
+                }});
+                
+                chartContainer.appendChild(body);
+                
+                // --- 4. Adicionar Divisores de Mês ---
+                for (let m = 0; m < totalMeses; m++) {{
+                    const date = new Date(dataInicio);
+                    date.setMonth(dataInicio.getMonth() + m);
+                    
+                    const divider = document.createElement('div');
+                    divider.className = date.getDate() === 1 ? 'month-divider first' : 'month-divider';
+                    divider.style.left = `${{m * larguraMes}}px`;
+                    body.appendChild(divider);
+                }}
+                
+                // --- 5. Adicionar Linha do Hoje ---
+                const hoje = new Date();
+                const diffHoje = (hoje - dataInicio) / (1000 * 60 * 60 * 24);
+                const leftHoje = (diffHoje / 30.4375) * larguraMes;
+                
+                if (leftHoje >= 0 && leftHoje <= totalMeses * larguraMes) {{
+                    const todayLine = document.createElement('div');
+                    todayLine.className = 'today-line';
+                    todayLine.style.left = `${{leftHoje}}px`;
+                    body.appendChild(todayLine);
+                }}
+            }}
+            
+            // Funções de Tooltip
+            function showTooltip(event, task, tipo) {{
+                const tooltip = document.getElementById('tooltip');
+                
+                let content = `
+                    <strong>${{task.name}}</strong><br>
+                    <strong>Setor:</strong> ${{task.setor}}<br>
+                    <strong>UGB:</strong> ${{task.ugb}}<br>
+                `;
+                
+                if (tipo === 'previsto') {{
+                    content += `
+                        <strong>Previsto:</strong><br>
+                        Início: ${{task.inicio_previsto}}<br>
+                        Término: ${{task.termino_previsto}}<br>
+                        Duração: ${{task.duracao_prev_meses}} meses
+                    `;
+                }} else {{
+                    content += `
+                        <strong>Real:</strong><br>
+                        Início: ${{task.inicio_real}}<br>
+                        Término: ${{task.termino_real}}<br>
+                        Duração: ${{task.duracao_real_meses}} meses<br>
+                        Progresso: ${{task.progress}}%<br>
+                        VT: ${{task.vt_text}} | VD: ${{task.vd_text}}
+                    `;
+                }}
+                
+                tooltip.innerHTML = content;
+                tooltip.classList.add('show');
+                
+                // Posicionar tooltip (relativo ao container para funcionar em fullscreen)
+                const container = document.getElementById('gantt-container-{project["id"]}');
+                const rect = container.getBoundingClientRect();
+                const x = event.clientX - rect.left + 10;
+                const y = event.clientY - rect.top + 10;
+                tooltip.style.left = `${{x}}px`;
+                tooltip.style.top = `${{y}}px`;
+            }}
+            
+            function hideTooltip() {{
+                const tooltip = document.getElementById('tooltip');
+                tooltip.classList.remove('show');
+            }}
+            
+            // Event listeners
+            document.getElementById('filter-btn-{project["id"]}').addEventListener('click', () => {{
+                document.getElementById('filter-menu-{project["id"]}').classList.toggle('is-open');
+                document.getElementById('baseline-selector-{project["id"]}').classList.remove('is-open');
+            }});
+            
+            document.getElementById('baseline-btn-{project["id"]}').addEventListener('click', () => {{
+                document.getElementById('baseline-selector-{project["id"]}').classList.toggle('is-open');
+                document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
+            }});
+            
+            document.getElementById('toggle-sidebar-btn-{project["id"]}').addEventListener('click', () => {{
+                document.getElementById('gantt-sidebar-wrapper-{project["id"]}').classList.toggle('collapsed');
+            }});
+            
+            document.getElementById('fullscreen-btn-{project["id"]}').addEventListener('click', () => {{
+                const container = document.getElementById('gantt-container-{project["id"]}');
+                if (!document.fullscreenElement) {{
+                    container.requestFullscreen();
+                }} else {{
+                    document.exitFullscreen();
+                }}
+            }});
+            
+            // Event listeners para radio buttons de visualização (para reordenar ao mudar)
+            document.querySelectorAll('input[name="filter-vis-{project["id"]}"]').forEach(radio => {{
+                radio.addEventListener('change', () => {{
+                    renderGantt(); // Re-renderizar com nova ordenação
+                }});
+            }});
+            
+            // --- DRAG TO SCROLL: Arrastar com mouse para navegar (2D - Diagonal) ---
+            const chartContent = document.getElementById('gantt-chart-content-{project["id"]}');
+            let isDragging = false;
+            let startX;
+            let startY;
+            let scrollLeft;
+            let scrollTop;
+            
+            chartContent.addEventListener('mousedown', (e) => {{
+                isDragging = true;
+                chartContent.classList.add('active');
+                startX = e.pageX - chartContent.offsetLeft;
+                startY = e.pageY - chartContent.offsetTop;
+                scrollLeft = chartContent.scrollLeft;
+                scrollTop = chartContent.scrollTop;
+                chartContent.style.cursor = 'grabbing';
+            }});
+            
+            chartContent.addEventListener('mouseleave', () => {{
+                isDragging = false;
+                chartContent.classList.remove('active');
+                chartContent.style.cursor = 'grab';
+            }});
+            
+            chartContent.addEventListener('mouseup', () => {{
+                isDragging = false;
+                chartContent.classList.remove('active');
+                chartContent.style.cursor = 'grab';
+            }});
+            
+            chartContent.addEventListener('mousemove', (e) => {{
+                if (!isDragging) return;
+                e.preventDefault();
+                
+                // Movimento horizontal
+                const x = e.pageX - chartContent.offsetLeft;
+                const walkX = (x - startX) * 2; // Multiplicador para velocidade horizontal
+                chartContent.scrollLeft = scrollLeft - walkX;
+                
+                // Movimento vertical
+                const y = e.pageY - chartContent.offsetTop;
+                const walkY = (y - startY) * 2; // Multiplicador para velocidade vertical
+                chartContent.scrollTop = scrollTop - walkY;
+                
+                // --- SINCRONIZAÇÃO: Sidebar acompanha scroll vertical do gráfico ---
+                const sidebarContent = document.getElementById('gantt-sidebar-content-{project["id"]}');
+                if (sidebarContent) {{
+                    sidebarContent.scrollTop = chartContent.scrollTop;
+                }}
+            }});
+            
+            // --- SINCRONIZAÇÃO ADICIONAL: Scroll direto na sidebar também sincroniza ---
+            const sidebarContent = document.getElementById('gantt-sidebar-content-{project["id"]}');
+            if (sidebarContent) {{
+                sidebarContent.addEventListener('scroll', () => {{
+                    chartContent.scrollTop = sidebarContent.scrollTop;
+                }});
+            }}
+            
+            // --- REDIMENSIONAMENTO DO SELETOR DE BASELINE ---
+            const baselineSelector = document.getElementById('baseline-selector-{project["id"]}');
+            const resizeCorner = baselineSelector ? baselineSelector.querySelector('.baseline-resize-corner') : null;
+            
+            if (resizeCorner) {{
+                let isResizing = false;
+                let startX, startY, startWidth, startHeight, startRight;
+                
+                resizeCorner.addEventListener('mousedown', (e) => {{
+                    isResizing = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startWidth = parseInt(document.defaultView.getComputedStyle(baselineSelector).width, 10);
+                    startHeight = parseInt(document.defaultView.getComputedStyle(baselineSelector).height, 10);
+                    startRight = parseInt(document.defaultView.getComputedStyle(baselineSelector).right, 10);
+                    
+                    e.preventDefault();
+                    e.stopPropagation();
+                }});
+                
+                document.addEventListener('mousemove', (e) => {{
+                    if (!isResizing) return;
+                    
+                    // Calcular movimento
+                    const deltaX = e.clientX - startX;
+                    const deltaY = e.clientY - startY;
+                    
+                    // Canto na ESQUERDA: arrastar para ESQUERDA (deltaX negativo) aumenta largura
+                    const newWidth = startWidth - deltaX;  // Inverte deltaX
+                    const newHeight = startHeight + deltaY;
+                    
+                    // Aplicar largura com limites
+                    if (newWidth >= 250 && newWidth <= 700) {{
+                        baselineSelector.style.width = newWidth + 'px';
+                        // Não precisa ajustar right pois está ancorado na direita
+                    }}
+                    
+                    // Aplicar altura com limites
+                    if (newHeight >= 200 && newHeight <= 800) {{
+                        baselineSelector.style.height = newHeight + 'px';
+                        
+                        // Ajustar altura da tabela interna para preencher o espaço
+                        const table = baselineSelector.querySelector('.baseline-selector-table');
+                        if (table) {{
+                            // Altura disponível = altura total - padding - título - aplicação rápida - margens
+                            const availableHeight = newHeight - 150; // 150px para cabeçalho e padding
+                            table.style.maxHeight = Math.max(200, availableHeight) + 'px';
+                        }}
+                    }}
+                }});
+                
+                document.addEventListener('mouseup', () => {{
+                    isResizing = false;
+                }});
+            }}
+            
+            // Renderizar inicial
+            renderGantt();
+        </script>
+    </body>
+    </html>
+    """
+    
+    components.html(gantt_html, height=altura_gantt, scrolling=True)
+
+# --- FUNÇÃO PRINCIPAL DE GANTT (DISPATCHER) ---
+def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_ordenacao, pulmao_status, pulmao_meses, etapa_selecionada_inicialmente, setor_selecionado_inicialmente=None):
+    """
+    Decide qual Gantt gerar com base na seleção da etapa inicial e do setor.
+    
+    Modos de visualização:
+    1. Por Projeto: Mostra todas as etapas de um/vários empreendimentos (etapa="Todos", setor=None)
+    2. Consolidado: Mostra uma etapa em múltiplos empreendimentos (etapa!=  "Todos", setor=None)
+    3. Por Setor: Mostra todas as etapas de um setor em todos os empreendimentos (setor!="Todos")
     """
     if df.empty:
         st.warning("Sem dados disponíveis para exibir o Gantt.")
         return
 
-    # A decisão do modo é baseada no parâmetro
-    is_consolidated_view = etapa_selecionada_inicialmente != "Todos"
-
-    if is_consolidated_view:
+    # Decisão do modo baseada nos parâmetros
+    # Prioridade: Setor > Etapa > Projeto
+    if setor_selecionado_inicialmente and setor_selecionado_inicialmente != "Todos":
+        # Modo 3: Por Setor
+        gerar_gantt_por_setor(
+            df, 
+            tipo_visualizacao, 
+            df_original_para_ordenacao, 
+            pulmao_status, 
+            pulmao_meses,
+            setor_selecionado_inicialmente
+        )
+    elif etapa_selecionada_inicialmente != "Todos":
+        # Modo 2: Consolidado (por etapa)
         gerar_gantt_consolidado(
             df, 
             tipo_visualizacao, 
@@ -6274,6 +7499,7 @@ def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_
             etapa_selecionada_inicialmente
         )
     else:
+        # Modo 1: Por Projeto
         gerar_gantt_por_projeto(
             df, 
             tipo_visualizacao, 
@@ -6692,19 +7918,55 @@ with st.spinner("Carregando e processando dados..."):
                 st.session_state.consolidated_view = False
                 st.session_state.selected_etapa_nome = "Todos" # Valor inicial
 
-            # Função de callback para alternar o estado
-            def toggle_consolidated_view():
-                st.session_state.consolidated_view = not st.session_state.consolidated_view
-                if st.session_state.consolidated_view:
-                    # Se for para consolidar, pega a primeira etapa disponível (ou uma lógica mais robusta se necessário)
-                    etapa_para_consolidar = next((e for e in etapas_para_exibir if e != "Todos"), "Todos")
-                    st.session_state.selected_etapa_nome = etapa_para_consolidar
-                else:
-                    st.session_state.selected_etapa_nome = "Todos"
+            # Inicializa o estado da visualização por setor se não existir
+            if 'sector_view' not in st.session_state:
+                st.session_state.sector_view = False
+                st.session_state.selected_setor_nome = "Todos"
+            
+            # Funções de callback para cada modo de visualização
+            def set_project_view():
+                st.session_state.consolidated_view = False
+                st.session_state.sector_view = False
+                st.session_state.selected_etapa_nome = "Todos"
+                st.session_state.selected_setor_nome = "Todos"
+            
+            def set_consolidated_view():
+                st.session_state.consolidated_view = True
+                st.session_state.sector_view = False
+                # Pega a primeira etapa disponível
+                etapa_para_consolidar = next((e for e in etapas_para_exibir if e != "Todos"), "Todos")
+                st.session_state.selected_etapa_nome = etapa_para_consolidar
+                st.session_state.selected_setor_nome = "Todos"
+            
+            def set_sector_view():
+                st.session_state.consolidated_view = False
+                st.session_state.sector_view = True
+                st.session_state.selected_etapa_nome = "Todos"
+                # Pega o primeiro setor disponível
+                setores_disponiveis = sorted(list(SETOR.keys()))
+                setor_para_exibir = setores_disponiveis[0] if setores_disponiveis else "Todos"
+                st.session_state.selected_setor_nome = setor_para_exibir
 
-            # Botão de ativação da visão etapa - já centralizado pelo CSS acima
-            button_label = "Aplicar Visão Etapa" if not st.session_state.consolidated_view else "Voltar para Visão EMP"
-            st.button(button_label, on_click=toggle_consolidated_view, use_container_width=True)
+            # --- TRÊS BOTÕES SEPARADOS PARA NAVEGAÇÃO ---
+            st.markdown("Gráficos Gantt:")
+            
+            st.button(
+                "Por Projeto", 
+                on_click=set_project_view, 
+                use_container_width=True
+            )
+            
+            st.button(
+                "Por Etapa", 
+                on_click=set_consolidated_view, 
+                use_container_width=True
+            )
+            
+            st.button(
+                "Por Setor", 
+                on_click=set_sector_view, 
+                use_container_width=True
+            )
             
             # Mensagens centralizadas
             st.markdown("""
@@ -6719,10 +7981,15 @@ with st.spinner("Carregando e processando dados..."):
             
             # Define a variável que será usada no resto do código
             selected_etapa_nome = st.session_state.selected_etapa_nome
+            selected_setor_nome = st.session_state.selected_setor_nome
 
             # Exibe a etapa selecionada quando no modo consolidado (alerta abaixo do botão)
             if st.session_state.consolidated_view:
                 st.success(f"**Visão Consolidada Ativa:** {selected_etapa_nome}")
+            
+            # Exibe o setor selecionado quando no modo por setor
+            if st.session_state.sector_view:
+                st.info(f"**Visão por Setor Ativa:** {selected_setor_nome}")
 
             filtrar_nao_concluidas = False
             
@@ -7093,7 +8360,8 @@ with st.spinner("Carregando e processando dados..."):
                 df_data, 
                 pulmao_status, 
                 pulmao_meses,
-                selected_etapa_nome
+                selected_etapa_nome,
+                selected_setor_nome  # NOVO: Parâmetro para visualização por setor
             )
             # Botão para limpar baseline (se houver uma ativa)
                                                                                                                                                       
