@@ -1,204 +1,396 @@
-# MACROFLUXO
+# 🏗️ Diagrama de Arquitetura - Macrofluxo
 
+## Arquitetura Geral do Sistema
+
+```mermaid
+graph TB
+    subgraph "Frontend - Streamlit UI"
+        A[Popup Login] --> B[Sidebar Filtros]
+        B --> C[Tab Gantt]
+        B --> D[Tab Tabelão]
+        C --> E[Visão Projeto]
+        C --> F[Visão Consolidada]
+    end
+    
+    subgraph "Componentes Customizados"
+        G[dropdown_component.py]
+        H[popup.py]
+        I[calculate_business_days.py]
+    end
+    
+    subgraph "Processamento de Dados"
+        J[tratamento_dados_reais.py]
+        K[tratamento_macrofluxo.py]
+        L[app.py - load_data]
+    end
+    
+    subgraph "Banco de Dados"
+        M[(MySQL AWS RDS)]
+        N[Tabela: gantt_baselines]
+    end
+    
+    subgraph "Arquivos Locais"
+        O[dados_macrofluxo_processados.csv]
+        P[.env]
+        Q[logoNova.svg]
+    end
+    
+    B --> G
+    A --> H
+    L --> I
+    
+    J --> M
+    K --> O
+    L --> J
+    L --> K
+    
+    C --> R[Sistema de Baselines]
+    R --> N
+    
+    style A fill:#ff9999
+    style C fill:#99ccff
+    style D fill:#99ccff
+    style M fill:#99ff99
+    style R fill:#ffcc99
 ```
-📊 SISTEMA DE DASHBOARD GANTT COMPARATIVO - ARVORE DE DECISÃO COMPLETA
-│
-├── 🏗️ 1. CONFIGURAÇÃO INICIAL E IMPORTAÇÕES
-│   ├── Streamlit, Pandas, NumPy, Matplotlib
-│   ├── from matplotlib.patches import Patch, Rectangle
-│   ├── from matplotlib.legend_handler import HandlerTuple
-│   ├── matplotlib.dates, matplotlib.gridspec
-│   ├── datetime, timedelta, holidays, relativedelta
-│   ├── traceback, streamlit.components.v1
-│   ├── json, random, time
-│   ├── TENTAR Importar componentes customizados:
-│   │   ├── dropdown_component → simple_multiselect_dropdown
-│   │   ├── popup → show_welcome_screen
-│   │   ├── calculate_business_days → calculate_business_days
-│   │   └── SE ImportError → Usar mocks/valores padrão
-│   └── TENTAR Importar processamento de dados:
-│       ├── tratamento_dados_reais → buscar_e_processar_dados_completos
-│       ├── tratamento_macrofluxo → tratar_macrofluxo
-│       └── SE ImportError → MODO_REAL = False (dados exemplo)
-│
-├── 📋 2. DEFINIÇÕES GLOBAIS E MAPEAMENTOS
-│   ├── ORDEM_ETAPAS_GLOBAL (34 etapas definidas)
-│   ├── GRUPOS (7 grupos: VENDA, LIMPEZA, TERRAPLANAGEM, etc.)
-│   ├── SETOR (8 setores: PROSPECÇÃO, LEGALIZAÇÃO, PULMÃO, etc.)
-│   ├── mapeamento_etapas_usuario (28 mapeamentos)
-│   ├── mapeamento_reverso
-│   ├── sigla_para_nome_completo
-│   ├── SUBETAPAS (4 grupos de subetapas)
-│   ├── ETAPA_PAI_POR_SUBETAPA
-│   └── ORDEM_ETAPAS_NOME_COMPLETO
-│
-├── 🎨 3. CONFIGURAÇÕES DE ESTILO (StyleConfig)
-│   ├── LARGURA_GANTT, ALTURA_GANTT_POR_ITEM, ALTURA_BARRA_GANTT
-│   ├── CORES: PREVISTO, REAL, HOJE, CONCLUIDO, ATRASADO, META_ASSINATURA
-│   ├── FONTES: TITULO, ETAPA, DATAS, PORCENTAGEM, VARIACAO
-│   ├── CABECALHO, CELULA_PAR, CELULA_IMPAR, FUNDO_TABELA
-│   ├── ESPACO_ENTRE_EMPREENDIMENTOS, OFFSET_VARIACAO_TERMINO
-│   └── CORES_POR_SETOR (8 setores com cores previsto/real)
-│
-├── 📥 4. CARREGAMENTO E PROCESSAMENTO DE DADOS (@st.cache_data)
-│   ├── DECISÃO: Qual fonte de dados usar?
-│   │   ├── SE MODO_REAL = True
-│   │   │   ├── TENTAR buscar_e_processar_dados_completos()
-│   │   │   │   ├── Processar df_real
-│   │   │   │   ├── Renomear colunas: EMP→Empreendimento, %_Concluido→% concluído
-│   │   │   │   ├── Pivotar dados: Inicio_Fim→[INICIO, TERMINO]→[Inicio_Real, Termino_Real]
-│   │   │   │   └── SE erro → mostrar traceback completo
-│   │   │   └── TENTAR tratar_macrofluxo()
-│   │   │       ├── Processar df_previsto
-│   │   │       └── Pivotar: Inicio_Fim→[Inicio_Prevista, Termino_Prevista]
-│   │   │
-│   │   └── SE MODO_REAL = False → criar_dados_exemplo()
-│   │
-│   ├── DECISÃO: Como mesclar dados?
-│   │   ├── SE df_real e df_previsto existem → merge outer
-│   │   ├── SE apenas df_previsto → adicionar colunas real vazias
-│   │   └── SE apenas df_real → adicionar colunas previsto vazias
-│   │
-│   └── PROCESSAMENTO PÓS-MERGE:
-│       ├── Aplicar lógica de exceção para subetapas (PE, ORÇ, SUP)
-│       ├── Mapear GRUPO e SETOR para cada etapa
-│       ├── Verificar etapas não mapeadas → alerta na sidebar
-│       └── Retornar df_merged final
-│
-├── 🎛️ 5. FILTROS DA SIDEBAR
-│   ├── UGB: simple_multiselect_dropdown (default: todos)
-│   ├── EMPREENDIMENTO: filtrado pelos UGBs selecionados
-│   ├── GRUPO: filtrado por UGB+EMP anteriores
-│   ├── SETOR: lista fixa dos 8 setores (default: todos)
-│   ├── ETAPA: ["Todos"] + etapas disponíveis filtradas
-│   ├── SIMULAÇÃO PULMÃO:
-│   │   ├── Radio: "Sem Pulmão" vs "Com Pulmão"
-│   │   └── SE "Com Pulmão" → number_input (0-36 meses, default:1)
-│   ├── CHECKBOX: "Etapas não concluídas"
-│   └── RADIO: "Mostrar dados:" → "Ambos", "Previsto", "Real"
-│
-├── 🔄 6. APLICAÇÃO DE FILTROS E LÓGICA DE PULMÃO
-│   ├── Aplicar filtros sequenciais: UGB → EMP → GRUPO → SETOR
-│   ├── DECISÃO: Modo de visualização do Gantt?
-│   │   ├── SE selected_etapa_nome = "Todos" → Visão por Projeto
-│   │   └── SE selected_etapa_nome = específica → Visão Consolidada
-│   │
-│   ├── APLICAR LÓGICA DE PULMÃO (se ativado):
-│   │   ├── DEFINIR: etapas_pulmao = ["PULVENDA", "PUL.INFRA", "PUL.RAD"]
-│   │   ├── DEFINIR: etapas_sem_alteracao = ["PROSPEC", "RAD", "DEM.MIN"]
-│   │   ├── PARA CADA tarefa:
-│   │   │   ├── SE etapa in etapas_sem_alteracao → não alterar datas
-│   │   │   ├── SE etapa in etapas_pulmao → ajustar apenas datas de início
-│   │   │   └── SE outra etapa → ajustar todas as datas
-│   │   └── Aplicar offset_meses = -pulmao_meses
-│
-├── 📊 7. VISUALIZAÇÃO PRINCIPAL (TABS)
-│   │
-│   ├── 🗓️ TAB 1: GRÁFICO DE GANTT
-│   │   ├── DECISÃO PRINCIPAL: Qual função Gantt chamar?
-│   │   │   ├── SE Visão Consolidada → gerar_gantt_consolidado()
-│   │   │   └── SE Visão por Projeto → gerar_gantt_por_projeto()
-│   │   │
-│   │   ├── FUNÇÃO gerar_gantt_por_projeto():
-│   │   │   ├── PARA CADA projeto na lista ordenada:
-│   │   │   │   ├── SE projeto não está nos dados filtrados → pular silenciosamente
-│   │   │   │   ├── Calcular data_min_proj, data_max_proj
-│   │   │   │   ├── Gerar HTML/JS personalizado para o projeto
-│   │   │   │   ├── Incluir Virtual Select para filtros
-│   │   │   │   ├── Estrutura de subetapas (expandir/recolher)
-│   │   │   │   └── components.html() com altura dinâmica
-│   │   │   └── FIM
-│   │   │
-│   │   ├── FUNÇÃO gerar_gantt_consolidado():
-│   │   │   ├── Agrupar dados por etapa e empreendimento
-│   │   │   ├── Preparar all_data_by_stage_js (todas etapas)
-│   │   │   ├── Criar projeto único para comparação
-│   │   │   ├── Filtro especial: selecionar etapa atual
-│   │   │   └── JS permite trocar etapa sem recarregar
-│   │   │
-│   │   └── COMPONENTES COMUNS DO GANTT:
-│   │       ├── Sidebar com grid (10 colunas)
-│   │       ├── Chart com header de anos/meses
-│   │       ├── Barras previsto/real com sobreposição
-│   │       ├── Linhas: today-line, meta-line
-│   │       ├── Tooltips interativos
-│   │       ├── Controles: fullscreen, toggle sidebar, filtros flutuantes
-│   │       └── Virtual Select para filtros multi-seleção
-│   │
-│   └── 📋 TAB 2: TABELÃO HORIZONTAL
-│       ├── DECISÃO: Layout hierárquico ou horizontal?
-│       │   ├── SE apenas uma etapa → layout horizontal
-│       │   └── SE múltiplas etapas → layout hierárquico
-│       │
-│       ├── LAYOUT HIERÁRQUICO:
-│       │   ├── Agrupar por empreendimento
-│       │   ├── Cabecalho com totais/médias
-│       │   ├── Subitens indentados para etapas
-│       │   └── Estilos condicionais por status
-│       │
-│       ├── LAYOUT HORIZONTAL (PIVOT):
-│       │   ├── Pivot table: etapas como colunas
-│       │   ├── MultiIndex columns: [Etapa][Inicio_Prev, Termino_Prev, etc.]
-│       │   ├── Ordenação personalizável (5 opções)
-│       │   └── Colunas ordenadas por ORDEM_ETAPAS_GLOBAL
-│       │
-│       └── ESTILOS E FORMATAÇÃO:
-│           ├── Cores condicionais baseadas em:
-│           │   ├── % concluído = 100 + termino_real ≤ termino_previsto → VERDE
-│           │   ├── % concluído = 100 + termino_real > termino_previsto → VERMELHO  
-│           │   ├── % concluído < 100 + termino_real < hoje → AMARELO
-│           │   └── Demais casos → PRETO
-│           ├── Formatação de datas (DD/MM/AA)
-│           ├── Variação em dias com setas (▲ ▼)
-│           └── Legendas explicativas
-│
-├── ⚙️ 8. FUNCIONALIDADES AVANÇADAS E LÓGICAS ESPECÍFICAS
-│   ├── CÁLCULO DE DIAS ÚTEIS:
-│   │   ├── Usar np.busday_count ou calculate_business_days
-│   │   ├── Considerar feriados (holidays)
-│   │   └── Calcular variações (VT, VD)
-│   │
-│   ├── LÓGICA DE SUBETAPAS (ENGENHARIA):
-│   │   ├── Para etapas pai (ENG. LIMP., ENG. TER., etc.):
-│   │   │   ├── Calcular datas a partir das subetapas (PE, ORÇ, SUP)
-│   │   │   ├── Recalcular progresso como média das subetapas
-│   │   │   └── Subetapas mostram apenas dados reais
-│   │   └── Controles expandir/recolher no Gantt
-│   │
-│   ├── ORDENAÇÃO INTELIGENTE:
-│   │   ├── Empreendimentos ordenados por data de DEM.MIN
-│   │   ├── Etapas ordenadas por ORDEM_ETAPAS_GLOBAL
-│   │   └── No consolidado: ordenar por data de início (previsto/real)
-│   │
-│   └── TRATAMENTO DE DATAS E VALORES:
-│       ├── converter_porcentagem() (suporta 0-1 e 0-100)
-│       ├── padronizar_etapa() (mapeamento e uppercase)
-│       ├── calcular_periodo_datas() com padding
-│       └── Tratamento de timezones (UTC)
-│
-└── 🎯 9. FLUXO DE DECISÃO FINAL
-    ├── INICIAR APLICAÇÃO
-    │   ├── TENTAR show_welcome_screen() → SE True → st.stop()
-    │   └── Configurar página wide
-    │
-    ├── CARREGAR DADOS
-    │   ├── SE sucesso → continuar
-    │   └── SE erro → mostrar dados exemplo
-    │
-    ├── PROCESSAR FILTROS
-    │   ├── Aplicar cadeia de filtros
-    │   ├── Determinar modo de visualização
-    │   └── Aplicar lógica de pulmão se necessário
-    │
-    ├── RENDERIZAR INTERFACE
-    │   ├── SE Tab Gantt selecionada:
-    │   │   ├── DECIDIR entre visão consolidada ou por projeto
-    │   │   └── Chamar função correspondente
-    │   │
-    │   └── SE Tab Tabelão selecionada:
-    │       ├── DECIDIR layout (hierárquico/horizontal)
-    │       ├── Processar e formatar dados
-    │       └── Aplicar estilos condicionais
-    │
-    └── FIM
+
+## Fluxo de Dados - Carregamento
+
+```mermaid
+sequenceDiagram
+    participant U as Usuário
+    participant P as Popup Login
+    participant S as Streamlit App
+    participant DB as MySQL
+    participant CSV as Arquivo CSV
+    participant DF as DataFrame
+    
+    U->>P: Acessa app
+    P->>U: Solicita email
+    U->>P: Fornece email
+    P->>S: Autentica usuário
+    
+    S->>DB: Buscar dados reais
+    DB-->>S: Retorna dados reais
+    
+    S->>CSV: Carregar dados previstos
+    CSV-->>S: Retorna dados previstos
+    
+    S->>DF: Merge outer join
+    DF->>DF: Aplicar lógica subetapas
+    DF->>DF: Mapear GRUPO e SETOR
+    DF-->>S: DataFrame consolidado
+    
+    S->>U: Renderiza interface
 ```
+
+## Fluxo de Baseline
+
+```mermaid
+stateDiagram-v2
+    [*] --> SemBaseline: P0 (padrão)
+    
+    SemBaseline --> CriarBaseline: Usuário cria snapshot
+    CriarBaseline --> SalvarBanco: Gera P(n+1)
+    SalvarBanco --> BaselineSalva: Sucesso
+    
+    BaselineSalva --> SemBaseline: Volta para P0
+    BaselineSalva --> AplicarBaseline: Seleciona baseline
+    
+    AplicarBaseline --> VisualizarComparacao: Mostra diferenças
+    VisualizarComparacao --> SemBaseline: Volta para P0
+    VisualizarComparacao --> DeletarBaseline: Remove baseline
+    
+    DeletarBaseline --> SemBaseline
+    
+    note right of CriarBaseline
+        Captura apenas etapas
+        com dados reais
+    end note
+    
+    note right of AplicarBaseline
+        Substitui datas previstas
+        pelas da baseline
+    end note
+```
+
+## Estrutura de Dados - DataFrame
+
+```mermaid
+erDiagram
+    DATAFRAME {
+        string Empreendimento
+        string UGB
+        string Etapa
+        date Inicio_Prevista
+        date Termino_Prevista
+        date Inicio_Real
+        date Termino_Real
+        float Percentual_Concluido
+        string SETOR
+        string GRUPO
+    }
+    
+    BASELINE {
+        int id PK
+        string empreendimento
+        string version_name
+        json baseline_data
+        string created_date
+        timestamp created_at
+        string tipo_visualizacao
+    }
+    
+    ETAPA {
+        string sigla
+        string nome_completo
+        string grupo
+        string setor
+    }
+    
+    SUBETAPA {
+        string etapa_pai
+        string subetapa
+    }
+    
+    DATAFRAME ||--o{ ETAPA : "contém"
+    ETAPA ||--o{ SUBETAPA : "pode ter"
+    BASELINE ||--o{ DATAFRAME : "snapshot de"
+```
+
+## Hierarquia de Etapas
+
+```mermaid
+graph LR
+    subgraph "VENDA"
+        A1[PROSPEC]
+        A2[LEGVENDA]
+        A3[PULVENDA]
+    end
+    
+    subgraph "LIMPEZA"
+        B1[PL.LIMP]
+        B2[LEG.LIMP]
+        B3[ENG.LIMP]
+        B3 --> B3a[PE. LIMP.]
+        B3 --> B3b[ORÇ. LIMP.]
+        B3 --> B3c[SUP. LIMP.]
+        B4[EXECLIMP]
+    end
+    
+    subgraph "TERRAPLANAGEM"
+        C1[PL.TER]
+        C2[LEG.TER]
+        C3[ENG. TER]
+        C3 --> C3a[PE. TER.]
+        C3 --> C3b[ORÇ. TER.]
+        C3 --> C3c[SUP. TER.]
+        C4[EXECTER]
+    end
+    
+    subgraph "INFRAESTRUTURA"
+        D1[PL.INFRA]
+        D2[LEG.INFRA]
+        D3[ENG.INFRA]
+        D3 --> D3a[PE. INFRA]
+        D3 --> D3b[ORÇ. INFRA]
+        D3 --> D3c[SUP. INFRA]
+        D4[EXECINFRA]
+    end
+    
+    subgraph "PAVIMENTAÇÃO"
+        E1[ENG.PAV]
+        E1 --> E1a[PE. PAV]
+        E1 --> E1b[ORÇ. PAV]
+        E1 --> E1c[SUP. PAV]
+        E2[EXEC.PAV]
+    end
+    
+    A1 --> A2
+    A2 --> A3
+    A3 --> B1
+    B1 --> B2
+    B2 --> B3
+    B3 --> B4
+    B4 --> C1
+    C1 --> C2
+    C2 --> C3
+    C3 --> C4
+    C4 --> D1
+    D1 --> D2
+    D2 --> D3
+    D3 --> D4
+    D4 --> E1
+    E1 --> E2
+    
+    style B3 fill:#ffcc99
+    style C3 fill:#ffcc99
+    style D3 fill:#ffcc99
+    style E1 fill:#ffcc99
+```
+
+## Fluxo de Filtros
+
+```mermaid
+graph TD
+    A[Dados Completos] --> B{Filtro UGB}
+    B -->|Selecionados| C{Filtro Empreendimento}
+    C -->|Selecionados| D{Filtro Grupo}
+    D -->|Selecionados| E{Filtro Setor}
+    E -->|Selecionados| F{Filtro Etapa}
+    F -->|Todos| G[Visão Projeto]
+    F -->|Específica| H[Visão Consolidada]
+    
+    G --> I{Pulmão Ativo?}
+    H --> I
+    
+    I -->|Sim| J[Ajustar Datas Previstas]
+    I -->|Não| K[Manter Datas]
+    
+    J --> L{Baseline Ativa?}
+    K --> L
+    
+    L -->|Sim| M[Aplicar Baseline]
+    L -->|Não| N[Usar P0]
+    
+    M --> O[Renderizar Gantt]
+    N --> O
+    
+    style G fill:#99ccff
+    style H fill:#99ccff
+    style M fill:#ffcc99
+    style O fill:#99ff99
+```
+
+## Componentes do Gantt
+
+```mermaid
+graph TB
+    subgraph "Gantt Chart"
+        A[Header Anos/Meses]
+        B[Sidebar Grid]
+        C[Canvas Barras]
+        D[Linha Hoje]
+        E[Linha Meta]
+        F[Tooltips]
+    end
+    
+    subgraph "Controles"
+        G[Fullscreen]
+        H[Toggle Sidebar]
+        I[Filtros Flutuantes]
+        J[Dropdown Baseline]
+    end
+    
+    subgraph "Dados"
+        K[Tasks Array]
+        L[Baselines Object]
+        M[Filter Options]
+    end
+    
+    K --> C
+    L --> J
+    M --> I
+    
+    J --> C
+    I --> C
+    
+    style C fill:#99ccff
+    style J fill:#ffcc99
+```
+
+## Cálculo de Métricas
+
+```mermaid
+flowchart TD
+    A[Dados da Etapa] --> B{Tem Datas?}
+    
+    B -->|Sim| C[Calcular Duração Prevista]
+    B -->|Não| Z[Retornar N/D]
+    
+    C --> D[Calcular Duração Real]
+    D --> E[Calcular VT]
+    E --> F[Calcular VD]
+    
+    F --> G{Progress = 100?}
+    
+    G -->|Sim| H{Real <= Previsto?}
+    G -->|Não| I{Real < Hoje?}
+    
+    H -->|Sim| J[Status: Verde]
+    H -->|Não| K[Status: Vermelho]
+    
+    I -->|Sim| L[Status: Amarelo]
+    I -->|Não| M[Status: Preto]
+    
+    J --> N[Retornar Métricas]
+    K --> N
+    L --> N
+    M --> N
+    Z --> N
+    
+    style J fill:#99ff99
+    style K fill:#ff9999
+    style L fill:#ffff99
+    style M fill:#cccccc
+```
+
+## Integração de Sistemas
+
+```mermaid
+graph LR
+    subgraph "Sistemas Externos"
+        A[Smartsheet]
+        B[Excel/CSV]
+        C[Outros ERPs]
+    end
+    
+    subgraph "ETL"
+        D[tratamento_dados_reais.py]
+        E[tratamento_macrofluxo.py]
+    end
+    
+    subgraph "Armazenamento"
+        F[(MySQL AWS)]
+        G[Arquivos CSV]
+    end
+    
+    subgraph "Aplicação"
+        H[Streamlit App]
+        I[Cache Streamlit]
+    end
+    
+    subgraph "Saída"
+        J[Gráfico Gantt]
+        K[Tabelão]
+        L[Baselines]
+    end
+    
+    A --> D
+    B --> E
+    C --> D
+    
+    D --> F
+    E --> G
+    
+    F --> H
+    G --> H
+    
+    H --> I
+    I --> J
+    I --> K
+    I --> L
+    
+    style H fill:#99ccff
+    style F fill:#99ff99
+    style J fill:#ffcc99
+```
+
+---
+
+**Legenda de Cores:**
+- 🔴 Vermelho: Autenticação/Login
+- 🔵 Azul: Visualizações principais
+- 🟢 Verde: Banco de dados/Armazenamento
+- 🟠 Laranja: Sistema de baselines
+- ⚪ Cinza: Processamento/Lógica
