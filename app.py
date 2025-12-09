@@ -10,12 +10,16 @@ import matplotlib.dates as mdates
 import matplotlib.gridspec as gridspec
 from datetime import datetime, timedelta
 import holidays
-from dateutil.relativedelta import relativedelta
-import traceback
-import streamlit.components.v1 as components  
+from dateutil.relativedelta import relativedelta #Dados para JavaScript
 import json
+
+import streamlit.components.v1 as components  
 import random
 import time
+import urllib.parse
+import mysql.connector
+from mysql.connector import Error
+from datetime import datetime
 try:
     from dropdown_component import simple_multiselect_dropdown
     from popup import show_welcome_screen
@@ -43,7 +47,34 @@ except ImportError:
     tratar_macrofluxo = None
     MODO_REAL = False
 
-    
+# --- Configurações do Banco AWS ---
+try:
+    DB_CONFIG = {
+        'host': st.secrets["aws_db"]["host"],
+        'user': st.secrets["aws_db"]["user"],
+        'password': st.secrets["aws_db"]["password"],
+        'database': st.secrets["aws_db"]["database"],
+        'port': 3306
+    }
+except Exception:
+    DB_CONFIG = {
+        'host': "mock_host",
+        'user': "mock_user", 
+        'password': "mock_password",
+        'database': "mock_db",
+        'port': 3306
+    }
+
+if 'current_baseline' not in st.session_state:
+    st.session_state.current_baseline = None
+if 'current_baseline_data' not in st.session_state:
+    st.session_state.current_baseline_data = None
+if 'current_empreendimento' not in st.session_state:
+    st.session_state.current_empreendimento = None
+
+# Mostrar popup de boas-vindas com campo de email
+show_welcome_screen()
+
 # --- ORDEM DAS ETAPAS (DEFINIDA PELO USUÁRIO) ---
 ORDEM_ETAPAS_GLOBAL = [
     "PROSPEC", "LEGVENDA", "PULVENDA", "PL.LIMP", "LEG.LIMP", "ENG.LIMP", "PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.", "EXECLIMP",
@@ -151,6 +182,206 @@ class StyleConfig:
     def set_offset_variacao_termino(cls, novo_offset):
         cls.OFFSET_VARIACAO_TERMINO = novo_offset
 
+
+# --- Funções de Banco de Dados (VERSÃO ROBUSTA AWS) ---
+
+def get_db_connection():
+    if not DB_CONFIG: return None
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        return conn
+    except Error as e:
+        print(f"❌ Erro de Conexão MySQL: {e}") # Log no terminal
+        return None
+
+def create_baselines_table():
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # Cria tabela garantindo coluna tipo_visualizacao
+            create_table_query = """
+            CREATE TABLE IF NOT EXISTS gantt_baselines (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                empreendimento VARCHAR(255) NOT NULL,
+                version_name VARCHAR(255) NOT NULL,
+                baseline_data JSON NOT NULL,
+                created_date VARCHAR(50) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                tipo_visualizacao VARCHAR(50) DEFAULT 'Gantt',
+                UNIQUE KEY unique_baseline (empreendimento, version_name)
+            )
+            """
+            cursor.execute(create_table_query)
+            conn.commit()
+        except Error as e:
+            print(f"Erro tabela: {e}")
+        finally:
+            conn.close()
+
+def save_baseline(empreendimento, version_name, baseline_data, created_date, tipo_visualizacao="Gantt"):
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            baseline_json = json.dumps(baseline_data, ensure_ascii=False, default=str)
+            
+            # Query robusta com ON DUPLICATE KEY UPDATE
+            insert_query = """
+            INSERT INTO gantt_baselines (empreendimento, version_name, baseline_data, created_date, tipo_visualizacao)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE 
+                baseline_data = VALUES(baseline_data), 
+                created_date = VALUES(created_date),
+                created_at = CURRENT_TIMESTAMP
+            """
+            cursor.execute(insert_query, (empreendimento, version_name, baseline_json, created_date, tipo_visualizacao))
+            conn.commit()
+            print(f"✅ SAVE AWS SUCESSO: {version_name}")
+            return True
+        except Error as e:
+            print(f"❌ ERRO SQL AWS: {e}")
+            return False
+        finally:
+            conn.close()
+    else:
+        print("❌ FALHA CONEXÃO: Não foi possível conectar para salvar.")
+        return False
+    
+def take_baseline(df, empreendimento):
+    # 1. Filtra o DataFrame atual
+    df_emp = df[df['Empreendimento'] == empreendimento].copy()
+
+    # 2. Define o nome da nova versão (ex: P1, P2...)
+    # (Adicione aqui a lógica de contagem de versões existente no exemplo)
+    version_name = "P_NOVA" # Exemplo simplificado
+
+    # 3. Prepara os dados para salvar (Snapshot)
+    # Aqui você define o que quer salvar. No exemplo, ele salva Inicio/Fim.
+    baseline_data = []
+    for _, row in df_emp.iterrows():
+        baseline_data.append({
+            "tarefa": row['Etapa'], # Ou o ID da tarefa se tiver
+            "inicio_previsto": row['Inicio_Real'].strftime('%Y-%m-%d') if pd.notna(row['Inicio_Real']) else None,
+            "termino_previsto": row['Termino_Real'].strftime('%Y-%m-%d') if pd.notna(row['Termino_Real']) else None
+        })
+
+    # 4. Salva no banco
+    save_baseline(empreendimento, version_name, baseline_data, datetime.now().strftime("%d/%m/%Y"))
+    return version_name
+
+def process_baseline_change():
+    """
+    Processa mudanças de baseline via query parameters.
+    """
+    query_params = st.query_params
+    
+    # Verificar se é um pedido para LIMPAR baseline
+    if 'clear_baseline' in query_params:
+        st.query_params.clear()
+        st.session_state.current_baseline = None
+        st.session_state.current_baseline_data = None
+        st.session_state.current_empreendimento = None
+        st.rerun()
+        return
+    
+    # Usar 'baseline_target' ao invés de 'empreendimento' para evitar conflito com filtros
+    if 'change_baseline' in query_params and 'baseline_target' in query_params:
+        baseline_name = query_params['change_baseline']
+        empreendimento = query_params['baseline_target']
+        
+        # Limpar os parâmetros IMEDIATAMENTE
+        st.query_params.clear()
+        
+        if baseline_name == 'P0-(padrão)':
+            # Limpar baseline apenas se for do mesmo empreendimento
+            current_emp = st.session_state.get('current_empreendimento')
+            if current_emp == empreendimento:
+                st.session_state.current_baseline = None
+                st.session_state.current_baseline_data = None
+                st.session_state.current_empreendimento = None
+                st.rerun()
+        else:
+            # Carregar baseline selecionada
+            baseline_data = get_baseline_data(empreendimento, baseline_name)
+            if baseline_data:
+                st.session_state.current_baseline = baseline_name
+                st.session_state.current_baseline_data = baseline_data
+                st.session_state.current_empreendimento = empreendimento
+                st.rerun()
+
+def aplicar_baseline_automaticamente(empreendimento):
+    """
+    Callback chamado automaticamente quando usuário troca a baseline no dropdown.
+    Aplica a baseline selecionada sem necessidade de clicar em botão.
+    """
+    selected_baseline = st.session_state.get('quick_baseline_select', 'P0-(padrão)')
+    
+    if selected_baseline == "P0-(padrão)":
+        # Voltar ao padrão (sem baseline)
+        st.session_state.current_baseline = None
+        st.session_state.current_baseline_data = None
+        st.session_state.current_empreendimento = None
+    else:
+        # Carregar baseline selecionada
+        baseline_data = get_baseline_data(empreendimento, selected_baseline)
+        if baseline_data:
+            st.session_state.current_baseline = selected_baseline
+            st.session_state.current_baseline_data = baseline_data
+            st.session_state.current_empreendimento = empreendimento
+        else:
+            # Se não encontrar, voltar para padrão
+            st.session_state.current_baseline = None
+            st.session_state.current_baseline_data = None
+            st.session_state.current_empreendimento = None
+            
+
+# --- Processar Ações (ADAPTADO DO SEU EXEMPLO) ---
+def process_context_menu_actions(df=None):
+    query_params = st.query_params
+    
+    if 'context_action' in query_params and query_params['context_action'] == 'take_baseline':
+        # 1. Decodifica parâmetros
+        raw_emp = query_params.get('empreendimento', None)
+        empreendimento = urllib.parse.unquote(raw_emp) if raw_emp else None
+        
+        print(f"🔔 BACKEND: Recebido comando para '{empreendimento}'")
+
+        # 2. Garantia de Dados (Pois o iframe é uma sessão nova)
+        if df is None or df.empty:
+            print("⚠️ Sessão Iframe. Carregando dados...")
+            try:
+                df = load_data() # Sua função de carregar Excel/SQL
+            except Exception as e:
+                print(f"❌ Erro load_data: {e}")
+                return
+
+        # 3. Executa Salvamento
+        if empreendimento and df is not None:
+            try:
+                # Cria a baseline (usa sua função take_gantt_baseline existente)
+                version_name = take_gantt_baseline(df, empreendimento, "Gantt")
+                print(f"✅ FINALIZADO: {version_name} criado.")
+                # Limpa URL
+                st.query_params.clear()
+            except Exception as e:
+                print(f"❌ Erro take_gantt_baseline: {e}")
+
+        # 4. Executa a criação
+        if empreendimento and df is not None and not df.empty:
+            try:
+                # Cria e Salva no MySQL
+                version_name = take_gantt_baseline(df, empreendimento, "Gantt")
+                print(f"✅ SUCESSO: Baseline '{version_name}' salva no banco!")
+                
+                # Limpa params para não repetir na próxima carga
+                st.query_params.clear()
+                
+            except Exception as e:
+                print(f"❌ Erro ao salvar baseline: {e}")
+        else:
+            print(f"❌ Erro: Empreendimento não encontrado ou dados vazios.")
+
 # --- Funções do Novo Gráfico Gantt ---
 def ajustar_datas_com_pulmao(df, meses_pulmao=0):
     df_copy = df.copy()
@@ -220,6 +451,216 @@ def obter_data_meta_assinatura_novo(df_empreendimento):
             return pd.to_datetime(df_meta[col].iloc[0])
     return None
 
+
+# --- FUNÇÕES DE BANCO DE DADOS PARA BASELINES ---
+
+def get_db_connection():
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        return conn
+    except Error as e:
+        return None
+
+def create_baselines_table():
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            create_table_query = """
+            CREATE TABLE IF NOT EXISTS gantt_baselines (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                empreendimento VARCHAR(255) NOT NULL,
+                version_name VARCHAR(255) NOT NULL,
+                baseline_data JSON NOT NULL,
+                created_date VARCHAR(50) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                tipo_visualizacao VARCHAR(50) NOT NULL,
+                UNIQUE KEY unique_baseline (empreendimento, version_name)
+            )
+            """
+            cursor.execute(create_table_query)
+            conn.commit()
+        except Error as e:
+            st.error(f"Erro ao criar tabela: {e}")
+        finally:
+            if conn.is_connected():
+                cursor.close()
+                conn.close()
+    else:
+        if 'mock_baselines' not in st.session_state:
+            st.session_state.mock_baselines = {}
+
+@st.cache_resource(ttl=3600) # Cache por 1 hora, ou até ser invalidado
+def load_baselines():
+    return _fetch_baselines_from_db()
+
+def _fetch_baselines_from_db():
+    conn = get_db_connection()
+    if conn:
+        baselines = {}
+        try:
+            cursor = conn.cursor(dictionary=True)
+            query = "SELECT empreendimento, version_name, baseline_data, created_date, tipo_visualizacao FROM gantt_baselines ORDER BY created_at DESC"
+            cursor.execute(query)
+            results = cursor.fetchall()
+            
+            # DEBUG
+            print(f"DEBUG load_baselines: {len(results)} registros encontrados no banco")
+            
+            for row in results:
+                empreendimento = row['empreendimento']
+                version_name = row['version_name']
+                
+                print(f"DEBUG: Carregando baseline - Empreendimento: {empreendimento}, Versão: {version_name}")
+                
+                if empreendimento not in baselines:
+                    baselines[empreendimento] = {}
+                
+                try:
+                    baseline_data = json.loads(row['baseline_data'])
+                    baselines[empreendimento][version_name] = {
+                        "date": row['created_date'],
+                        "data": baseline_data,
+                        "tipo_visualizacao": row['tipo_visualizacao']
+                    }
+                except Exception as e:
+                    print(f"DEBUG: Erro ao carregar baseline {version_name}: {e}")
+                    continue
+                    
+            return baselines
+        except Error as e:
+            print(f"DEBUG: Erro no banco: {e}")
+            return {}
+        finally:
+            if conn.is_connected():
+                cursor.close()
+                conn.close()
+    else:
+        print("DEBUG: Usando mock_baselines")
+        return st.session_state.get('mock_baselines', {})
+
+def converter_df_para_baseline_format(df):
+    """
+    Converte DataFrame agregado para formato de baseline JSON.
+    Retorna lista de dicionários com etapa e datas previstas.
+    """
+    baseline_tasks = []
+    
+    for _, row in df.iterrows():
+        # Obter datas previstas
+        inicio_prev = row.get('Inicio_Prevista')
+        termino_prev = row.get('Termino_Prevista')
+        
+        task = {
+            'etapa': row['Etapa'],
+            'inicio_previsto': inicio_prev.strftime('%Y-%m-%d') if pd.notna(inicio_prev) else None,
+            'termino_previsto': termino_prev.strftime('%Y-%m-%d') if pd.notna(termino_prev) else None
+        }
+        baseline_tasks.append(task)
+    
+    return baseline_tasks
+
+
+def save_baseline(empreendimento, version_name, baseline_data, created_date, tipo_visualizacao):
+    # Invalida o cache antes de salvar para garantir que a próxima leitura pegue o novo dado
+    load_baselines.clear()
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            
+            # Validar dados antes de serializar
+            if not baseline_data or not isinstance(baseline_data, dict):
+                raise ValueError("Dados da baseline inválidos")
+            
+            # Serializar com tratamento de caracteres especiais
+            baseline_json = json.dumps(baseline_data, ensure_ascii=False, default=str)
+            
+            insert_query = """
+            INSERT INTO gantt_baselines (empreendimento, version_name, baseline_data, created_date, tipo_visualizacao)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE 
+                baseline_data = VALUES(baseline_data), 
+                created_date = VALUES(created_date), 
+                tipo_visualizacao = VALUES(tipo_visualizacao),
+                created_at = CURRENT_TIMESTAMP
+            """
+            
+            cursor.execute(insert_query, (empreendimento, version_name, baseline_json, created_date, tipo_visualizacao))
+            conn.commit()
+            
+            # Verificar se a inserção foi bem-sucedida
+            if cursor.rowcount > 0:
+                return True
+            else:
+                return False
+                
+        except Error as e:
+            st.error(f"Erro de banco de dados ao salvar baseline: {e}")
+            return False
+        except Exception as e:
+            st.error(f"Erro inesperado ao salvar baseline: {e}")
+            return False
+        finally:
+            if conn.is_connected():
+                cursor.close()
+                conn.close()
+    else:
+        # Fallback para dados mock
+        if 'mock_baselines' not in st.session_state:
+            st.session_state.mock_baselines = {}
+        
+        if empreendimento not in st.session_state.mock_baselines:
+            st.session_state.mock_baselines[empreendimento] = {}
+        
+        st.session_state.mock_baselines[empreendimento][version_name] = {
+            "date": created_date,
+            "data": baseline_data,
+            "tipo_visualizacao": tipo_visualizacao
+        }
+        return True
+
+def delete_baseline(empreendimento, version_name):
+    """Deleta uma baseline do banco de dados"""
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            delete_query = "DELETE FROM gantt_baselines WHERE empreendimento = %s AND version_name = %s"
+            cursor.execute(delete_query, (empreendimento, version_name))
+            conn.commit()
+            
+            if cursor.rowcount > 0:
+                print(f"✅ Baseline {version_name} excluída com sucesso")
+                return True
+            else:
+                print(f"⚠️ Baseline {version_name} não encontrada no banco")
+                return False
+                
+        except Error as e:
+            print(f"❌ Erro SQL ao excluir baseline: {e}")
+            st.error(f"Erro de banco de dados: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ Erro inesperado ao excluir baseline: {e}")
+            st.error(f"Erro inesperado: {e}")
+            return False
+        finally:
+            if conn.is_connected():
+                cursor.close()
+                conn.close()
+    else:
+        # Fallback para modo mock (sem banco de dados)
+        if 'mock_baselines' in st.session_state:
+            if empreendimento in st.session_state.mock_baselines:
+                if version_name in st.session_state.mock_baselines[empreendimento]:
+                    del st.session_state.mock_baselines[empreendimento][version_name]
+                    print(f"✅ Baseline {version_name} excluída do mock")
+                    return True
+        
+        st.error("Erro: Não foi possível conectar ao banco de dados")
+        return False
+
 # --- CÓDIGO MODIFICADO ---
 def converter_dados_para_gantt(df):
     if df.empty:
@@ -278,21 +719,39 @@ def converter_dados_para_gantt(df):
                     progress_subetapas = subetapas_emp["% concluído"].apply(converter_porcentagem)
                     progress = progress_subetapas.mean()
 
-            # --- CORREÇÃO PRINCIPAL: PARA SUBETAPAS, MANTER APENAS DADOS REAIS ---
+            # Verificar se é subetapa (para skip se não tiver dados reais)
             etapa_eh_subetapa = etapa_nome_completo in ETAPA_PAI_POR_SUBETAPA
             
-            if etapa_eh_subetapa:
+            # NOVA LÓGICA: No modo padrão (sem baseline), subetapas não mostram barras previstas
+            # Apenas quando uma baseline está aplicada é que as subetapas mostram as barras
+            baseline_ativa = st.session_state.get('current_baseline') is not None
+            
+            if etapa_eh_subetapa and not baseline_ativa:
+                # Modo padrão (P0): subetapas não têm barras previstas
                 start_date = None
                 end_date = None
+            
+            # REMOVIDO: O código que zerava start_date e end_date para subetapas
+            # Isso quebrava a baseline porque as datas previstas são necessárias
+            # para mostrar o snapshot da baseline
+            
+            # Skip apenas se subetapa NÃO tem dados reais E não está em uma baseline
+            if etapa_eh_subetapa:
                 if pd.isna(start_real) and pd.isna(end_real_original):
-                    continue
+                    # Se não tem dados reais e não tem previstos também, skip
+                    if pd.isna(start_date) and pd.isna(end_date):
+                        continue
 
             # Lógica para tratar datas vazias (apenas para etapas que não são subetapas)
+            # IMPORTANTE: Se AMBAS as datas previstas estão vazias, não criar datas padrão
+            # Isso permite que etapas não presentes em uma baseline apareçam como linhas vazias
             if not etapa_eh_subetapa:
-                if pd.isna(start_date) or start_date is None: 
-                    start_date = datetime.now()
-                if pd.isna(end_date) or end_date is None: 
-                    end_date = start_date + timedelta(days=30)
+                # Só criar datas padrão se pelo menos UMA das datas previstas existir
+                if pd.notna(start_date) or pd.notna(end_date):
+                    if pd.isna(start_date) or start_date is None: 
+                        start_date = datetime.now()
+                    if pd.isna(end_date) or end_date is None: 
+                        end_date = start_date + timedelta(days=30)
 
             end_real_visual = end_real_original
             if pd.notna(start_real) and progress < 100 and pd.isna(end_real_original):
@@ -365,9 +824,100 @@ def converter_dados_para_gantt(df):
                 "vt_text": f"{int(vt):+d}d" if pd.notna(vt) else "-",
                 "vd_text": f"{int(vd):+d}d" if pd.notna(vd) else "-",
 
-                "status_color_class": status_color_class
+                "status_color_class": status_color_class,
+                
+                # *** NOVO: Campo para baselines locais (client-side switching) ***
+                "baselines": {}  # Será populado após criar todas tasks do empreendimento
             }
             tasks.append(task)
+
+        # *** POPULAR BASELINES LOCAIS EM CADA TASK ***
+        # Carregar todas as baselines disponíveis para este empreendimento
+        try:
+            all_baselines_dict = load_baselines()  # Carrega do MySQL
+            
+            # P0 = dados atuais (padrão)
+            for task in tasks:
+                task["baselines"]["P0-(padrão)"] = {
+                    "start": task["start_previsto"],
+                    "end": task["end_previsto"]
+                }
+            
+            # Adicionar outras baselines se existirem
+            if empreendimento in all_baselines_dict:
+                baselines_emp = all_baselines_dict[empreendimento]
+                
+                for baseline_name, baseline_info in baselines_emp.items():
+                    baseline_data = get_baseline_data(empreendimento, baseline_name)
+                    
+                    if baseline_data:
+                        if isinstance(baseline_data, dict) and 'tasks' in baseline_data:
+                            baseline_tasks = baseline_data['tasks']
+                        elif isinstance(baseline_data, list):
+                            baseline_tasks = baseline_data
+                        else:
+                            baseline_tasks = []
+                        
+                        # Matching de etapas com baselines
+                        for task in tasks:
+                            task_name = task["name"]
+                            baseline_task = None
+                            
+                            # Tentar nome exato
+                            baseline_task = next(
+                                (bt for bt in baseline_tasks if bt.get('etapa') == task_name or bt.get('Etapa') == task_name),
+                                None
+                            )
+                            
+                            # Tentar mapeamento reverso (nome completo → sigla)
+                            if not baseline_task and task_name in mapeamento_etapas_usuario:
+                                sigla = mapeamento_etapas_usuario[task_name]
+                                baseline_task = next(
+                                    (bt for bt in baseline_tasks if bt.get('etapa') == sigla or bt.get('Etapa') == sigla),
+                                    None
+                                )
+                            
+                            # Tentar mapeamento direto (sigla → nome completo)
+                            if not baseline_task and task_name in mapeamento_reverso:
+                                nome_completo = mapeamento_reverso[task_name]
+                                baseline_task = next(
+                                    (bt for bt in baseline_tasks if bt.get('etapa') == nome_completo or bt.get('Etapa') == nome_completo),
+                                    None
+                                )
+                            
+                            # Tentar sigla_para_nome_completo
+                            if not baseline_task and task_name in sigla_para_nome_completo:
+                                nome_alt = sigla_para_nome_completo[task_name]
+                                baseline_task = next(
+                                    (bt for bt in baseline_tasks if bt.get('etapa') == nome_alt or bt.get('Etapa') == nome_alt),
+                                    None
+                                )
+                            
+                            # Tentar normalizado (fallback)
+                            if not baseline_task:
+                                task_name_norm = task_name.strip().upper()
+                                baseline_task = next(
+                                    (bt for bt in baseline_tasks 
+                                     if (bt.get('etapa', '').strip().upper() == task_name_norm or 
+                                         bt.get('Etapa', '').strip().upper() == task_name_norm)),
+                                    None
+                                )
+                            
+                            if baseline_task:
+                                task["baselines"][baseline_name] = {
+                                    "start": baseline_task.get('inicio_previsto', baseline_task.get('Inicio_Prevista')),
+                                    "end": baseline_task.get('termino_previsto', baseline_task.get('Termino_Prevista'))
+                                }
+                            else:
+                                # CORREÇÃO: Marcar explicitamente que esta tarefa não existe nesta baseline
+                                # Isso permite que o JavaScript diferencie "sem dados" de "não processado"
+                                task["baselines"][baseline_name] = {
+                                    "start": None,
+                                    "end": None
+                                }
+        except Exception as e:
+            print(f"Erro ao popular baselines locais: {e}")
+            # Se falhar, pelo menos P0 já foi adicionado
 
         data_meta = obter_data_meta_assinatura_novo(df_emp)
 
@@ -379,6 +929,337 @@ def converter_dados_para_gantt(df):
         gantt_data.append(project)
 
     return gantt_data
+
+# --- FUNÇÕES DE BASELINE DO GANTT ---
+
+def take_gantt_baseline(df, empreendimento, tipo_visualizacao, created_by=None):
+    """Cria uma linha de base do estado atual do Gantt"""
+    
+    try:
+        # Se não foi fornecido created_by, tentar capturar automaticamente
+        if not created_by:
+            import os
+            import getpass
+            try:
+                created_by = getpass.getuser()
+            except:
+                created_by = os.environ.get('USERNAME', 'Não informado')
+        
+        # Filtrar dados do empreendimento
+        df_empreendimento = df[df['Empreendimento'] == empreendimento].copy()
+        
+        if df_empreendimento.empty:
+            st.error(f"Nenhum dado encontrado para o empreendimento: {empreendimento}")
+            raise Exception("Nenhum dado encontrado para o empreendimento selecionado")
+        
+        # Preparar dados para baseline com validação
+        baseline_data = {
+            'empreendimento': empreendimento,
+            'tipo_visualizacao': tipo_visualizacao,
+            'data_criacao': datetime.now().strftime("%d/%m/%Y %H:%M"),
+            'created_by': created_by,  # Email ou username do criador
+            'total_tasks': 0,  # Será atualizado dinamicamente com apenas etapas que têm dados reais
+            'tasks': []
+        }
+        
+        # IMPORTANTE: Calcular datas REAIS para etapas pai a partir das subetapas
+        # Isso garante que as baselines capturem as datas reais calculadas das etapas pai
+        etapas_pai_datas_calculadas = {}
+        for etapa_pai, subetapas in SUBETAPAS.items():
+            # Converter nomes completos para siglas
+            subetapas_siglas = [nome_completo_para_sigla.get(sub, sub) for sub in subetapas]
+            subetapas_df = df_empreendimento[df_empreendimento['Etapa'].isin(subetapas_siglas)]
+            
+            if not subetapas_df.empty:
+                # Calcular datas reais mínima/máxima das subetapas
+                inicio_real_min = subetapas_df['Inicio_Real'].min()
+                termino_real_max = subetapas_df['Termino_Real'].max()
+                
+                # Guardar para usar no loop de criação de tasks
+                etapa_pai_sigla = nome_completo_para_sigla.get(etapa_pai, etapa_pai)
+                etapas_pai_datas_calculadas[etapa_pai_sigla] = {
+                    'inicio_real': inicio_real_min,
+                    'termino_real': termino_real_max
+                }
+        
+        # Converter tasks para formato serializável com validação
+        task_count = 0
+        for _, row in df_empreendimento.iterrows():
+            try:
+                task = {
+                    'etapa': row.get('Etapa', ''),
+                    'etapa_nome_completo': sigla_para_nome_completo.get(row.get('Etapa', ''), row.get('Etapa', '')),
+                    'inicio_previsto': None,
+                    'termino_previsto': None,
+                    'inicio_real': None,
+                    'termino_real': None,
+                    'percentual_concluido': row.get('% concluído', 0),
+                    'setor': row.get('SETOR', ''),
+                    'grupo': row.get('GRUPO', ''),
+                    'ugb': row.get('UGB', '')
+                }
+                
+                # Converter datas para string com tratamento seguro
+                date_fields = {
+                    # O Planejado da Baseline (P1, P2...) será o Real atual (requisito do usuário)
+                    # MAS se Real não existir, usa Prevista como fallback
+                    'inicio_previsto': 'Inicio_Real',
+                    'termino_previsto': 'Termino_Real', 
+                    'inicio_real': 'Inicio_Real',
+                    'termino_real': 'Termino_Real'
+                }
+                
+                for task_field, df_field in date_fields.items():
+                    date_val = row.get(df_field)
+                    if date_val is not None and pd.notna(date_val):
+                        if hasattr(date_val, 'strftime'):
+                            task[task_field] = date_val.strftime("%Y-%m-%d")
+                        else:
+                            # Tentar converter para datetime se não for
+                            try:
+                                parsed_date = pd.to_datetime(date_val)
+                                task[task_field] = parsed_date.strftime("%Y-%m-%d")
+                            except:
+                                task[task_field] = None
+                
+                # IMPORTANTE: Para etapas PAI, usar datas REAIS calculadas das subetapas
+                etapa_sigla = row.get('Etapa', '')
+                if etapa_sigla in etapas_pai_datas_calculadas:
+                    datas_calculadas = etapas_pai_datas_calculadas[etapa_sigla]
+                    
+                    # Usar datas reais calculadas tanto para inicio_previsto quanto inicio_real
+                    # (seguindo a lógica: baseline captura o "real" como "previsto")
+                    if pd.notna(datas_calculadas['inicio_real']):
+                        task['inicio_previsto'] = datas_calculadas['inicio_real'].strftime("%Y-%m-%d")
+                        task['inicio_real'] = datas_calculadas['inicio_real'].strftime("%Y-%m-%d")
+                    if pd.notna(datas_calculadas['termino_real']):
+                        task['termino_previsto'] = datas_calculadas['termino_real'].strftime("%Y-%m-%d")
+                        task['termino_real'] = datas_calculadas['termino_real'].strftime("%Y-%m-%d")
+                
+                # ✅ VERIFICAÇÃO CRÍTICA: Só continuar se tiver dados reais
+                # DEVE acontecer ANTES do fallback para Previstas
+                has_real_data = (task['inicio_real'] is not None or task['termino_real'] is not None)
+                is_parent_with_calculated_data = etapa_sigla in etapas_pai_datas_calculadas
+                
+                # Se NÃO tem dados reais E NÃO é etapa pai, SKIP (não salva na baseline)
+                if not (has_real_data or is_parent_with_calculated_data):
+                    # DEBUG: Opcional - descomentar para ver quais etapas foram puladas
+                    # print(f"DEBUG: Etapa '{etapa_sigla}' PULADA - sem dados reais")
+                    continue  # ← Pula para próxima etapa sem adicionar na baseline
+                
+                # FALLBACK: Se não tem datas Reais, usar Previstas
+                # Isso é importante para etapas que não têm datas próprias E não são pais
+                # NOTA: Só chega aqui se a etapa passou na verificação acima
+                if task['inicio_previsto'] is None:
+                    date_val = row.get('Inicio_Prevista')
+                    if date_val is not None and pd.notna(date_val):
+                        if hasattr(date_val, 'strftime'):
+                            task['inicio_previsto'] = date_val.strftime("%Y-%m-%d")
+                        else:
+                            try:
+                                parsed_date = pd.to_datetime(date_val)
+                                task['inicio_previsto'] = parsed_date.strftime("%Y-%m-%d")
+                            except:
+                                pass
+                
+                if task['termino_previsto'] is None:
+                    date_val = row.get('Termino_Prevista')
+                    if date_val is not None and pd.notna(date_val):
+                        if hasattr(date_val, 'strftime'):
+                            task['termino_previsto'] = date_val.strftime("%Y-%m-%d")
+                        else:
+                            try:
+                                parsed_date = pd.to_datetime(date_val)
+                                task['termino_previsto'] = parsed_date.strftime("%Y-%m-%d")
+                            except:
+                                pass
+                
+                # Adicionar task (já passou na verificação de dados reais)
+                baseline_data['tasks'].append(task)
+                task_count += 1
+                
+            except Exception as task_error:
+                st.warning(f"Erro ao processar task {task_count}: {task_error}")
+                continue
+        
+        # Atualizar o total de tasks com o valor real (apenas etapas com dados reais)
+        baseline_data['total_tasks'] = task_count
+        
+        if task_count == 0:
+            raise Exception("Nenhuma task válida encontrada para salvar")
+        
+        # Gerar nome da versão
+        existing_baselines = load_baselines()
+        empreendimento_baselines = existing_baselines.get(empreendimento, {})
+        existing_versions = [k for k in empreendimento_baselines.keys() if k.startswith('P') and k.split('-')[0][1:].isdigit()]
+        
+        next_n = 1
+        if existing_versions:
+            max_n = 0
+            for version_name in existing_versions:
+                try:
+                    n_str = version_name.split('-')[0][1:]
+                    n = int(n_str)
+                    if n > max_n:
+                        max_n = n
+                except ValueError:
+                    continue
+            next_n = max_n + 1
+        
+        version_prefix = f"P{next_n}"
+        current_date_str = datetime.now().strftime("%d/%m/%Y")
+        version_name = f"{version_prefix}-({current_date_str})"
+        
+        # Salvar baseline
+        success = save_baseline(empreendimento, version_name, baseline_data, current_date_str, tipo_visualizacao)
+        
+        if success:
+            # Marcar como não enviada para AWS
+            if 'unsent_baselines' not in st.session_state:
+                st.session_state.unsent_baselines = {}
+            
+            if empreendimento not in st.session_state.unsent_baselines:
+                st.session_state.unsent_baselines[empreendimento] = []
+            
+            if version_name not in st.session_state.unsent_baselines[empreendimento]:
+                st.session_state.unsent_baselines[empreendimento].append(version_name)
+            
+            st.success(f"Linha de base {version_name} salva com sucesso!")
+            return version_name
+        else:
+            raise Exception("Falha ao salvar linha de base no banco de dados")
+            
+    except Exception as e:
+        st.error(f"Erro ao criar linha de base: {e}")
+        raise
+def debug_baseline_system():
+    """Função para debug do sistema de baselines"""
+    st.markdown("### 🔧 Debug do Sistema de Baselines")
+    
+    # Testar conexão com banco
+    conn = get_db_connection()
+    if conn:
+        st.success("✅ Conexão com banco de dados: OK")
+        conn.close()
+    else:
+        st.error("❌ Conexão com banco de dados: FALHA")
+    
+    # Verificar tabela
+    try:
+        baselines = load_baselines()
+        st.success(f"✅ Tabela de baselines: OK ({len(baselines)} empreendimentos com baselines)")
+    except Exception as e:
+        st.error(f"❌ Tabela de baselines: FALHA - {e}")
+    
+    # Verificar session state
+    if 'unsent_baselines' in st.session_state:
+        st.success(f"✅ Session state: OK ({len(st.session_state.unsent_baselines)} empreendimentos não enviados)")
+    else:
+        st.error("❌ Session state: FALHA - unsent_baselines não encontrado")
+
+def get_baseline_data(empreendimento, version_name):
+    """Carrega os dados específicos de uma baseline"""
+    # Usa a função load_baselines que é cacheada
+    baselines = load_baselines()
+    if empreendimento in baselines and version_name in baselines[empreendimento]:
+        return baselines[empreendimento][version_name]['data']
+    return None
+
+def apply_baseline_to_dataframe(df, baseline_data):
+    """Aplica os dados da baseline ao DataFrame principal"""
+    if not baseline_data or 'tasks' not in baseline_data:
+        return df
+    
+    df_baseline = df.copy()
+    
+    # Criar conjunto de etapas que estão na baseline
+    etapas_na_baseline = set()
+    for task in baseline_data['tasks']:
+        etapas_na_baseline.add(task['etapa'])
+    
+    # Para etapas do empreendimento da baseline que NÃO estão na baseline,
+    # limpar as datas previstas para aparecerem como linhas vazias
+    mask_empreendimento = df_baseline['Empreendimento'] == baseline_data['empreendimento']
+    for idx, row in df_baseline[mask_empreendimento].iterrows():
+        etapa = row['Etapa']
+        if etapa not in etapas_na_baseline:
+            # Etapa não está na baseline - limpar datas previstas
+            df_baseline.loc[idx, 'Inicio_Prevista'] = pd.NaT
+            df_baseline.loc[idx, 'Termino_Prevista'] = pd.NaT
+    
+    # Para cada task na baseline, atualizar as datas no DataFrame
+    for task in baseline_data['tasks']:
+        etapa = task['etapa']
+        
+        # Encontrar TODAS as linhas correspondentes no DataFrame
+        mask = (df_baseline['Empreendimento'] == baseline_data['empreendimento']) & \
+               (df_baseline['Etapa'] == etapa)
+        
+        if mask.any():
+            # Atualizar TODAS as linhas que correspondem (não só a primeira!)
+            # Atualizar datas previstas da baseline
+            if task['inicio_previsto']:
+                try:
+                    new_date = pd.to_datetime(task['inicio_previsto'], errors='coerce')
+                    if pd.notna(new_date):
+                        df_baseline.loc[mask, 'Inicio_Prevista'] = new_date
+                except Exception:
+                    pass
+            
+            if task['termino_previsto']:
+                try:
+                    new_date = pd.to_datetime(task['termino_previsto'], errors='coerce')
+                    if pd.notna(new_date):
+                        df_baseline.loc[mask, 'Termino_Prevista'] = new_date
+                except Exception:
+                    pass
+            
+            # Atualizar percentual de conclusão
+            if 'percentual_concluido' in task:
+                df_baseline.loc[mask, '% concluído'] = task['percentual_concluido']
+    
+    return df_baseline
+
+def get_baseline_options(empreendimento):
+    """Retorna opções de baselines disponíveis para um empreendimento"""
+    if not empreendimento:
+        return []
+    
+    baselines = load_baselines()
+    
+    # DEBUG: Mostrar o que está carregando
+    print(f"DEBUG: Buscando baselines para '{empreendimento}'")
+    print(f"DEBUG: Baselines carregadas: {list(baselines.keys())}")
+    
+    if empreendimento in baselines:
+        options = list(baselines[empreendimento].keys())
+        print(f"DEBUG: Baselines encontradas para {empreendimento}: {options}")
+        return options
+    else:
+        print(f"DEBUG: Nenhuma baseline encontrada para {empreendimento}")
+        return []
+
+def send_to_aws(empreendimento, version_name):
+    """Simula o envio de dados para AWS"""
+    try:
+        import time
+        time.sleep(1)  # Simular delay
+        
+        # Remover da lista de não enviados
+        if ('unsent_baselines' in st.session_state and 
+            empreendimento in st.session_state.unsent_baselines and 
+            version_name in st.session_state.unsent_baselines[empreendimento]):
+            
+            st.session_state.unsent_baselines[empreendimento].remove(version_name)
+            
+            if not st.session_state.unsent_baselines[empreendimento]:
+                del st.session_state.unsent_baselines[empreendimento]
+        
+        return True
+    except Exception as e:
+        st.error(f"Erro ao enviar para AWS: {e}")
+        return False
+    
 # --- Funções Utilitárias ---
 def abreviar_nome(nome):
     if pd.isna(nome):
@@ -420,7 +1301,35 @@ def calcular_variacao_termino(termino_real, termino_previsto):
         else: return "V: 0d", "#666666"
     else:
         return "V: -", "#666666"
-
+def debug_baseline_system():
+    """Função para debug do sistema de baselines"""
+    st.markdown("### 🔧 Debug do Sistema de Baselines")
+    
+    # Testar conexão com banco
+    conn = get_db_connection()
+    if conn:
+        st.success("✅ Conexão com banco de dados: OK")
+        conn.close()
+    else:
+        st.error("❌ Conexão com banco de dados: FALHA")
+    
+    # Verificar tabela
+    try:
+        baselines = load_baselines()
+        st.success(f"✅ Tabela de baselines: OK ({len(baselines)} empreendimentos com baselines)")
+        
+        # Mostrar todas as baselines disponíveis
+        for empreendimento, versions in baselines.items():
+            st.write(f"**{empreendimento}**: {list(versions.keys())}")
+            
+    except Exception as e:
+        st.error(f"❌ Tabela de baselines: FALHA - {e}")
+    
+    # Verificar session state
+    if 'unsent_baselines' in st.session_state:
+        st.success(f"✅ Session state: OK ({len(st.session_state.unsent_baselines)} empreendimentos não enviados)")
+    else:
+        st.error("❌ Session state: FALHA - unsent_baselines não encontrado")
 def calcular_porcentagem_correta(grupo):
     if "% concluído" not in grupo.columns: return 0.0
     porcentagens = grupo["% concluído"].astype(str).apply(converter_porcentagem)
@@ -445,22 +1354,32 @@ def filtrar_etapas_nao_concluidas_func(df):
 
 def obter_data_meta_assinatura(df_original, empreendimento):
     df_meta = df_original[(df_original["Empreendimento"] == empreendimento) & (df_original["Etapa"] == "DEM.MIN")]
-    if df_meta.empty: return pd.Timestamp.max
+    if df_meta.empty: 
+        return None
+    
     for col in ["Termino_Prevista", "Inicio_Prevista", "Termino_Real", "Inicio_Real"]:
-        if col in df_meta.columns and pd.notna(df_meta[col].iloc[0]): return df_meta[col].iloc[0]
-    return pd.Timestamp.max
+        if col in df_meta.columns and pd.notna(df_meta[col].iloc[0]): 
+            return df_meta[col].iloc[0]
+    return None
 
 def criar_ordenacao_empreendimentos(df_original):
     """
     Cria uma lista ordenada dos nomes COMPLETOS dos empreendimentos
     com base na data da meta de assinatura (DEMANDA MÍNIMA).
     """
-    # Use o nome COMPLETO como chave no dicionário
-    empreendimentos_meta = {emp: obter_data_meta_assinatura(df_original, emp)
-                           for emp in df_original["Empreendimento"].unique()}
-    # Retorna a lista de nomes COMPLETOS ordenados pela data meta
-    return sorted(empreendimentos_meta.keys(), key=empreendimentos_meta.get)
-
+    empreendimentos_meta = {}
+    
+    for emp in df_original["Empreendimento"].unique():
+        data_meta = obter_data_meta_assinatura(df_original, emp)
+        # Converter para timestamp Unix para ordenação segura
+        if pd.notna(data_meta) and hasattr(data_meta, 'timestamp'):
+            empreendimentos_meta[emp] = data_meta.timestamp()
+        else:
+            # Se não houver data, usar um valor muito grande para colocar no final
+            empreendimentos_meta[emp] = float('inf')
+    
+    # Retorna a lista de nomes COMPLETOS ordenados pela data meta (timestamp)
+    return sorted(empreendimentos_meta.keys(), key=lambda x: empreendimentos_meta[x])
 
 def aplicar_ordenacao_final(df, empreendimentos_ordenados):
     if df.empty: return df
@@ -473,14 +1392,15 @@ def aplicar_ordenacao_final(df, empreendimentos_ordenados):
 
 
 # --- *** FUNÇÃO gerar_gantt_por_projeto MODIFICADA *** ---
-def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses):
+def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, pulmao_status, pulmao_meses, titulo_extra="", baseline_name=None):
         """
         Gera um único gráfico de Gantt com todos os projetos.
         """
-        
         # --- Processar DF SEM PULMÃO ---
         df_sem_pulmao = df.copy()
         df_gantt_sem_pulmao = df_sem_pulmao.copy()
+
+
 
         for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
             if col in df_gantt_sem_pulmao.columns:
@@ -489,6 +1409,18 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         if "% concluído" not in df_gantt_sem_pulmao.columns:
             df_gantt_sem_pulmao["% concluído"] = 0
         df_gantt_sem_pulmao["% concluído"] = df_gantt_sem_pulmao["% concluído"].fillna(0).apply(converter_porcentagem)
+
+        # --- APLICAÇÃO DA BASELINE ANTES DA AGREGAÇÃO ---
+        # Verificar se há uma baseline ativa no session state
+        baseline_name = st.session_state.get('current_baseline')
+        baseline_data = st.session_state.get('current_baseline_data')
+        current_empreendimento_baseline = st.session_state.get('current_empreendimento')
+        
+        # Aplicar baseline ANTES da agregação, se houver
+        if baseline_name and baseline_data and current_empreendimento_baseline:
+            # Aplicar baseline apenas às linhas do empreendimento correspondente
+            df_gantt_sem_pulmao = apply_baseline_to_dataframe(df_gantt_sem_pulmao, baseline_data)
+        # --- FIM APLICAÇÃO DA BASELINE ---
 
         # Agrega os dados (usando nomes completos)
         df_gantt_agg_sem_pulmao = df_gantt_sem_pulmao.groupby(['Empreendimento', 'Etapa']).agg(
@@ -499,9 +1431,24 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
             **{'% concluído': ('% concluído', 'max')},
             SETOR=('SETOR', 'first')
         ).reset_index()
+        
+        # CRÍTICO: Remover NaT (Not a Time) values para evitar datas inválidas no JavaScript
+        for col in ['Inicio_Prevista', 'Termino_Prevista', 'Inicio_Real', 'Termino_Real']:
+            if col in df_gantt_agg_sem_pulmao.columns:
+                # Substituir NaT por None (que vira null em JSON)
+                df_gantt_agg_sem_pulmao[col] = df_gantt_agg_sem_pulmao[col].apply(
+                    lambda x: None if pd.isna(x) else x
+                )
 
         df_gantt_agg_sem_pulmao["Etapa"] = df_gantt_agg_sem_pulmao["Etapa"].map(sigla_para_nome_completo).fillna(df_gantt_agg_sem_pulmao["Etapa"])
-        
+        # Obter baselines disponíveis
+        if not df.empty:
+                # Se estamos em visão consolidada por etapa, pode ter múltiplos empreendimentos
+                # Mas no modo projeto, geralmente temos um empreendimento principal
+                empreendimentos_no_grafico = df["Empreendimento"].unique()
+                empreendimento_principal = empreendimentos_no_grafico[0] if len(empreendimentos_no_grafico) == 1 else "Múltiplos"
+        else:
+            empreendimento_principal = ""
         # Mapear o SETOR e GRUPO
         df_gantt_agg_sem_pulmao["SETOR"] = df_gantt_agg_sem_pulmao["Etapa"].map(SETOR_POR_ETAPA).fillna(df_gantt_agg_sem_pulmao["SETOR"])
         df_gantt_agg_sem_pulmao["GRUPO"] = df_gantt_agg_sem_pulmao["Etapa"].map(GRUPO_POR_ETAPA).fillna("Não especificado")
@@ -520,6 +1467,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
             "grupos": ["Todos"] + sorted(list(GRUPOS.keys())),
             "etapas": ["Todas"] + ORDEM_ETAPAS_NOME_COMPLETO
         }
+            # DEBUG: Verificar dados
+        print(f"DEBUG gerar_gantt_por_projeto:")
+        print(f"  - DF vazio: {df.empty}")
+        if not df.empty:
+            print(f"  - Empreendimentos: {df['Empreendimento'].unique()}")
 
         # *** CORREÇÃO: USAR O PRIMEIRO PROJETO DA LISTA EM VEZ DE CRIAR "TODOS OS EMPREENDIMENTOS" ***
         if gantt_data_base:
@@ -543,12 +1495,119 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
             st.warning("Nenhuma tarefa disponível para exibir.")
             return
         
+        # Add baseline indicator to project title for visual feedback
+        if baseline_name:
+            project["name"] += f" - 📊 {baseline_name}"
+        elif titulo_extra:
+            project["name"] += titulo_extra
+
+        # --- NOVA LÓGICA: Carregar baselines para TODOS os empreendimentos disponíveis ---
+        baselines_data = {}
+        baselines_por_empreendimento = {}
+        baseline_options_por_empreendimento = {}
+
+        # Carregar baselines para todos os empreendimentos nos dados
+        todos_empreendimentos = df["Empreendimento"].unique().tolist() if not df.empty else []
+        for emp in todos_empreendimentos:
+            # Obter opções de baseline para este empreendimento
+            emp_baseline_options = get_baseline_options(emp)
+            baseline_options_por_empreendimento[emp] = emp_baseline_options
+            
+            # Carregar dados das baselines
+            baselines = load_baselines()
+            if emp in baselines:
+                baselines_por_empreendimento[emp] = baselines[emp]
+                
+                # Preparar dados para JavaScript (apenas para o primeiro empreendimento inicial)
+                if emp == (df["Empreendimento"].iloc[0] if not df.empty else ""):
+                    for version_name in emp_baseline_options:
+                        if version_name in baselines[emp]:
+                            baselines_data[version_name] = baselines[emp][version_name]['data']
+
+        # Determinar empreendimento atual
+        empreendimento_atual = todos_empreendimentos[0] if len(todos_empreendimentos) == 1 else "Múltiplos"
+        baseline_options = baseline_options_por_empreendimento.get(empreendimento_atual, []) if empreendimento_atual != "Múltiplos" else []
+        
+        # Obter todos os empreendimentos disponíveis nos dados filtrados
+        todos_empreendimentos = df["Empreendimento"].unique().tolist() if not df.empty else []
+        
+        # Determinar empreendimento atual baseado no filtro ou no primeiro da lista
+        empreendimento_atual = todos_empreendimentos[0] if len(todos_empreendimentos) == 1 else "Múltiplos"
+        
+        # Obter baselines para o empreendimento atual (se for único)
+        baseline_options = []
+        if empreendimento_atual != "Múltiplos":
+            baseline_options = get_baseline_options(empreendimento_atual)
+        
+        # Preparar dados para o JavaScript
+        baselines_por_empreendimento = {}
+        for emp in todos_empreendimentos:
+            emp_baselines = get_baseline_options(emp)
+            if emp_baselines:
+                baselines_por_empreendimento[emp] = emp_baselines
+        
+        # --- PREPARAR BASELINES PARA JAVASCRIPT ---
+        available_baselines_for_js = {}
+        
+        all_baselines_from_db = load_baselines()
+        
+        # P0 = dados atuais (sem baseline)
+        available_baselines_for_js["P0-(padrão)"] = converter_df_para_baseline_format(df_gantt_agg_sem_pulmao)
+        
+        # Carregar baselines de todos os empreendimentos
+        for empreendimento_loop in todos_empreendimentos:
+            if empreendimento_loop in all_baselines_from_db:
+                baselines_dict = all_baselines_from_db[empreendimento_loop]
+                
+                for baseline_name in baselines_dict.keys():
+                    baseline_data = get_baseline_data(empreendimento_loop, baseline_name)
+                    
+                    if baseline_data:
+                        try:
+                            formatted_tasks = []
+                            
+                            if isinstance(baseline_data, dict):
+                                if 'tasks' in baseline_data:
+                                    tasks_list = baseline_data['tasks']
+                                else:
+                                    tasks_list = list(baseline_data.values())
+                            elif isinstance(baseline_data, list):
+                                tasks_list = baseline_data
+                            else:
+                                tasks_list = []
+                            
+                            for i, task in enumerate(tasks_list):
+                                if isinstance(task, str):
+                                    if not task or not task.strip():
+                                        continue
+                                    try:
+                                        task_dict = json.loads(task)
+                                    except json.JSONDecodeError:
+                                        continue
+                                elif isinstance(task, dict):
+                                    task_dict = task
+                                else:
+                                    continue
+                                
+                                if task_dict:
+                                    formatted_tasks.append({
+                                        'etapa': task_dict.get('etapa', task_dict.get('Etapa', '')),
+                                        'inicio_previsto': task_dict.get('inicio_previsto', task_dict.get('Inicio_Prevista', task_dict.get('start_date'))),
+                                        'termino_previsto': task_dict.get('termino_previsto', task_dict.get('Termino_Prevista', task_dict.get('end_date')))
+                                    })
+                            
+                            available_baselines_for_js[baseline_name] = formatted_tasks
+                        except Exception as e:
+                            print(f"Erro ao processar baseline {baseline_name}: {e}")
+                            continue
+        
+        
         # Reduz o fator de multiplicação para evitar excesso de espaço
         altura_gantt = max(400, min(800, (num_tasks * 25) + 200))  # Limita a altura máxima
 
         # --- Geração do HTML ---
         gantt_html = f"""
-        <!DOCTYPE html>
+            <!DOCTYPE html>
             <html lang="pt-BR">
             <head>
                 <meta charset="utf-8">
@@ -574,6 +1633,193 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     .header-cell.task-name-cell {{ text-align: left; }}
                     .gantt-sidebar-content {{ background-color: #f8f9fa; flex: 1; overflow-y: auto; overflow-x: hidden; }}
                     
+                    /* --- CSS DEFINITIVO PARA FULLSCREEN --- */
+                    /* Novos estilos para seletor de baseline - Alinhado com menu de filtros */
+                    .baseline-selector {{
+                        display: none;
+                        position: absolute;
+                        top: 10px;
+                        right: 50px;
+                        width: 280px;
+                        background: white;
+                        border-radius: 8px;
+                        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+                        z-index: 99;
+                        padding: 15px;
+                        border: 1px solid #e2e8f0;
+                    }}
+                    
+                    .baseline-selector.is-open {{
+                        display: block;
+                    }}
+                    
+                    .baseline-selector label {{
+                        display: block;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: #4a5568;
+                        margin-bottom: 4px;
+                        text-transform: uppercase;
+                    }}
+                    
+                    .baseline-selector select {{
+                        width: 100%;
+                        padding: 6px 8px;
+                        border: 1px solid #cbd5e0;
+                        border-radius: 4px;
+                        font-size: 13px;
+                        background: white;
+                        margin-bottom: 12px;
+                    }}
+                    
+                    .baseline-selector button {{
+                        width: 100%;
+                        padding: 8px;
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: white;
+                        background-color: #2d3748;
+                        border: none;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        margin-top: 5px;
+                        transition: background-color 0.2s;
+                    }}
+                    
+                    .baseline-selector button:hover {{
+                        background-color: #1a202c;
+                    }}
+                    
+                    
+                    .baseline-current {{
+                        background: #f8fafc;
+                        padding: 8px 12px;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        margin-bottom: 12px;
+                        border-left: 3px solid #2d3748;
+                        font-weight: 500;
+                        color: #1a202c;
+                        transition: all 0.2s ease;
+                    }}
+                    
+                    .baseline-current.changed {{
+                        background: #fffbeb;
+                        border-left-color: #f59e0b;
+                        color: #92400e;
+                    }}
+
+                    .baseline-selector-container {{
+                        position: absolute;
+                        top: 10px;
+                        right: 100px;
+                        z-index: 1000;
+                        background: {'#f0f7ff' if baseline_name else 'white'};
+                        border-radius: 6px;
+                        padding: 8px;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+                        border: 1px solid {'#3b82f6' if baseline_name else '#ccc'};
+                        min-width: 240px;
+                        max-width: 300px;
+                    }}
+                    
+                    .baseline-selector-container select {{
+                        width: 100%;
+                        padding: 6px 8px;
+                        border: 1px solid #aaa;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        background: white;
+                        margin-bottom: 4px;
+                    }}
+                    
+                    .baseline-label {{
+                        font-size: 11px;
+                        color: #333;
+                        margin-bottom: 6px;
+                        font-weight: bold;
+                    }}
+                    
+                    .baseline-info {{
+                        font-size: 10px;
+                        color: #666;
+                        line-height: 1.3;
+                    }}
+                    
+                    .baseline-disabled {{
+                        background: #f5f5f5;
+                        opacity: 0.7;
+                    }}
+                    
+                    .empreendimento-atual {{
+                        font-weight: bold;
+                        color: #3b82f6;
+                    }}
+                    #context-menu {{
+                        position: fixed; /* MUDANÇA: Fixed funciona melhor se estiver dentro do container */
+                        background: white;
+                        border: 1px solid #ccc;
+                        border-radius: 5px;
+                        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+                        z-index: 2147483647; /* Máximo Z-Index possível no navegador */
+                        display: none;
+                        font-family: 'Segoe UI', sans-serif;
+                        min-width: 160px;
+                    }}
+                    .context-menu-item {{
+                        padding: 12px 16px;
+                        cursor: pointer;
+                        border-bottom: 1px solid #eee;
+                        font-size: 13px;
+                        color: #333;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        transition: background 0.1s;
+                    }}
+                    .context-menu-item:hover {{
+                        background: #f1f3f5;
+                        color: #000;
+                    }}
+                    /* Estilo para o Toast Dinâmico */
+                    .js-toast-loading {{
+                        position: absolute !important; /* Absolute relativo ao container fullscreen */
+                        bottom: 20px;
+                        right: 20px;
+                        background: #333;
+                        color: white;
+                        padding: 12px 24px;
+                        border-radius: 5px;
+                        z-index: 2147483647 !important;
+                        font-size: 14px;
+                        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+                        display: none;
+                        animation: fadeIn 0.3s;
+                    }}
+                    @keyframes fadeIn {{ from {{ opacity: 0; transform: translateY(10px); }} to {{ opacity: 1; transform: translateY(0); }} }}
+                    /* Iframe invisível mas renderizado */
+                    #hidden-iframe {{
+                        position: absolute;
+                        width: 0;
+                        height: 0;
+                        border: 0;
+                        visibility: hidden;
+                    }}
+                    /* Toast de Loading */
+                    .toast-loading {{
+                        position: fixed;
+                        bottom: 20px;
+                        right: 20px;
+                        background: #333;
+                        color: white;
+                        padding: 12px 24px;
+                        border-radius: 4px;
+                        z-index: 10001;
+                        display: none;
+                        font-size: 13px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    }}
+
                     /* Estilos para agrupamento */
                     .main-task-row {{ font-weight: 600; }}
                     .main-task-row.has-subtasks {{ cursor: pointer; }}
@@ -817,31 +2063,52 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         height: 30px;
                         font-size: 13px;
                     }}
-
                 </style>
             </head>
             <body>
                 <script id="grupos-gantt-data" type="application/json">{json.dumps(GRUPOS)}</script>
                 <script id="subetapas-data" type="application/json">{json.dumps(SUBETAPAS)}</script>
-                
-                <div class="gantt-container" id="gantt-container-{project['id']}">
-                <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
-                    <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros">
-                        <span>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
-                            </svg>
-                        </span>
-                    </button>
-                    <button class="toolbar-btn" id="fullscreen-btn-{project["id"]}" title="Tela Cheia">
-                        <span>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
-                            </svg>
-                        </span>
-                    </button>
+                <!-- Adicionar dados de todas as baselines -->
+                <script id="all-baselines-data" type="application/json">{json.dumps(baselines_por_empreendimento)}</script>
+                <script id="baseline-options-por-empreendimento" type="application/json">{json.dumps(baseline_options_por_empreendimento)}</script>
+                <div id="context-menu">
+                    <div class="context-menu-item" id="ctx-baseline">📸 Criar Linha de Base</div>
+                    <div class="context-menu-item" style="color: #999; cursor: default;">🚫 Deletar (Em breve)</div>
                 </div>
-
+                
+                <iframe id="hidden-iframe" name="hidden-iframe"></iframe>
+                <div id="toast-loading" class="toast-loading">🔄 Processando...</div>
+                <div class="gantt-container" id="gantt-container-{project['id']}">
+                    <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
+                        <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros">
+                            <span>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                                </svg>
+                            </span>
+                        </button>
+                        <button class="toolbar-btn" id="fullscreen-btn-{project["id"]}" title="Tela Cheia">
+                            <span>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                                </svg>
+                            </span>
+                        </button>
+                    </div>
+                    <!-- Seletor de Baseline -->
+                    <div class="baseline-selector" id="baseline-selector-{project['id']}">
+                        <div class="baseline-current" id="current-baseline-{project['id']}">
+                            {f"Baseline Ativa: {baseline_name}" if baseline_name else "Baseline Ativa: P0-(padrão)"}
+                        </div>
+                        <label for="baseline-dropdown-{project['id']}">Selecionar Linha de Base</label>
+                        <select id="baseline-dropdown-{project['id']}">
+                            <option value="P0-(padrão)">P0-(padrão)</option>
+                            {"".join([f'<option value="{name}" {"selected" if name == baseline_name else ""}>{name}</option>' for name in baseline_options])}
+                        </select>
+                        <button onclick="switchBaselineLocal(document.getElementById('baseline-dropdown-{project['id']}').value, 'MANUAL_CLICK')">
+                            Aplicar Linha de Base
+                        </button>
+                    </div>
                     <div class="floating-filter-menu" id="filter-menu-{project['id']}">
                         <div class="filter-group">
                             <label for="filter-project-{project['id']}">Empreendimento</label>
@@ -849,17 +2116,14 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         </div>
                         <div class="filter-group">
                             <label for="filter-setor-{project['id']}">Setor</label>
-                            
                             <div id="filter-setor-{project['id']}"></div>
                         </div>
                         <div class="filter-group">
                             <label for="filter-grupo-{project['id']}">Grupo</label>
-                            
                             <div id="filter-grupo-{project['id']}"></div>
                         </div>
                         <div class="filter-group">
                             <label for="filter-etapa-{project['id']}">Etapa</label>
-                            
                             <div id="filter-etapa-{project['id']}"></div>
                         </div>
                         <div class="filter-group">
@@ -897,7 +2161,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                 <label for="filter-pulmao-meses-{project['id']}" style="font-size: 12px; font-weight: 500;">Meses de Pulmão:</label>
                                 <input type="number" id="filter-pulmao-meses-{project['id']}" value="{pulmao_meses}" min="0" max="36" step="1" style="padding: 4px 6px; font-size: 12px; height: 28px; width: 80px;">
                             </div>
-                            </div>
+                        </div>
                         <button class="filter-apply-btn" id="filter-apply-btn-{project['id']}">Aplicar Filtros</button>
                     </div>
 
@@ -940,15 +2204,17 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         </div>
                     </div>
                     <div class="tooltip" id="tooltip-{project["id"]}"></div>
+
+                    <iframe id="hidden-iframe" name="hidden-iframe" style="display:none;"></iframe>
                 </div>
-                
                 
                 <script src="https://cdn.jsdelivr.net/npm/virtual-select-plugin@1.0.39/dist/virtual-select.min.js"></script>
                 
-
                 <script>
-                    // DEBUG: Verificar dados
-                    console.log('Inicializando Gantt para projeto:', '{project["name"]}');
+                    const allBaselinesData = JSON.parse(document.getElementById('all-baselines-data').textContent);
+                    const baselineOptionsPorEmpreendimento = JSON.parse(document.getElementById('baseline-options-por-empreendimento').textContent);
+                    
+                    let currentBaseline = null;
                     
                     const coresPorSetor = {json.dumps(StyleConfig.CORES_POR_SETOR)};
 
@@ -994,7 +2260,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         const year = String(d.getUTCFullYear()).slice(-2);
                         return `${{day}}/${{month}}/${{year}}`;
                     }};
-
+                    
                     function addMonths(dateStr, months) {{
                         if (!dateStr) return null;
                         const date = parseDate(dateStr);
@@ -1006,8 +2272,240 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         }}
                         return date.toISOString().split('T')[0];
                     }}
-                    // --- FIM HELPERS DE DATA E PULMÃO ---
-
+                    
+                    // Funções stub (vazias) - a funcionalidade já existe no HTML
+                    function addBaselineButtonToToolbar() {{
+                        // Não faz nada - botão já existe no HTML
+                    }}
+                    
+                    // *** NOVA FUNÇÃO: Atualizar campos de exibição da sidebar ***
+                    function updateTaskDisplayFields(task) {{
+                        // Atualizar datas formatadas
+                        task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                        task.termino_previsto = formatDateDisplay(task.end_previsto);
+                        
+                        // Recalcular duração em meses
+                        if (task.start_previsto && task.end_previsto) {{
+                            const startDate = parseDate(task.start_previsto);
+                            const endDate = parseDate(task.end_previsto);
+                            if (startDate && endDate) {{
+                                const diffMs = endDate - startDate;
+                                const diffDays = diffMs / (1000 * 60 * 60 * 24);
+                                const duracao = diffDays / 30.4375; // Dias por mês médio
+                                task.duracao_prev_meses = duracao > 0 ? duracao.toFixed(1).replace('.', ',') : '-';
+                            }} else {{
+                                task.duracao_prev_meses = '-';
+                            }}
+                        }} else {{
+                            task.duracao_prev_meses = '-';
+                        }}
+                        
+                        // Recalcular VT (Variação de Término)
+                        if (task.end_real_original_raw && task.end_previsto) {{
+                            const endReal = parseDate(task.end_real_original_raw);
+                            const endPrev = parseDate(task.end_previsto);
+                            if (endReal && endPrev) {{
+                                const diffDays = Math.round((endReal - endPrev) / (1000 * 60 * 60 * 24));
+                                task.vt_text = diffDays > 0 ? `+${{diffDays}}d` : diffDays < 0 ? `${{diffDays}}d` : '0d';
+                            }} else {{
+                                task.vt_text = '-';
+                            }}
+                        }} else {{
+                            task.vt_text = '-';
+                        }}
+                        
+                        // Recalcular VD (Variação de Duração)
+                        if (task.duracao_real_meses !== '-' && task.duracao_prev_meses !== '-') {{
+                            const duracaoReal = parseFloat(task.duracao_real_meses.replace(',', '.'));
+                            const duracaoPrev = parseFloat(task.duracao_prev_meses.replace(',', '.'));
+                            if (!isNaN(duracaoReal) && !isNaN(duracaoPrev)) {{
+                                // Converter meses para dias úteis (aproximadamente)
+                                const diffMeses = duracaoReal - duracaoPrev;
+                                const diffDias = Math.round(diffMeses * 22); // ~22 dias úteis por mês
+                                task.vd_text = diffDias > 0 ? `+${{diffDias}}d` : diffDias < 0 ? `${{diffDias}}d` : '0d';
+                            }} else {{
+                                task.vd_text = '-';
+                            }}
+                        }} else {{
+                            task.vd_text = '-';
+                        }}
+                    }}
+                    
+                    // *** FUNÇÃO: Reaplicar baseline ativa após filtros ***
+                    function reapplyActiveBaseline(tasks) {{
+                        if (currentActiveBaseline === 'P0-(padrão)') {{
+                            // P0 = dados originais, nada a fazer
+                            console.log('📋 Baseline P0 ativa - usando dados originais');
+                            return;
+                        }}
+                        
+                        console.log(`🔄 Reaplicando baseline: ${{currentActiveBaseline}}`);
+                        let reappliedCount = 0;
+                        let clearedCount = 0;
+                        
+                        tasks.forEach(task => {{
+                            if (task.baselines && task.baselines[currentActiveBaseline]) {{
+                                const baselineData = task.baselines[currentActiveBaseline];
+                                
+                                if (baselineData.start !== null && baselineData.end !== null) {{
+                                    task.start_previsto = baselineData.start;
+                                    task.end_previsto = baselineData.end;
+                                    reappliedCount++;
+                                }} else {{
+                                    task.start_previsto = null;
+                                    task.end_previsto = null;
+                                    clearedCount++;
+                                }}
+                                
+                                // Recalcular campos de exibição
+                                updateTaskDisplayFields(task);
+                            }}
+                        }});
+                        
+                        console.log(`✅ Baseline ${{currentActiveBaseline}} reaplicada: ${{reappliedCount}} atualizadas, ${{clearedCount}} limpas`);
+                    }}
+                    
+                    function updateBaselineDropdownForProject(projectName) {{
+                        console.log('📋 updateBaselineDropdownForProject chamada para:', projectName);
+                        
+                        const dropdown = document.getElementById('baseline-dropdown-{project["id"]}');
+                        const currentIndicator = document.getElementById('current-baseline-{project["id"]}');
+                        
+                        if (!dropdown || !currentIndicator) {{
+                            console.warn('⚠️ Dropdown ou indicador não encontrado');
+                            return;
+                        }}
+                        
+                        // Armazenar baseline original
+                        const originalBaselineValue = dropdown.value;
+                        console.log('🔍 Baseline original:', originalBaselineValue);
+                        
+                        // Clonar dropdown para remover event listeners externos
+                        const newDropdown = dropdown.cloneNode(true);
+                        dropdown.parentNode.replaceChild(newDropdown, dropdown);
+                        console.log('🔒 Event listeners externos removidos');
+                        
+                        // NOVA ABORDAGEM: Monitor contínuo em vez de event listener
+                        // Isso evita que o event listener seja sobrescrito por código externo
+                        let lastKnownValue = originalBaselineValue;
+                        
+                        const monitorInterval = setInterval(function() {{
+                            const dropdown = document.getElementById('baseline-dropdown-{project["id"]}');
+                            const indicator = document.getElementById('current-baseline-{project["id"]}');
+                            
+                            if (!dropdown || !indicator) {{
+                                clearInterval(monitorInterval);
+                                return;
+                            }}
+                            
+                            const currentValue = dropdown.value;
+                            
+                            // Detectar mudança de valor
+                            if (currentValue !== lastKnownValue) {{
+                                lastKnownValue = currentValue;
+                                
+                                if (currentValue !== originalBaselineValue) {{
+                                    indicator.classList.add('changed');
+                                    indicator.textContent = `Nova seleção: ${{currentValue}}`;
+                                    console.log('🟠 MUDANÇA DETECTADA: Indicador → LARANJA (baseline diferente)');
+                                }} else {{
+                                    indicator.classList.remove('changed');
+                                    indicator.textContent = `Baseline Ativa: ${{currentValue}}`;
+                                    console.log('🔵 MUDANÇA DETECTADA: Indicador → AZUL (baseline original)');
+                                }}
+                            }}
+                        }}, 100); // Verifica a cada 100ms
+                        
+                        console.log('✅ Monitor contínuo iniciado');
+                    }}
+                    
+                    // Flag de controle para evitar execução automática
+                    let baselineChangeInProgress = false;
+                    
+                    // Função de troca de baseline instantânea (client-side)
+                    // IMPORTANTE: Segundo parâmetro é um token de segurança
+                    function switchBaselineLocal(baselineName, securityToken) {{
+                        // 🛡️ PROTEÇÃO: Só executa se chamada manualmente via botão com token correto
+                        if (securityToken !== 'MANUAL_CLICK') {{
+                            console.warn('⛔ Tentativa de aplicar baseline sem autorização bloqueada!');
+                            console.warn('   Baseline tentada:', baselineName);
+                            console.warn('   Token recebido:', securityToken);
+                            return;  // BLOQUEIA a execução
+                        }}
+                        
+                        // Proteção: só executa se não estiver sendo chamada automaticamente
+                        if (baselineChangeInProgress) {{
+                            console.log('⚠️ Mudança de baseline já em progresso, ignorando chamada duplicada');
+                            return;
+                        }}
+                        
+                        baselineChangeInProgress = true;
+                        console.log('✅ Aplicando baseline AUTORIZADA:', baselineName);
+                        
+                        // *** SALVAR BASELINE ATIVA ***
+                        currentActiveBaseline = baselineName;
+                        console.log(`📌 Baseline ativa definida como: ${{baselineName}}`);
+                        
+                        if (!projectData || !projectData[0] || !projectData[0].tasks) {{
+                            console.error('❌ Dados do projeto não disponíveis');
+                            return;
+                        }}
+                        
+                        const tasks = projectData[0].tasks;
+                        let updatedCount = 0;
+                        let clearedCount = 0;
+                        
+                        tasks.forEach(task => {{
+                            if (task.baselines && task.baselines[baselineName]) {{
+                                const baselineData = task.baselines[baselineName];
+                                
+                                // CORREÇÃO: Verificar se a baseline tem dados válidos (não-null)
+                                // Se start e end são null, significa que a tarefa NÃO existia nesta baseline
+                                if (baselineData.start !== null && baselineData.end !== null) {{
+                                    // Tarefa existe na baseline - aplicar datas
+                                    task.start_previsto = baselineData.start;
+                                    task.end_previsto = baselineData.end;
+                                    updatedCount++;
+                                }} else {{
+                                    // Tarefa NÃO existe na baseline - limpar datas previstas
+                                    task.start_previsto = null;
+                                    task.end_previsto = null;
+                                    clearedCount++;
+                                }}
+                                
+                                // *** NOVO: Recalcular campos de exibição da sidebar ***
+                                updateTaskDisplayFields(task);
+                            }}
+                        }});
+                        
+                        console.log(`✅ Baseline aplicada: ${{updatedCount}} tarefas atualizadas, ${{clearedCount}} tarefas limpas`);
+                        
+                        const currentDiv = document.getElementById('current-baseline-{project["id"]}');
+                        if (currentDiv) {{
+                            currentDiv.textContent = `Baseline Ativa: ${{baselineName}}`;
+                            currentDiv.classList.remove('changed');  // Remove cor laranja, volta para azul
+                        }}
+                        
+                        // Fechar o seletor de baseline (igual ao menu de filtros)
+                        const baselineSelector = document.getElementById('baseline-selector-{project["id"]}');
+                        if (baselineSelector) {{
+                            baselineSelector.classList.remove('is-open');
+                            baselineSelector.style.display = 'none';  // Force close
+                        }}
+                        
+                        // Redesenhar gráfico
+                        try {{
+                            renderChart();
+                            renderSidebar();
+                        }} catch (e) {{
+                            console.error('Erro ao redesenhar:', e);
+                            window.location.reload();
+                        }} finally {{
+                            // Resetar flag para permitir futuras mudanças
+                            baselineChangeInProgress = false;
+                        }}
+                    }}
+                    
                     const filterOptions = {json.dumps(filter_options)};
 
                     let allTasks_baseData = {json.dumps(tasks_base_data)};
@@ -1018,9 +2516,12 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     let pulmaoStatus = '{pulmao_status}';
                     let filtersPopulated = false;
 
-                    // *** INÍCIO: Variáveis Globais para Virtual Select ***
+                    // *** Variáveis Globais para Virtual Select ***
                     let vsSetor, vsGrupo, vsEtapa;
                     // *** FIM: Variáveis Globais para Virtual Select ***
+                    
+                    // *** RASTREAMENTO DE BASELINE ATIVA ***
+                    let currentActiveBaseline = 'P0-(padrão)'; // Baseline atualmente aplicada
 
                     function parseDate(dateStr) {{ 
                         if (!dateStr) return null; 
@@ -1109,6 +2610,100 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         
                         return tasksOrganizadas;
                     }}
+                    
+                    // *** NOVA FUNÇÃO: Atualizar dropdown de baseline ***
+                    function updateBaselineDropdownForProject(projectName) {{
+                        console.log('Atualizando baseline dropdown para:', projectName);
+                        
+                        const dropdown = document.getElementById('baseline-dropdown-{project['id']}');
+                        const currentDiv = document.getElementById('current-baseline-{project['id']}');
+                        
+                        if (!dropdown || !currentDiv) {{
+                            console.error('Elementos do dropdown de baseline não encontrados');
+                            return;
+                        }}
+                        
+                        // Obter baselines para este empreendimento
+                        const baselinesDoEmpreendimento = baselineOptionsPorEmpreendimento[projectName] || [];
+                        
+                        // Salvar valor selecionado atual
+                        const currentValue = dropdown.value;
+                        
+                        // Limpar dropdown
+                        dropdown.innerHTML = '<option value="P0-(padrão)">P0-(padrão)</option>';
+                        
+                        // Adicionar novas opções
+                        if (baselinesDoEmpreendimento.length > 0) {{
+                            baselinesDoEmpreendimento.forEach(baselineName => {{
+                                const isSelected = baselineName === currentBaseline;
+                                dropdown.innerHTML += `<option value="${{baselineName}}" ${{isSelected ? 'selected' : ''}}>${{baselineName}}</option>`;
+                            }});
+                        }}
+                        
+                        // Restaurar valor selecionado se ainda existir
+                        if (currentValue && Array.from(dropdown.options).some(opt => opt.value === currentValue)) {{
+                            dropdown.value = currentValue;
+                        }}
+                        
+                        // Atualizar texto atual
+                        if (currentBaseline && currentBaseline !== 'P0-(padrão)') {{
+                            currentDiv.textContent = `Baseline: ${{currentBaseline}}`;
+                        }} else {{
+                            currentDiv.textContent = 'Baseline: P0-(padrão)';
+                        }}
+                        
+                        console.log('Dropdown atualizado com', baselinesDoEmpreendimento.length, 'baselines');
+                        
+                        // IMPORTANTE: Re-adicionar event listener após atualizar dropdown
+                        // (necessário porque innerHTML foi modificado)
+                        dropdown.onchange = function() {{
+                            const selectedBaseline = dropdown.value;
+                            console.log('📊 Baseline selecionada no dropdown:', selectedBaseline);
+                            switchBaselineLocal(selectedBaseline); // ← NOVA FUNÇÃO CLIENT-SIDE
+                        }};
+                    }}
+                    
+                    
+                    // FUNÇÃO GLOBAL para compatibilidade com onchange inline no HTML
+                    // Agora chama diretamente switchBaselineLocal (client-side)
+                    window.handleBaselineChange = function(selectedBaseline) {{
+                        switchBaselineLocal(selectedBaseline);
+                    }};
+                    
+                    
+                    // *** NOVA FUNÇÃO: Alternar visibilidade do seletor de baseline ***
+                    function toggleBaselineSelector() {{
+                        const selector = document.getElementById('baseline-selector-{project['id']}');
+                        if (selector) {{
+                            selector.style.display = selector.style.display === 'none' ? 'block' : 'none';
+                        }}
+                    }}
+                    
+                    // *** NOVA FUNÇÃO: Adicionar botão de baseline na toolbar ***
+                    function addBaselineButtonToToolbar() {{
+                        const toolbar = document.getElementById('gantt-toolbar-{project["id"]}');
+                        if (toolbar) {{
+                            // Verificar se o botão já existe
+                            if (document.getElementById('baseline-btn-{project["id"]}')) return;
+                            
+                            const baselineBtn = document.createElement('button');
+                            baselineBtn.id = 'baseline-btn-{project["id"]}';
+                            baselineBtn.className = 'toolbar-btn';
+                            baselineBtn.innerHTML = '<span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14,2 14,8 20,8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10,9 9,9 8,9"></polyline></svg></span>';
+                            baselineBtn.title = 'Selecionar Baseline';
+                            baselineBtn.onclick = toggleBaselineSelector;
+                            
+                            // Inserir após o botão de filtro
+                            const filterBtn = document.getElementById('filter-btn-{project["id"]}');
+                            if (filterBtn && filterBtn.parentNode) {{
+                                filterBtn.parentNode.insertBefore(baselineBtn, filterBtn.nextSibling);
+                            }} else {{
+                                toolbar.appendChild(baselineBtn);
+                            }}
+                            
+                            console.log('Botão de baseline adicionado à toolbar');
+                        }}
+                    }}
 
                     function toggleSubtasks(taskName) {{
                         const subtaskRows = document.querySelectorAll('.subtask-row[data-parent="' + taskName + '"]');
@@ -1159,7 +2754,588 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             }});
                         }}
                     }}
+                    
+                    // --- LÓGICA V6: NOME DINÂMICO (CORREÇÃO FINAL) ---
+                    // --- LÓGICA V15: IFRAME SEGURO + URL VIA REFERRER (DEFINITIVA) ---
+                    (function() {{
+                        // 1. Configuração
+                        const containerId = 'gantt-container-' + '{project["id"]}';
+                        const container = document.getElementById(containerId);
+                        
+                        // Garante iframe
+                        let iframe = document.getElementById('hidden-iframe');
+                        if (!iframe) {{
+                            iframe = document.createElement('iframe');
+                            iframe.id = 'hidden-iframe';
+                            iframe.style.display = 'none';
+                            if(container) container.appendChild(iframe);
+                        }}
 
+                        if (!container) return;
+
+                        // Limpeza visual
+                        const oldMenu = container.querySelector('#context-menu');
+                        if (oldMenu) oldMenu.remove();
+                        const oldToast = container.querySelector('.js-toast-loading');
+                        if (oldToast) oldToast.remove();
+
+                        // 2. Criar Menu Radial
+                        const menu = document.createElement('div');
+                        menu.id = 'radial-menu';
+                        menu.style.cssText = "position:fixed; z-index:2147483647; display:none; font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;";
+                        menu.innerHTML = `
+                            <style>
+                                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+                                
+                                .radial-menu-wrapper {{
+                                    position: relative;
+                                    width: 260px;
+                                    height: 260px;
+                                }}
+                                
+                                .radial-center {{
+                                    position: absolute;
+                                    top: 50%;
+                                    left: 50%;
+                                    transform: translate(-50%, -50%);
+                                    width: 44px;
+                                    height: 44px;
+                                    border: 3px solid #007AFF;
+                                    border-radius: 50%;
+                                    background: transparent;
+                                    cursor: pointer;
+                                    transition: all 0.2s ease;
+                                    z-index: 10;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                }}
+                                
+                                .radial-center:hover {{
+                                    transform: translate(-50%, -50%) scale(1.1);
+                                    border-width: 4px;
+                                }}
+                                
+                                .radial-center-play {{
+                                    width: 0;
+                                    height: 0;
+                                    border-left: 11px solid #007AFF;
+                                    border-top: 7px solid transparent;
+                                    border-bottom: 7px solid transparent;
+                                    margin-left: 3px;
+                                }}
+                                
+                                /* Círculo de fundo que passa por baixo dos ícones */
+                                .radial-background-circle {{
+                                    position: absolute;
+                                    top: 50%;
+                                    left: 50%;
+                                    transform: translate(-50%, -50%);
+                                    width: 140px;
+                                    height: 140px;
+                                    border: 4px solid #f0f0f0;
+                                    border-radius: 50%;
+                                    background: transparent;
+                                    z-index: 1;
+                                }}
+                                
+                                .radial-item {{
+                                    position: absolute;
+                                    width: 32px;
+                                    height: 32px;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    cursor: pointer;
+                                    transition: all 0.2s ease;
+                                    z-index: 5;
+                                    background: white;
+                                    border: 2px solid #f0f0f0;
+                                    border-radius: 7px;
+                                    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+                                }}
+                                
+                                .radial-item:hover {{
+                                    background: #f5f5f5;
+                                    transform: scale(1.1);
+                                    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+                                    border-color: #007AFF;
+                                }}
+                                
+                                .radial-item svg {{
+                                    width: 20px;
+                                    height: 20px;
+                                    transition: all 0.2s ease;
+                                    fill: #333333;
+                                    stroke: #333333;
+                                }}
+                                
+                                .radial-item:hover svg {{
+                                    fill: #007AFF;
+                                    stroke: #007AFF;
+                                }}
+                                
+                                /* Modo de Foco - Escurecer barras */
+                                .gantt-bar.focus-mode {{
+                                    filter: grayscale(100%) brightness(0.4) !important;
+                                    opacity: 0.5 !important;
+                                    transition: all 0.3s ease;
+                                }}
+                                
+                                .gantt-bar.focus-mode.focused {{
+                                    filter: none !important;
+                                    opacity: 1 !important;
+                                }}
+                                
+                                .radial-tooltip {{
+                                    position: absolute;
+                                    padding: 5px 9px;
+                                    border-radius: 14px;
+                                    font-size: 10px;
+                                    font-weight: 500;
+                                    white-space: nowrap;
+                                    display: flex;
+                                    align-items: center;
+                                    gap: 5px;
+                                    pointer-events: none;
+                                    transition: background 0.2s ease, color 0.2s ease;
+                                    z-index: 15;
+                                    background: #f5f5f5;
+                                    color: #333;
+                                }}
+                                
+                                .radial-item:hover + .radial-tooltip {{
+                                    background: #007AFF;
+                                    color: white;
+                                }}
+                                
+                                .radial-item:hover + .radial-tooltip .tooltip-badge {{
+                                    background: white;
+                                    color: #007AFF;
+                                }}
+                                
+                                /* Tooltip amarelo para "Em produção" - apenas no hover */
+                                .radial-item:hover + .radial-tooltip.yellow-tooltip {{
+                                    background: #FFC107 !important;
+                                    color: #333 !important;
+                                }}
+                                
+                                .radial-item:hover + .radial-tooltip.yellow-tooltip .tooltip-badge {{
+                                    background: #333;
+                                    color: #FFC107;
+                                }}
+                                
+                                .radial-tooltip.active {{
+                                    background: #007AFF;
+                                    color: white;
+                                    box-shadow: 0 2px 12px rgba(0, 122, 255, 0.3);
+                                    opacity: 1 !important;
+                                    transform: scale(1) !important;
+                                }}
+                                
+                                .radial-tooltip:not(.active) {{
+                                    background: #f5f5f5;
+                                    color: #333;
+                                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                                }}
+                                
+                                .tooltip-badge {{
+                                    padding: 3px 8px;
+                                    border-radius: 5px;
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    min-width: 20px;
+                                    text-align: center;
+                                    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+                                }}
+                                
+                                .tooltip-badge.active-badge {{
+                                    background: white;
+                                    color: #007AFF;
+                                }}
+                                
+                                .tooltip-badge.inactive-badge {{
+                                    background: #e0e0e0;
+                                    color: #666;
+                                }}
+                                
+                                .radial-more {{
+                                    position: absolute;
+                                    padding: 10px 18px;
+                                    background: #f5f5f5;
+                                    color: #666;
+                                    border-radius: 20px;
+                                    font-size: 13px;
+                                    font-weight: 500;
+                                    cursor: pointer;
+                                    transition: all 0.2s ease;
+                                    z-index: 5;
+                                    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+                                }}
+                                
+                                .radial-more:hover {{
+                                    background: #e8e8e8;
+                                    transform: scale(1.05);
+                                }}
+                                
+                                @keyframes fadeIn {{
+                                    from {{ opacity: 0; transform: scale(0.8); }}
+                                    to {{ opacity: 1; transform: scale(1); }}
+                                }}
+                                
+                                .radial-item, .radial-tooltip, .radial-more {{
+                                    animation: fadeIn 0.3s ease-out;
+                                }}
+                            </style>
+                            
+                            <div class="radial-menu-wrapper">
+                                <!-- Círculo de fundo -->
+                                <div class="radial-background-circle"></div>
+                                
+                                <!-- Centro com play button -->
+                                <div class="radial-center" title="Menu Radial"></div>
+                                
+                                <!-- Topo: Move Tool (Criar Baseline) -->
+                                <div class="radial-item" id="btn-create-baseline" style="top: 44px; left: 114px;">
+                                    <svg viewBox="0 0 24 24">
+                                        <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
+                                    </svg>
+                                </div>
+                                <div class="radial-tooltip yellow-tooltip" style="top: 10px; left: 50%; transform: translateX(-50%);">
+                                    Em produção
+                                    <span class="tooltip-badge inactive-badge">X</span>
+                                </div>
+                                
+                                <!-- Direita: Pen Tool (Caneta) -->
+                                <div class="radial-item" style="top: 114px; left: 184px;">
+                                    <svg viewBox="0 0 24 24">
+                                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                                    </svg>
+                                </div>
+                                <div class="radial-tooltip" style="top: 114px; left: 224px;">
+                                    Notas
+                                    <span class="tooltip-badge inactive-badge">N</span>
+                                </div>
+                                
+                                <!-- Esquerda: Actions (Ações) -->
+                                <div class="radial-item" style="top: 114px; left: 44px;">
+                                    <svg viewBox="0 0 24 24">
+                                        <rect x="3" y="3" width="7" height="7" rx="1"/>
+                                        <rect x="14" y="3" width="7" height="7" rx="1"/>
+                                        <rect x="3" y="14" width="7" height="7" rx="1"/>
+                                        <path d="M18 18l-3-3m3 3l3-3m-3 3v-6" stroke="currentColor" fill="none" stroke-width="2"/>
+                                    </svg>
+                                </div>
+                                <div class="radial-tooltip" style="top: 114px; right: 224px;">
+                                    Modo Foco
+                                    <span class="tooltip-badge inactive-badge">F</span>
+                                </div>
+                            </div>
+                        `;
+                        container.appendChild(menu);
+                        
+                        // Bloquinho de Notas Flutuante
+                        const notepad = document.createElement('div');
+                        notepad.id = 'floating-notepad';
+                        notepad.style.cssText = "display:none; position:fixed; top:100px; right:50px; width:320px; height:420px; background:white; border:1px solid #e8e8e8; border-radius:16px; box-shadow:0 8px 32px rgba(0,0,0,0.08); z-index:9999; flex-direction:column; font-family:'Inter', sans-serif; overflow:hidden;";
+                        notepad.innerHTML = `
+                            <style>
+                                .notepad-header {{
+                                    padding: 14px 18px;
+                                    background: #2E384A;
+                                    color: white;
+                                    display: flex;
+                                    justify-content: space-between;
+                                    align-items: center;
+                                    cursor: move;
+                                    user-select: none;
+                                    border-bottom: 1px solid rgba(255,255,255,0.1);
+                                }}
+                                
+                                .notepad-header-title {{
+                                    display: flex;
+                                    align-items: center;
+                                    gap: 8px;
+                                }}
+                                
+                                .notepad-header-title svg {{
+                                    width: 18px;
+                                    height: 18px;
+                                    fill: white;
+                                }}
+                                
+                                .notepad-header span {{
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    letter-spacing: 0.3px;
+                                }}
+                                
+                                .notepad-close {{
+                                    background: rgba(255,255,255,0.15);
+                                    border: none;
+                                    color: white;
+                                    font-size: 20px;
+                                    cursor: pointer;
+                                    padding: 4px 8px;
+                                    line-height: 1;
+                                    border-radius: 6px;
+                                    transition: all 0.2s ease;
+                                }}
+                                
+                                .notepad-close:hover {{
+                                    background: rgba(255,255,255,0.25);
+                                    transform: scale(1.05);
+                                }}
+                                
+                                .notepad-content {{
+                                    flex: 1;
+                                    padding: 20px;
+                                    border: none;
+                                    resize: none;
+                                    font-family: 'Inter', sans-serif;
+                                    font-size: 14px;
+                                    line-height: 1.6;
+                                    outline: none;
+                                    color: #333;
+                                    background: #fafafa;
+                                }}
+                                
+                                .notepad-content::placeholder {{
+                                    color: #aaa;
+                                }}
+                            </style>
+                            <div class="notepad-header">
+                                <div class="notepad-header-title">
+                                    <svg viewBox="0 0 24 24">
+                                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                                    </svg>
+                                    <span>Notas</span>
+                                </div>
+                                <button class="notepad-close">×</button>
+                            </div>
+                            <textarea class="notepad-content" placeholder="Digite suas notas aqui..."></textarea>
+                        `;
+                        container.appendChild(notepad);
+
+                        // 3. Criar Toast
+                        const toast = document.createElement('div');
+                        toast.className = 'js-toast-loading';
+                        toast.style.cssText = "position:fixed; bottom:20px; right:20px; background:#2c3e50; color:white; padding:15px 25px; border-radius:8px; z-index:2147483647; display:none; font-family:sans-serif; box-shadow:0 5px 15px rgba(0,0,0,0.3); transition: all 0.3s ease;";
+                        container.appendChild(toast);
+
+                        // 4. Listeners
+                        container.addEventListener('contextmenu', function(e) {{
+                            if (e.target.closest('.gantt-chart-content') || e.target.closest('.gantt-sidebar-wrapper') || e.target.closest('.gantt-row')) {{
+                                e.preventDefault();
+                                menu.style.display = 'block';
+                                menu.style.left = (e.clientX - 130) + 'px';  // Centraliza menu de 260px
+                                menu.style.top = (e.clientY - 130) + 'px';
+                            }}
+                        }});
+
+                        document.addEventListener('click', function(e) {{
+                            if (menu.style.display === 'block' && !menu.contains(e.target)) {{
+                                menu.style.display = 'none';
+                            }}
+                        }}, true);
+                        
+                        // Fechar ao clicar no centro
+                        const centerBtn = menu.querySelector('.radial-center');
+                        if (centerBtn) {{
+                            centerBtn.addEventListener('click', function(e) {{
+                                e.stopPropagation();
+                                menu.style.display = 'none';
+                            }});
+                        }}
+
+                        // --- 5. AÇÃO DO BOTÃO ---
+                        const btnCreate = menu.querySelector('#btn-create-baseline');
+                        
+                        btnCreate.addEventListener('click', function(e) {{
+                            e.stopPropagation();
+                            e.preventDefault();
+
+                            // A. Nome do Projeto
+                            let currentProjectName = "Desconhecido";
+                            if (typeof projectData !== 'undefined' && projectData.length > 0) {{
+                                currentProjectName = projectData[0].name;
+                            }} else {{
+                                const titleEl = container.querySelector('.project-title-row span');
+                                if (titleEl) currentProjectName = titleEl.textContent;
+                            }}
+
+                            // B. Feedback Visual (Laranja = Processando)
+                            menu.style.display = 'none';
+                            toast.style.display = 'block';
+                            toast.style.backgroundColor = "#e67e22"; // Laranja
+                            toast.innerHTML = `⏳ Processando baseline de <b>${{currentProjectName}}</b>...`; 
+
+                            // C. Montar URL CORRETA
+                            const encodedProject = encodeURIComponent(currentProjectName);
+                            const timestamp = new Date().getTime();
+                            
+                            // Usa REFERRER para pegar a URL real do app (ex: https://app.streamlit...)
+                            // Isso corrige o bug do "about:srcdoc"
+                            let baseUrl = document.referrer;
+                            if (!baseUrl || baseUrl === "") {{
+                                // Fallback raro
+                                baseUrl = window.location.ancestorOrigins && window.location.ancestorOrigins[0] ? window.location.ancestorOrigins[0] : "";
+                            }}
+                            // Remove barra final
+                            if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+
+                            // Se falhar tudo, tenta relativo (mas geralmente referrer resolve no Streamlit Cloud)
+                            const finalUrl = baseUrl ? (baseUrl + `/?context_action=take_baseline&empreendimento=${{encodedProject}}&t=${{timestamp}}`) : `?context_action=take_baseline&empreendimento=${{encodedProject}}`;
+
+                            console.log("🚀 URL Iframe:", finalUrl);
+                            
+                            // D. Enviar via Iframe (Não recarrega a página, mas salva no banco)
+                            if (iframe) iframe.src = finalUrl;
+
+                            // E. Feedback Final
+                            // Espera 4 segundos (tempo pro Python salvar) e avisa para atualizar
+                            setTimeout(() => {{
+                                toast.style.backgroundColor = "#27ae60"; // Verde
+                                toast.innerHTML = `
+                                    <div style="display:flex; flex-direction:column; gap:5px;">
+                                        <span style="font-weight:bold; font-size:14px;">✅ Salvo no Banco!</span>
+                                        <span style="font-size:12px;">Dados processados em segundo plano.</span>
+                                        <span style="font-weight:bold; text-decoration:underline; cursor:pointer;">🔄 Pressione F5 agora para ver.</span>
+                                    </div>
+                                `;
+                                setTimeout(() => {{ toast.style.display = 'none'; }}, 12000);
+                            }}, 4000);
+                        }});
+                        
+                        // --- 6. BLOQUINHO DE NOTAS ---
+                        let notepadActive = false;
+                        const penIcon = menu.querySelector('[style*="top: 114px; left: 184px"]'); // Ícone Caneta (reposicionado)
+                        const notepadTextarea = notepad.querySelector('.notepad-content');
+                        const NOTEPAD_STORAGE_KEY = 'gantt_notepad_content';
+                        
+                        // Carregar texto salvo do localStorage ao iniciar
+                        const savedContent = localStorage.getItem(NOTEPAD_STORAGE_KEY);
+                        if (savedContent && notepadTextarea) {{
+                            notepadTextarea.value = savedContent;
+                        }}
+                        
+                        // Salvar texto no localStorage sempre que digitar
+                        if (notepadTextarea) {{
+                            notepadTextarea.addEventListener('input', () => {{
+                                localStorage.setItem(NOTEPAD_STORAGE_KEY, notepadTextarea.value);
+                            }});
+                        }}
+                        
+                        // Toggle notepad ao clicar no ícone Caneta
+                        if (penIcon) {{
+                            penIcon.addEventListener('click', (e) => {{
+                                e.stopPropagation();
+                                notepadActive = !notepadActive;
+                                notepad.style.display = notepadActive ? 'flex' : 'none';
+                                
+                                // Marcar ícone como ativo/inativo
+                                if (notepadActive) {{
+                                    penIcon.style.borderColor = '#007AFF';
+                                    penIcon.style.background = '#e6f2ff';
+                                }} else {{
+                                    penIcon.style.borderColor = '';
+                                    penIcon.style.background = '';
+                                }}
+                                
+                                menu.style.display = 'none';
+                            }});
+                        }}
+                        
+                        // Fechar notepad com botão X
+                        const closeBtn = notepad.querySelector('.notepad-close');
+                        if (closeBtn) {{
+                            closeBtn.addEventListener('click', () => {{
+                                notepadActive = false;
+                                notepad.style.display = 'none';
+                                if (penIcon) {{
+                                    penIcon.style.borderColor = '';
+                                    penIcon.style.background = '';
+                                }}
+                                // NÃO limpar localStorage aqui - apenas fechar visualmente
+                            }});
+                        }}
+                        
+                        // Drag-and-drop do bloquinho
+                        let isDragging = false;
+                        let offsetX, offsetY;
+                        const notepadHeader = notepad.querySelector('.notepad-header');
+                        
+                        if (notepadHeader) {{
+                            notepadHeader.addEventListener('mousedown', (e) => {{
+                                isDragging = true;
+                                offsetX = e.clientX - notepad.offsetLeft;
+                                offsetY = e.clientY - notepad.offsetTop;
+                                notepadHeader.style.cursor = 'grabbing';
+                            }});
+                        }}
+                        
+                        document.addEventListener('mousemove', (e) => {{
+                            if (isDragging) {{
+                                notepad.style.left = (e.clientX - offsetX) + 'px';
+                                notepad.style.top = (e.clientY - offsetY) + 'px';
+                                notepad.style.right = 'auto';
+                            }}
+                        }});
+                        
+                        document.addEventListener('mouseup', () => {{
+                            if (isDragging) {{
+                                isDragging = false;
+                                if (notepadHeader) notepadHeader.style.cursor = 'move';
+                            }}
+                        }});
+                        
+                        // --- 7. MODO DE FOCO (BOTÃO AÇÕES) ---
+                        let focusModeActive = false;
+                        const actionsIcon = menu.querySelector('[style*="top: 114px; left: 44px"]'); // Botão Ações (reposicionado)
+                        
+                        // Toggle modo de foco ao clicar no botão Ações
+                        if (actionsIcon) {{
+                            actionsIcon.addEventListener('click', (e) => {{
+                                e.stopPropagation();
+                                focusModeActive = !focusModeActive;
+                                
+                                const allBars = container.querySelectorAll('.gantt-bar');
+                                
+                                if (focusModeActive) {{
+                                    // Ativar modo foco - escurecer todas as barras
+                                    allBars.forEach(bar => bar.classList.add('focus-mode'));
+                                    actionsIcon.style.borderColor = '#007AFF';
+                                    actionsIcon.style.background = '#e6f2ff';
+                                }} else {{
+                                    // Desativar modo foco - restaurar todas as cores
+                                    allBars.forEach(bar => {{
+                                        bar.classList.remove('focus-mode', 'focused');
+                                    }});
+                                    actionsIcon.style.borderColor = '';
+                                    actionsIcon.style.background = '';
+                                }}
+                                
+                                menu.style.display = 'none';
+                            }});
+                        }}
+                        
+                        // Click em barras para focar/desfocar (seleção múltipla com toggle)
+                        container.addEventListener('click', (e) => {{
+                            if (!focusModeActive) return;
+                            
+                            const clickedBar = e.target.closest('.gantt-bar');
+                            if (!clickedBar) return;
+                            
+                            // Toggle: se já está focada, remove foco; senão, adiciona
+                            if (clickedBar.classList.contains('focused')) {{
+                                clickedBar.classList.remove('focused');
+                            }} else {{
+                                clickedBar.classList.add('focused');
+                            }}
+                        }});
+
+                    }})();
+                    
                     function initGantt() {{
                         console.log('Iniciando Gantt com dados:', projectData);
                         
@@ -1202,6 +3378,12 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             activeDataMaxStr = finalMaxDate.toISOString().split('T')[0];
                         }}
 
+
+                        // *** ADICIONAR BOTÃO DE BASELINE ***
+                        addBaselineButtonToToolbar();
+                        
+                        // *** ATUALIZAR DROPDOWN DE BASELINE ***
+
                         renderSidebar();
                         renderHeader();
                         renderChart();
@@ -1210,6 +3392,9 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         positionTodayLine();
                         positionMetaLine();
                         populateFilters();
+                        
+                        // Inicializar monitoramento do dropdown de baseline
+                        updateBaselineDropdownForProject(projectData[0].name);
                     }}
 
                     function applyInitialPulmaoState() {{
@@ -1543,7 +3728,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     }}
 
                     function renderOverlapBar(task, row) {{
-                    if (!task.start_real || !(task.end_real_original_raw || task.end_real)) return;
+                        if (!task.start_real || !(task.end_real_original_raw || task.end_real)) return;
                         const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real_original_raw || task.end_real);
                         const overlap_start = new Date(Math.max(s_prev, s_real)), overlap_end = new Date(Math.min(e_prev, e_real));
                         if (overlap_start < overlap_end) {{
@@ -1790,6 +3975,9 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         positionTodayLine();
                         positionMetaLine();
                         updateProjectTitle();
+                        
+                        // *** ATUALIZAR BASELINE PARA O EMPREENDIMENTO INICIAL ***
+                        updateBaselineDropdownForProject(projectData[0].name);
                     }}
 
                     function updateProjectTitle() {{
@@ -1807,8 +3995,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             document.exitFullscreen();
                         }}
                     }}
-
-
 
                     function toggleFullscreen() {{
                         const container = document.getElementById('gantt-container-{project["id"]}');
@@ -1831,6 +4017,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             document.getElementById('filter-menu-{project["id"]}').classList.remove('is-open');
                         }}
                     }}
+                    
                     function populateFilters() {{
                         if (filtersPopulated) return;
 
@@ -1909,8 +4096,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         filtersPopulated = true;
                     }}
 
-                    // *** FUNÇÃO applyFiltersAndRedraw CORRIGIDA ***
-                    // *** FUNÇÃO applyFiltersAndRedraw CORRIGIDA ***
+                    // *** FUNÇÃO applyFiltersAndRedraw ATUALIZADA ***
                     function applyFiltersAndRedraw() {{
                         try {{
                             const selProjectIndex = parseInt(document.getElementById('filter-project-{project["id"]}').value, 10);
@@ -1945,6 +4131,10 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                 // Reorganizar tasks com estrutura de subetapas
                                 projectData[0].tasks = organizarTasksComSubetapas(projectData[0].tasks);
                                 allTasks_baseData = JSON.parse(JSON.stringify(projectData[0].tasks));
+                                
+                                // *** ATUALIZAR BASELINE PARA O NOVO EMPREENDIMENTO ***
+                                const newProjectName = newProject.name;
+                                updateBaselineDropdownForProject(newProjectName);
                             }}
 
                             let baseTasks = JSON.parse(JSON.stringify(allTasks_baseData));
@@ -1966,32 +4156,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             console.log('Tasks que pertencem ao grupo filtrado:', tasksComGrupoFiltrado.length);
                             console.log('=== FIM DEBUG ===');
 
-                            if (selPulmao === 'Com Pulmão' && selPulmaoMeses > 0) {{
-                                const offsetMeses = -selPulmaoMeses;
-                                console.log("Aplicando pulmão APENAS no previsto para filtros");
-                                
-                                baseTasks.forEach(task => {{
-                                    const etapaNome = task.name;
-                                    
-                                    if (etapas_sem_alteracao.includes(etapaNome)) {{
-                                        // Não altera datas
-                                    }}
-                                    else if (etapas_pulmao.includes(etapaNome)) {{
-                                        // Apenas datas previstas
-                                        task.start_previsto = addMonths(task.start_previsto, offsetMeses);
-                                        task.inicio_previsto = formatDateDisplay(task.start_previsto);
-                                    }}
-                                    else {{
-                                        // Apenas datas previstas
-                                        task.start_previsto = addMonths(task.start_previsto, offsetMeses);
-                                        task.end_previsto = addMonths(task.end_previsto, offsetMeses);
-                                        
-                                        task.inicio_previsto = formatDateDisplay(task.start_previsto);
-                                        task.termino_previsto = formatDateDisplay(task.end_previsto);
-                                    }}
-                                }});
-                            }}
-
+                            // *** APLICAR FILTROS PRIMEIRO (antes de pulmão/baseline) ***
                             let filteredTasks = baseTasks;
 
                             // *** LÓGICA DE FILTRO CORRIGIDA ***
@@ -2035,6 +4200,60 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                 // Não interromper o processo, deixar que o renderSidebar mostre a mensagem apropriada
                             }}
 
+                            // Atualizar dados
+                            projectData[0].tasks = filteredTasks;
+                            tipoVisualizacao = selVis;
+                            
+                            // *** NOVA ORDEM: 1) REAPLICAR BASELINE (se ativa) ***
+                            console.log('🔄 Verificando baseline ativa:', currentActiveBaseline);
+                            if (currentActiveBaseline && currentActiveBaseline !== 'P0-(padrão)') {{
+                                console.log('📊 Reaplicando baseline:', currentActiveBaseline);
+                                reapplyActiveBaseline(projectData[0].tasks);
+                            }} else {{
+                                console.log('📋 Usando dados P0 (padrão - sem baseline)');
+                            }}
+                            
+                            // *** NOVA ORDEM: 2) APLICAR PULMÃO SOBRE A BASELINE ***
+                            if (selPulmao === 'Com Pulmão' && selPulmaoMeses > 0) {{
+                                const offsetMeses = -selPulmaoMeses;
+                                console.log("🔧 Aplicando pulmão de", selPulmaoMeses, "meses SOBRE a baseline ativa");
+                                
+                                projectData[0].tasks.forEach(task => {{
+                                    const etapaNome = task.name;
+                                    
+                                    if (etapas_sem_alteracao.includes(etapaNome)) {{
+                                        // Não altera datas
+                                        console.log('  ⏸️ Etapa protegida (sem alteração):', etapaNome);
+                                    }}
+                                    else if (etapas_pulmao.includes(etapaNome)) {{
+                                        // Apenas datas previstas - só ajusta início
+                                        const oldStart = task.start_previsto;
+                                        task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                                        task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                        console.log('  📅 Pulmão ' + etapaNome + ':', oldStart, '→', task.start_previsto);
+                                        
+                                        // Recalcular campos de exibição
+                                        updateTaskDisplayFields(task);
+                                    }}
+                                    else {{
+                                        // Apenas datas previstas - ajusta início e término
+                                        const oldStart = task.start_previsto;
+                                        const oldEnd = task.end_previsto;
+                                        task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                                        task.end_previsto = addMonths(task.end_previsto, offsetMeses);
+                                        
+                                        task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                        task.termino_previsto = formatDateDisplay(task.end_previsto);
+                                        console.log('  ⏩ ' + etapaNome + ':', oldStart, '→', task.start_previsto);
+                                        
+                                        // Recalcular campos de exibição
+                                        updateTaskDisplayFields(task);
+                                    }}
+                                }});
+                            }} else {{
+                                console.log('⏸️ Pulmão desativado');
+                            }}
+
                             // Recalcular range de datas apenas se houver tasks
                             if (filteredTasks.length > 0) {{
                                 const {{ min: newMinStr, max: newMaxStr }} = findNewDateRange(filteredTasks);
@@ -2062,10 +4281,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                 activeDataMaxStr = finalMaxDate.toISOString().split('T')[0];
                             }}
 
-                            // Atualizar dados e redesenhar
-                            projectData[0].tasks = filteredTasks;
-                            tipoVisualizacao = selVis;
-
                             renderSidebar();
                             renderHeader();
                             renderChart();
@@ -2073,22 +4288,23 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             positionMetaLine();
                             updateProjectTitle();
 
-
-
                         }} catch (error) {{
                             console.error('Erro ao aplicar filtros:', error);
                             alert('Erro ao aplicar filtros: ' + error.message);
                         }}
-                    }}                    // DEBUG: Verificar se há dados antes de inicializar
+                    }}
+                    
+                    // DEBUG: Verificar se há dados antes de inicializar
                     console.log('Dados do projeto:', projectData);
                     console.log('Tasks base:', allTasks_baseData);
+                    console.log('Dados de baseline completos:', allBaselinesData);
                     
                     // Inicializar o Gantt
                     initGantt();
                 </script>
             </body>
             </html>
-        """
+            """
         # Exibe o componente HTML no Streamlit
         components.html(gantt_html, height=altura_gantt, scrolling=True)
         st.markdown("---")
@@ -2251,7 +4467,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         Inicio_Real=('Inicio_Real', 'min'),
         Termino_Real=('Termino_Real', 'max'),
         **{'% concluído': ('% concluído', 'max')},
-        SETOR=('SETOR', 'first')
+        SETOR=('SETOR', 'first'),
+        UGB=('UGB', 'first')
     ).reset_index()
     
     all_data_by_stage_js = {}
@@ -2294,6 +4511,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
             task = {
                 "id": f"t{j}_{i}", # ID único
                 "name": row["Empreendimento"], # O 'name' ainda é o Empreendimento
+                "ugb": row.get("UGB", "N/D"),
                 "numero_etapa": j + 1,
                 "start_previsto": start_date.strftime("%Y-%m-%d"),
                 "end_previsto": end_date.strftime("%Y-%m-%d"),
@@ -2314,6 +4532,76 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 "status_color_class": status_color_class
             }
             tasks_base_data_for_stage.append(task)
+        
+        # *** NOVO: Popular baselines em cada task do consolidado ***
+        try:
+            all_baselines_dict = load_baselines()  # Carregar todas as baselines
+            
+            for task in tasks_base_data_for_stage:
+                empreendimento = task["name"]  # No consolidado, name = empreendimento
+                
+                # Inicializar campo baselines
+                task["baselines"] = {}
+                
+                # P0 = dados atuais (padrão)
+                task["baselines"]["P0-(padrão)"] = {
+                    "start": task["start_previsto"],
+                    "end": task["end_previsto"]
+                }
+                
+                # Adicionar baselines salvas do empreendimento
+                if empreendimento in all_baselines_dict:
+                    baselines_emp = all_baselines_dict[empreendimento]
+                    
+                    for baseline_name, baseline_info in baselines_emp.items():
+                        baseline_data = get_baseline_data(empreendimento, baseline_name)
+                        
+                        if baseline_data and 'tasks' in baseline_data:
+                            baseline_tasks = baseline_data['tasks']
+                            
+                            # Buscar a etapa ATUAL (etapa_nome_completo) na baseline
+                            baseline_task = None
+                            
+                            # Estratégia 1: Nome completo exato
+                            baseline_task = next(
+                                (bt for bt in baseline_tasks 
+                                 if bt.get('etapa') == etapa_nome_completo or 
+                                    bt.get('Etapa') == etapa_nome_completo),
+                                None
+                            )
+                            
+                            # Estratégia 2: Tentar com sigla
+                            if not baseline_task:
+                                baseline_task = next(
+                                    (bt for bt in baseline_tasks 
+                                     if bt.get('etapa') == etapa_sigla or 
+                                        bt.get('Etapa') == etapa_sigla),
+                                    None
+                                )
+                            
+                            # Estratégia 3: Converter etapa da baseline para nome completo e comparar
+                            if not baseline_task:
+                                for bt in baseline_tasks:
+                                    bt_etapa = bt.get('etapa', bt.get('Etapa', ''))
+                                    bt_etapa_nome = sigla_para_nome_completo.get(bt_etapa, bt_etapa)
+                                    if bt_etapa_nome == etapa_nome_completo:
+                                        baseline_task = bt
+                                        break
+                            
+                            if baseline_task:
+                                task["baselines"][baseline_name] = {
+                                    "start": baseline_task.get('inicio_previsto', baseline_task.get('Inicio_Prevista')),
+                                    "end": baseline_task.get('termino_previsto', baseline_task.get('Termino_Prevista'))
+                                }
+                            else:
+                                # Etapa não existe nesta baseline
+                                task["baselines"][baseline_name] = {
+                                    "start": None,
+                                    "end": None
+                                }
+        except Exception as e:
+            print(f"Erro ao popular baselines no consolidado: {e}")
+            # Se falhar, pelo menos P0 já foi adicionado
             
         all_data_by_stage_js[etapa_nome_completo] = tasks_base_data_for_stage
     
@@ -2348,6 +4636,49 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         
     altura_gantt = max(400, (len(empreendimentos_no_df) * 30) + 150)
 
+    # *** MODIFICADO: Preparar baselines individuais por empreendimento ***
+    baselines_por_empreendimento_html = {}
+    
+    try:
+        all_baselines_dict = load_baselines()
+        for emp in empreendimentos_no_df:
+            emp_baseline_options = get_baseline_options(emp)
+            if not emp_baseline_options or len(emp_baseline_options) == 0:
+                emp_baseline_options = ["P0-(padrão)"]
+            else:
+                # Garantir que P0 está na lista
+                if "P0-(padrão)" not in emp_baseline_options:
+                    emp_baseline_options.insert(0, "P0-(padrão)")
+            
+            baselines_por_empreendimento_html[emp] = emp_baseline_options
+    except Exception as e:
+        print(f"Erro ao carregar baseline options no consolidado: {e}")
+        # Fallback: P0 para todos
+        for emp in empreendimentos_no_df:
+            baselines_por_empreendimento_html[emp] = ["P0-(padrão)"]
+    
+    # Gerar HTML dos dropdowns por empreendimento
+    baseline_rows_html = ""
+    for emp in empreendimentos_no_df:
+        emp_options = baselines_por_empreendimento_html.get(emp, ["P0-(padrão)"])
+        # Usar JSON para escape seguro
+        emp_json = json.dumps(emp)  # Gera "Nome do Emp" com aspas duplas
+        
+        options_html = "".join([
+            f'<option value="{opt}">{opt}</option>' 
+            for opt in emp_options
+        ])
+        
+        baseline_rows_html += f"""
+        <div class="baseline-row" data-empreendimento="{emp}">
+            <label title="{emp}">{emp}</label>
+            <select class="baseline-dropdown-emp" data-emp="{emp}" onchange='applyBaselineForEmp({emp_json}, this.value); var p0=document.getElementById("apply-p0-all-{project["id"]}"); var latest=document.getElementById("apply-latest-all-{project["id"]}"); if(p0)p0.checked=false; if(latest)latest.checked=false;'>
+                {options_html}
+            </select>
+        </div>
+        """
+
+
     # --- 4. Geração do HTML/JS Corrigido ---
     gantt_html = f"""
     <!DOCTYPE html>
@@ -2370,8 +4701,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 .toggle-sidebar-btn {{ background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 5px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s, transform 0.3s ease-in-out; }}
                 .toggle-sidebar-btn:hover {{ background: rgba(255,255,255,0.4); }}
                 .sidebar-grid-header-wrapper {{ display: grid; grid-template-columns: 0px 1fr; color: #d1d5db; font-size: 9px; font-weight: 600; text-transform: uppercase; height: 30px; align-items: center; }}
-                .sidebar-grid-header {{ display: grid; grid-template-columns: 2.5fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr; padding: 0 10px; align-items: center; }}
-                .sidebar-row {{ display: grid; grid-template-columns: 2.5fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr; border-bottom: 1px solid #eff2f5; height: 30px; padding: 0 10px; background-color: white; transition: all 0.2s ease-in-out; }}
+                .sidebar-grid-header {{ display: grid; grid-template-columns: 2.5fr 0.6fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr; padding: 0 10px; align-items: center; }}
+                .sidebar-row {{ display: grid; grid-template-columns: 2.5fr 0.6fr 0.9fr 0.9fr 0.6fr 0.9fr 0.9fr 0.6fr 0.5fr 0.6fr 0.6fr; border-bottom: 1px solid #eff2f5; height: 30px; padding: 0 10px; background-color: white; transition: all 0.2s ease-in-out; }}
                 .sidebar-cell {{ display: flex; align-items: center; justify-content: center; font-size: 11px; color: #4a5568; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; border: none; }}
                 .header-cell {{ text-align: center; }}
                 .header-cell.task-name-cell {{ text-align: left; }}
@@ -2397,7 +4728,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 .sidebar-row .sidebar-cell:nth-child(7),
                 .sidebar-row .sidebar-cell:nth-child(8),
                 .sidebar-row .sidebar-cell:nth-child(9),
-                .sidebar-row .sidebar-cell:nth-child(10) {{ font-size: 8px; }}
+                .sidebar-row .sidebar-cell:nth-child(10),
+                .sidebar-row .sidebar-cell:nth-child(11) {{ font-size: 8px; }}
                 .gantt-row-spacer, .sidebar-row-spacer {{ display: none; }}
                 .gantt-sidebar-wrapper.collapsed {{ width: 250px; }}
                 .gantt-sidebar-wrapper.collapsed .sidebar-grid-header, .gantt-sidebar-wrapper.collapsed .sidebar-row {{ grid-template-columns: 1fr; padding: 0 15px 0 10px; }}
@@ -2577,6 +4909,15 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                             </svg>
                         </span>
                     </button>
+                    <button class="toolbar-btn" id="baseline-btn-{project["id"]}" title="Linhas de Base">
+                        <span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="3" y1="9" x2="21" y2="9"></line>
+                                <line x1="3" y1="15" x2="21" y2="15"></line>
+                            </svg>
+                        </span>
+                    </button>
                     <button class="toolbar-btn" id="fullscreen-btn-{project["id"]}" title="Tela Cheia">
                         <span>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -2585,6 +4926,153 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         </span>
                     </button>
                 </div>
+
+                <!-- Seletor de Baseline (NOVO) -->
+                <div class="baseline-selector" id="baseline-selector-{project['id']}" style="
+                    display: none;
+                    position: absolute;
+                    top: 10px;
+                    right: 50px;
+                    width: 280px;
+                    min-height: 200px;
+                    background: white;
+                    border-radius: 8px;
+                    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+                    z-index: 99;
+                    padding: 15px;
+                    border: 1px solid #e2e8f0;
+                ">
+                    <div style="margin-bottom: 12px; font-weight: 700; color: #1a202c; font-size: 14px; border-bottom: 2px solid #1a202c; padding-bottom: 8px;">
+                        Selecione Linhas de Base
+                    </div>
+                    
+                    <!-- Checkboxes de Aplicação Rápida -->
+                    <div style="margin-bottom: 15px; padding: 10px; background: #f7fafc; border-radius: 6px; border: 1px solid #e2e8f0;">
+                        <div style="font-weight: 600; color: #2d3748; font-size: 12px; margin-bottom: 10px;">
+                            Aplicação Rápida
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 6px;">
+                            <label style="display: flex; align-items: center; cursor: pointer;">
+                                <input type="checkbox" id="apply-p0-all-{project['id']}" 
+                                       onchange="handleQuickApply('p0')" 
+                                       style="margin-right: 6px; cursor: pointer;">
+                                <span style="font-size: 11px; color: #4a5568;">Aplicar P0 para todos</span>
+                            </label>
+                            <label style="display: flex; align-items: center; cursor: pointer;">
+                                <input type="checkbox" id="apply-latest-all-{project['id']}" 
+                                       onchange="handleQuickApply('latest')" 
+                                       style="margin-right: 6px; cursor: pointer;">
+                                <span style="font-size: 11px; color: #4a5568;">Aplicar última baseline para todos</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="baseline-selector-table" style="
+                        max-height: 400px;
+                        overflow-y: auto;
+                        margin-top: 10px;
+                    ">
+                        {baseline_rows_html}
+                    </div>
+                    <div class="baseline-resize-corner" title="Arrastar para redimensionar"></div>
+                </div>
+
+                <style>
+                    .baseline-row {{
+                        display: grid;
+                        grid-template-columns: 1.2fr 1fr;
+                        gap: 10px;
+                        padding: 8px 6px;
+                        border-bottom: 1px solid #e2e8f0;
+                        align-items: center;
+                        transition: background-color 0.15s ease;
+                    }}
+                    
+                    .baseline-row:hover {{
+                        background-color: #f7fafc;
+                    }}
+                    
+                    .baseline-row:last-child {{
+                        border-bottom: none;
+                    }}
+                    
+                    .baseline-row label {{
+                        font-size: 11px;
+                        font-weight: 500;
+                        color: #2d3748;
+                        display: flex;
+                        align-items: center;
+                        padding-left: 5px;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }}
+                    
+                    .baseline-resize-corner {{
+                        position: absolute;
+                        bottom: 0;
+                        left: 0;
+                        width: 16px;
+                        height: 16px;
+                        cursor: nwse-resize;
+                        z-index: 100;
+                    }}
+                    
+                    .baseline-resize-corner::before {{
+                        content: '';
+                        position: absolute;
+                        bottom: -2px;
+                        left: -2px;
+                        width: 0;
+                        height: 0;
+                        border-style: solid;
+                        border-width: 0 0 18px 18px;
+                        border-color: transparent;
+                        transform: rotate(-45deg);
+                        transform-origin: bottom left;
+                    }}
+                    
+                    .baseline-resize-corner:hover::before {{
+                        border-color: transparent;
+                    }}
+                    
+                    .baseline-resize-corner::after {{
+                        content: '';
+                        position: absolute;
+                        bottom: 2px;
+                        left: 2px;
+                        width: 10px;
+                        height: 10px;
+                        transform: rotate(-45deg);
+                        transform-origin: center;
+                        background: 
+                            linear-gradient(90deg, transparent 48%, #9ca3af 48%, #9ca3af 52%, transparent 52%),
+                            linear-gradient(90deg, transparent 56%, #9ca3af 56%, #9ca3af 60%, transparent 60%),
+                            linear-gradient(90deg, transparent 64%, #9ca3af 64%, #9ca3af 68%, transparent 68%);
+                    }}
+                    
+                    .baseline-row select.baseline-dropdown-emp {{
+                        width: 100%;
+                        padding: 5px 8px;
+                        border: 1px solid #cbd5e0;
+                        border-radius: 5px;
+                        font-size: 11px;
+                        background-color: white;
+                        transition: all 0.2s ease;
+                        cursor: pointer;
+                    }}
+                    
+                    .baseline-row select.baseline-dropdown-emp:hover {{
+                        border-color: #4299e1;
+                        box-shadow: 0 0 0 1px rgba(66, 153, 225, 0.1);
+                    }}
+                    
+                    .baseline-row select.baseline-dropdown-emp:focus {{
+                        outline: none;
+                        border-color: #4299e1;
+                        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+                    }}
+                </style>
 
                 <div class="floating-filter-menu" id="filter-menu-{project['id']}">
                     
@@ -2651,6 +5139,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                                 <div style="width: 0px;"></div>
                                 <div class="sidebar-grid-header">
                                     <div class="header-cell task-name-cell">EMPREENDIMENTO</div>
+                                    <div class="header-cell">UGB</div>
                                     <div class="header-cell">INÍCIO-P</div>
                                     <div class="header-cell">TÉRMINO-P</div>
                                     <div class="header-cell">DUR-P</div>
@@ -2819,6 +5308,9 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     // NOTA: applyInitialPulmaoState foi movida para DENTRO de initGantt
                     applyInitialPulmaoState(); 
                     
+                    // Inicializar estado de baselines por empreendimento
+                    initializeBaselineState();
+                    
                     renderSidebar();
                     renderHeader();
                     renderChart();
@@ -2870,6 +5362,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                         html += '<div class="sidebar-row ' + rowClass + '">' +
                             '<div class="sidebar-cell task-name-cell" title="' + task.numero_etapa + '. ' + task.name + '">' + task.numero_etapa + '. ' + task.name + '</div>' +
+                            '<div class="sidebar-cell">' + (task.ugb || 'N/D') + '</div>' +
                             '<div class="sidebar-cell">' + task.inicio_previsto + '</div>' +
                             '<div class="sidebar-cell">' + task.termino_previsto + '</div>' +
                             '<div class="sidebar-cell">' + task.duracao_prev_meses + '</div>' +
@@ -3301,7 +5794,63 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         tipoVisualizacao = selVis;
                         pulmaoStatus = selPulmao;
 
-                        // *** 7. ATUALIZAR TÍTULO DO PROJETO ***
+                        // *** 7. REPLICAR BASELINES SELECIONADAS ***
+                        // Após filtrar, reaplicar as baselines que o usuário selecionou
+                        filteredTasks.forEach(task => {{
+                            const emp = task.name;
+                            const selectedBaseline = baselinesPorEmpreendimento[emp];
+                            
+                            if (selectedBaseline && selectedBaseline !== "P0-(padrão)") {{
+                                // Aplicar baseline sem re-renderizar (será feito no final)
+                                if (task.baselines && task.baselines[selectedBaseline]) {{
+                                    const baselineData = task.baselines[selectedBaseline];
+                                    
+                                    if (baselineData.start !== null && baselineData.end !== null) {{
+                                        // Aplicar dados da baseline
+                                        let startPrevisto = baselineData.start;
+                                        let endPrevisto = baselineData.end;
+                                        
+                                        // *** APLICAR PULMÃO SE NECESSÁRIO ***
+                                        if (selPulmao === 'Com Pulmão' && selPulmaoMeses > 0) {{
+                                            const offsetMeses = -selPulmaoMeses;
+                                            const startDate = parseDate(startPrevisto);
+                                            const endDate = parseDate(endPrevisto);
+                                            
+                                            if (startDate && endDate) {{
+                                                startDate.setMonth(startDate.getMonth() + offsetMeses);
+                                                endDate.setMonth(endDate.getMonth() + offsetMeses);
+                                                
+                                                startPrevisto = startDate.toISOString().split('T')[0];
+                                                endPrevisto = endDate.toISOString().split('T')[0];
+                                            }}
+                                        }}
+                                        
+                                        task.start_previsto = startPrevisto;
+                                        task.end_previsto = endPrevisto;
+                                        task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                        task.termino_previsto = formatDateDisplay(task.end_previsto);
+                                        
+                                        const startDate = parseDate(task.start_previsto);
+                                        const endDate = parseDate(task.end_previsto);
+                                        if (startDate && endDate) {{
+                                            const diffDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
+                                            task.duracao_prev_meses = (diffDays / 30.4375).toFixed(1).replace('.', ',');
+                                        }}
+                                        
+                                        if (task.end_real_original_raw && task.end_previsto) {{
+                                            const endReal = parseDate(task.end_real_original_raw);
+                                            const endPrev = parseDate(task.end_previsto);
+                                            if (endReal && endPrev) {{
+                                                const diffDays = Math.round((endReal - endPrev) / (1000 * 60 * 60 * 24));
+                                                task.vt_text = diffDays > 0 ? `+${{diffDays}}d` : diffDays < 0 ? `${{diffDays}}d` : '0d';
+                                            }}
+                                        }}
+                                    }}
+                                }}
+                            }}
+                        }});
+
+                        // *** 8. ATUALIZAR TÍTULO DO PROJETO ***
                         updateProjectTitle(currentStageName);
 
                         // Redesenhar
@@ -3319,8 +5868,383 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 console.log('Tasks base consolidado (inicial):', allTasks_baseData);
                 console.log('TODOS os dados de etapa (full):', allDataByStage);
                 
+                //  FUNÇÃO GLOBAL PARA APLICAR BASELINE
+                window.handleBaselineChange = function(empreendimento, baselineName) {{
+                    console.log(`📊 Baseline selected: ${{baselineName}} for ${{empreendimento}}`);
+                    
+                    // Update URL parameters to trigger Streamlit rerun
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('change_baseline', baselineName);
+                    url.searchParams.set('empreendimento', empreendimento);
+                    
+                    // Reload page with new parameters
+                    window.location.href = url.toString();
+                }}
+                
+                // *** BASELINE INDIVIDUAL POR EMPREENDIMENTO (MODIFICADO) ***
+                // Mapa para rastrear baseline ativa de cada empreendimento
+                let baselinesPorEmpreendimento = {{}};
+                
+                // Inicializar estado com P0 para todos
+                function initializeBaselineState() {{
+                    const tasks = projectData[0].tasks;
+                    if (tasks) {{
+                        tasks.forEach(task => {{
+                            baselinesPorEmpreendimento[task.name] = "P0-(padrão)";
+                        }});
+                    }}
+                    console.log('Estado de baselines inicializado:', baselinesPorEmpreendimento);
+                }}
+                
+                // Aplicar baseline para um empreendimento específico
+                function applyBaselineForEmp(empreendimento, baselineName) {{
+                    console.log(`🔄 Aplicando baseline "${{baselineName}}" para: ${{empreendimento}}`);
+                    
+                    const tasks = projectData[0].tasks;
+                    if (!tasks || tasks.length === 0) {{
+                        console.warn('Nenhuma task disponível');
+                        return;
+                    }}
+                    
+                    // Atualizar estado
+                    baselinesPorEmpreendimento[empreendimento] = baselineName;
+                    
+                    // Encontrar a task deste empreendimento
+                    const task = tasks.find(t => t.name === empreendimento);
+                    
+                    if (!task) {{
+                        console.warn(`Task não encontrada para empreendimento: ${{empreendimento}}`);
+                        return;
+                    }}
+                    
+                    if (!task.baselines || !task.baselines[baselineName]) {{
+                        console.warn(`Task ${{task.name}} não tem baseline ${{baselineName}}`);
+                        return;
+                    }}
+                    
+                    const baselineData = task.baselines[baselineName];
+                    
+                    if (baselineData.start !== null && baselineData.end !== null) {{
+                        // Atualizar datas previstas
+                        task.start_previsto = baselineData.start;
+                        task.end_previsto = baselineData.end;
+                        
+                        // Recalcular campos de exibição
+                        task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                        task.termino_previsto = formatDateDisplay(task.end_previsto);
+                        
+                        // Recalcular duração
+                        const startDate = parseDate(task.start_previsto);
+                        const endDate = parseDate(task.end_previsto);
+                        if (startDate && endDate) {{
+                            const diffDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
+                            task.duracao_prev_meses = (diffDays / 30.4375).toFixed(1).replace('.', ',');
+                        }}
+                        
+                        // Recalcular VT (Variação de Término)
+                        if (task.end_real_original_raw && task.end_previsto) {{
+                            const endReal = parseDate(task.end_real_original_raw);
+                            const endPrev = parseDate(task.end_previsto);
+                            if (endReal && endPrev) {{
+                                const diffDays = Math.round((endReal - endPrev) / (1000 * 60 * 60 * 24));
+                                task.vt_text = diffDays > 0 ? `+${{diffDays}}d` : diffDays < 0 ? `${{diffDays}}d` : '0d';
+                            }}
+                        }}
+                        
+                        console.log(`✅ Baseline aplicada para ${{empreendimento}}: ${{baselineName}}`);
+                    }} else {{
+                        // Baseline não tem dados para esta etapa
+                        task.start_previsto = null;
+                        task.end_previsto = null;
+                        task.inicio_previsto = "N/D";
+                        task.termino_previsto = "N/D";
+                        task.duracao_prev_meses = "-";
+                        task.vt_text = "-";
+                        
+                        console.log(`⚠️ Baseline ${{baselineName}} não tem dados para ${{empreendimento}}`);
+                    }}
+                    
+                    // Re-renderizar o gráfico
+                    renderSidebar();
+                    renderChart();
+                    
+                    console.log(`🎨 Gráfico re-renderizado após aplicar baseline`);
+                }}
+                
+                // *** FUNÇÕES DE APLICAÇÃO RÁPIDA (NOVO) ***
+                
+                // Encontrar última baseline disponível para um empreendimento
+                function findLatestBaseline(baselines) {{
+                    if (!baselines) return "P0-(padrão)";
+                    
+                    const baselineNames = Object.keys(baselines);
+                    
+                    // Filtrar apenas baselines válidas (não P0)
+                    const validBaselines = baselineNames.filter(name => name !== "P0-(padrão)");
+                    
+                    if (validBaselines.length === 0) {{
+                        return "P0-(padrão)";
+                    }}
+                    
+                    // Ordenar por hierarquia numérica (P10 > P9 > ... > P1)
+                    validBaselines.sort((a, b) => {{
+                        // Extrair número de P1, P2, P10, etc.
+                        const numA = parseInt(a.match(/P(\d+)/)?.[1] || '0');
+                        const numB = parseInt(b.match(/P(\d+)/)?.[1] || '0');
+                        
+                        // Maior número = mais recente
+                        return numB - numA;
+                    }});
+                    
+                    console.log(`Última baseline encontrada: ${{validBaselines[0]}}`);
+                    return validBaselines[0];
+                }}
+                
+                // Aplicar P0 para todos os empreendimentos
+                function applyP0ToAll() {{
+                    console.log('🔄 Aplicando P0 para todos os empreendimentos');
+                    
+                    const tasks = projectData[0].tasks;
+                    if (!tasks) return;
+                    
+                    let count = 0;
+                    tasks.forEach(task => {{
+                        const emp = task.name;
+                        const baselineName = "P0-(padrão)";
+                        
+                        // Atualizar estado
+                        baselinesPorEmpreendimento[emp] = baselineName;
+                        
+                        // Aplicar baseline P0 diretamente
+                        if (task.baselines && task.baselines[baselineName]) {{
+                            const baselineData = task.baselines[baselineName];
+                            
+                            if (baselineData.start !== null && baselineData.end !== null) {{
+                                task.start_previsto = baselineData.start;
+                                task.end_previsto = baselineData.end;
+                                task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                task.termino_previsto = formatDateDisplay(task.end_previsto);
+                                
+                                const startDate = parseDate(task.start_previsto);
+                                const endDate = parseDate(task.end_previsto);
+                                if (startDate && endDate) {{
+                                    const diffDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
+                                    task.duracao_prev_meses = (diffDays / 30.4375).toFixed(1).replace('.', ',');
+                                }}
+                                
+                                if (task.end_real_original_raw && task.end_previsto) {{
+                                    const endReal = parseDate(task.end_real_original_raw);
+                                    const endPrev = parseDate(task.end_previsto);
+                                    if (endReal && endPrev) {{
+                                        const diffDays = Math.round((endReal - endPrev) / (1000 * 60 * 60 * 24));
+                                        task.vt_text = diffDays > 0 ? `+${{diffDays}}d` : diffDays < 0 ? `${{diffDays}}d` : '0d';
+                                    }}
+                                }}
+                            }}
+                        }}
+                        
+                        // Atualizar dropdown visual
+                        const dropdown = document.querySelector(`select[data-emp="${{emp}}"]`);
+                        if (dropdown) {{
+                            dropdown.value = baselineName;
+                        }}
+                        
+                        count++;
+                    }});
+                    
+                    // Renderizar apenas uma vez no final
+                    renderSidebar();
+                    renderChart();
+                    
+                    console.log(`✅ P0 aplicado para ${{count}} empreendimentos`);
+                }}
+
+                
+                // Aplicar última baseline para todos os empreendimentos
+                function applyLatestToAll() {{
+                    console.log('🔄 Aplicando última baseline para todos os empreendimentos');
+                    
+                    const tasks = projectData[0].tasks;
+                    if (!tasks) return;
+                    
+                    let count = 0;
+                    tasks.forEach(task => {{
+                        const emp = task.name;
+                        
+                        // Encontrar última baseline deste empreendimento
+                        const latestBaseline = findLatestBaseline(task.baselines);
+                        
+                        if (latestBaseline) {{
+                            // Atualizar estado
+                            baselinesPorEmpreendimento[emp] = latestBaseline;
+                            
+                            // Aplicar baseline diretamente
+                            if (task.baselines && task.baselines[latestBaseline]) {{
+                                const baselineData = task.baselines[latestBaseline];
+                                
+                                if (baselineData.start !== null && baselineData.end !== null) {{
+                                    task.start_previsto = baselineData.start;
+                                    task.end_previsto = baselineData.end;
+                                    task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                    task.termino_previsto = formatDateDisplay(task.end_previsto);
+                                    
+                                    const startDate = parseDate(task.start_previsto);
+                                    const endDate = parseDate(task.end_previsto);
+                                    if (startDate && endDate) {{
+                                        const diffDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
+                                        task.duracao_prev_meses = (diffDays / 30.4375).toFixed(1).replace('.', ',');
+                                    }}
+                                    
+                                    if (task.end_real_original_raw && task.end_previsto) {{
+                                        const endReal = parseDate(task.end_real_original_raw);
+                                        const endPrev = parseDate(task.end_previsto);
+                                        if (endReal && endPrev) {{
+                                            const diffDays = Math.round((endReal - endPrev) / (1000 * 60 * 60 * 24));
+                                            task.vt_text = diffDays > 0 ? `+${{diffDays}}d` : diffDays < 0 ? `${{diffDays}}d` : '0d';
+                                        }}
+                                    }}
+                                }} else {{
+                                    task.start_previsto = null;
+                                    task.end_previsto = null;
+                                    task.inicio_previsto = "N/D";
+                                    task.termino_previsto = "N/D";
+                                    task.duracao_prev_meses = "-";
+                                    task.vt_text = "-";
+                                }}
+                            }}
+                            
+                            // Atualizar dropdown visual
+                            const dropdown = document.querySelector(`select[data-emp="${{emp}}"]`);
+                            if (dropdown) {{
+                                dropdown.value = latestBaseline;
+                            }}
+                            
+                            count++;
+                        }}
+                    }});
+                    
+                    // Renderizar apenas uma vez no final
+                    renderSidebar();
+                    renderChart();
+                    
+                    console.log(`✅ Última baseline aplicada para ${{count}} empreendimentos`);
+                }}
+
+                
+                // Gerenciar checkboxes de aplicação rápida
+                function handleQuickApply(mode) {{
+                    const p0Checkbox = document.getElementById('apply-p0-all-{project["id"]}');
+                    const latestCheckbox = document.getElementById('apply-latest-all-{project["id"]}');
+                    
+                    if (mode === 'p0') {{
+                        // Desmarcar "latest"
+                        if (latestCheckbox) latestCheckbox.checked = false;
+                        
+                        if (p0Checkbox && p0Checkbox.checked) {{
+                            applyP0ToAll();
+                        }}
+                    }} else if (mode === 'latest') {{
+                        // Desmarcar "p0"
+                        if (p0Checkbox) p0Checkbox.checked = false;
+                        
+                        if (latestCheckbox && latestCheckbox.checked) {{
+                            applyLatestToAll();
+                        }}
+                    }}
+                }}
+                
+                // Configurar redimensionamento arrastável
+                function setupBaselineResize() {{
+                    const corner = document.querySelector('.baseline-resize-corner');
+                    const selector = document.getElementById('baseline-selector-{project["id"]}');
+                    const table = selector ? selector.querySelector('.baseline-selector-table') : null;
+                    
+                    if (!corner || !selector || !table) return;
+                    
+                    let isResizing = false;
+                    let startX = 0;
+                    let startY = 0;
+                    let startWidth = 0;
+                    let startHeight = 0;
+                    
+                    corner.addEventListener('mousedown', function(e) {{
+                        isResizing = true;
+                        startX = e.clientX;
+                        startY = e.clientY;
+                        startWidth = selector.offsetWidth;
+                        startHeight = table.offsetHeight;
+                        
+                        // Prevenir seleção de texto
+                        e.preventDefault();
+                        e.stopPropagation();
+                        document.body.style.userSelect = 'none';
+                        document.body.style.cursor = 'nwse-resize';
+                    }});
+                    
+                    document.addEventListener('mousemove', function(e) {{
+                        if (!isResizing) return;
+                        
+                        // Calcular nova largura (arrastar para esquerda diminui, direita aumenta)
+                        const diffX = startX - e.clientX; // Invertido porque é borda esquerda
+                        const newWidth = Math.max(250, Math.min(600, startWidth + diffX));
+                        selector.style.width = `${{newWidth}}px`;
+                        
+                        // Calcular nova altura (arrastar para baixo aumenta, cima diminui)
+                        const diffY = e.clientY - startY;
+                        const newHeight = Math.max(150, Math.min(600, startHeight + diffY));
+                        table.style.maxHeight = `${{newHeight}}px`;
+                    }});
+                    
+                    document.addEventListener('mouseup', function() {{
+                        if (isResizing) {{
+                            isResizing = false;
+                            document.body.style.userSelect = '';
+                            document.body.style.cursor = '';
+                        }}
+                    }});
+                }}
+
+
+                
+                // Event Listeners para baseline
+                function setupBaselineListeners() {{
+                    const baselineBtn = document.getElementById('baseline-btn-{project["id"]}');
+                    const baselineSelector = document.getElementById('baseline-selector-{project["id"]}');
+                    const filterMenu = document.getElementById('filter-menu-{project["id"]}');
+                    
+                    if (baselineBtn) {{
+                        baselineBtn.addEventListener('click', function(e) {{
+                            e.stopPropagation();
+                            
+                            // Fechar filtro se aberto
+                            if (filterMenu) {{
+                                filterMenu.classList.remove('is-open');
+                            }}
+                            
+                            // Toggle baseline selector
+                            if (baselineSelector.style.display === 'block') {{
+                                baselineSelector.style.display = 'none';
+                            }} else {{
+                                baselineSelector.style.display = 'block';
+                            }}
+                        }});
+                    }}
+                    
+                    // Fechar ao clicar fora
+                    document.addEventListener('click', function(e) {{
+                        if (baselineSelector && baselineBtn && 
+                            !baselineSelector.contains(e.target) && 
+                            e.target !== baselineBtn && 
+                            !baselineBtn.contains(e.target)) {{
+                            baselineSelector.style.display = 'none';
+                        }}
+                    }});
+                }}
+                
                 // Inicializar o Gantt Consolidado
                 initGantt();
+                setupBaselineListeners();  // *** NOVO: Ativar event listeners de baseline ***
+                setupBaselineResize();      // *** NOVO: Ativar redimensionamento arrastável ***
             </script>
         </body>
         </html>
@@ -3337,7 +6261,7 @@ def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_
         st.warning("Sem dados disponíveis para exibir o Gantt.")
         return
 
-    # A decisão do modo é baseada no parâmetro, não mais no conteúdo do DF
+    # A decisão do modo é baseada no parâmetro
     is_consolidated_view = etapa_selecionada_inicialmente != "Todos"
 
     if is_consolidated_view:
@@ -3350,7 +6274,6 @@ def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_
             etapa_selecionada_inicialmente
         )
     else:
-        # Agora gera apenas UM gráfico com todos os empreendimentos
         gerar_gantt_por_projeto(
             df, 
             tipo_visualizacao, 
@@ -3358,7 +6281,6 @@ def gerar_gantt(df, tipo_visualizacao, filtrar_nao_concluidas, df_original_para_
             pulmao_status, 
             pulmao_meses
         )
-
 # O restante do código Streamlit...
 st.set_page_config(layout="wide", page_title="Dashboard de Gantt Comparativo")
 
@@ -3388,12 +6310,17 @@ st.markdown("""
 def load_data():
     df_real = pd.DataFrame()
     df_previsto = pd.DataFrame()
+    
+    # INICIALIZAR SISTEMA DE BASELINES (ADICIONE ESTAS LINHAS)
+    create_baselines_table()
+    if 'unsent_baselines' not in st.session_state:
+        st.session_state.unsent_baselines = {}
+    if 'mock_baselines' not in st.session_state:
+        st.session_state.mock_baselines = {}
 
     if buscar_e_processar_dados_completos:
         try:
-            # --- CORREÇÃO APLICADA AQUI ---
             df_real_resultado = buscar_e_processar_dados_completos()
-            # -------------------------------
 
             if df_real_resultado is not None and not df_real_resultado.empty:
                 df_real = df_real_resultado.copy()
@@ -3475,6 +6402,9 @@ def load_data():
     if "UNKNOWN" in etapas_nao_mapeadas:
        etapas_nao_mapeadas.remove("UNKNOWN")
 
+    # CORREÇÃO: Remover a linha problemática que tenta usar df_data antes de ser definida
+    # empreendimentos_baseline = df_data['Empreendimento'].unique().tolist() if not df_data.empty else []
+    
     if not df_real.empty and not df_previsto.empty:
         df_merged = pd.merge(df_previsto, df_real[["Empreendimento", "Etapa", "Inicio_Real", "Termino_Real", "% concluído"]], on=["Empreendimento", "Etapa"], how="outer")
 
@@ -3589,7 +6519,7 @@ def load_data():
                 <div class="notification-popup">
                     <div class="notification-content">
                         <strong>⚠️ Alerta de Dados</strong><br><br>
-                        As seguintes etapas foram encontradas nos dados, mas não são reconhecidas. 
+                        As seguintes etapas foram encontradas nos dados, mas não são reconhecadas. 
                         Verifique a ortografia no arquivo de origem:
                         <br><br>
                         {etapas_html}
@@ -3651,8 +6581,27 @@ def filter_dataframe(df, ugb_filter, emp_filter, grupo_filter, setor_filter):
 
 # --- Bloco Principal ---
 with st.spinner("Carregando e processando dados..."):
+    # 1. Carrega os dados
     df_data = load_data()
-    if df_data is not None and not df_data.empty:
+    
+    # 2. Verifica se carregou corretamente
+    if df_data is not None:
+        st.session_state.df_data = df_data
+        
+        # Inicializa variáveis de controle visual (prevenção de erro de chave)
+        if 'show_context_success' not in st.session_state:
+            st.session_state.show_context_success = False
+        if 'show_context_error' not in st.session_state:
+            st.session_state.show_context_error = False
+        if 'context_menu_trigger' not in st.session_state:
+            st.session_state.context_menu_trigger = False
+
+        # --- AQUI ESTÁ A CORREÇÃO PRINCIPAL ---
+        # Chamamos a função passando o df_data carregado AGORA.
+        # Não confiamos apenas no session_state antigo.
+        process_context_menu_actions(df_data)
+        # --------------------------------------
+
         with st.sidebar:
             st.markdown("<br>", unsafe_allow_html=True)
             col1, col2, col3 = st.columns([1, 2, 1])
@@ -3660,7 +6609,6 @@ with st.spinner("Carregando e processando dados..."):
                 try:
                     st.image("logoNova.png", width=200)
                 except:
-                    # st.warning("Logo 'logoNova.png' não encontrada.")
                     pass
         
             st.markdown("---")
@@ -3775,7 +6723,6 @@ with st.spinner("Carregando e processando dados..."):
             # Exibe a etapa selecionada quando no modo consolidado (alerta abaixo do botão)
             if st.session_state.consolidated_view:
                 st.success(f"**Visão Consolidada Ativa:** {selected_etapa_nome}")
-                # # st.info("💡 Esta visão mostra todos os empreendimentos para uma etapa específica")
 
             filtrar_nao_concluidas = False
             
@@ -3783,6 +6730,300 @@ with st.spinner("Carregando e processando dados..."):
             pulmao_status = "Sem Pulmão"
             pulmao_meses = 0
             tipo_visualizacao = "Ambos"  
+
+            # --- Menu de Contexto para Gantt ---
+            def create_gantt_context_menu_component(selected_empreendimento):
+                """Cria o componente do menu de contexto para o gráfico Gantt"""
+                
+                # Mostrar mensagens de sucesso/erro do menu de contexto
+                if st.session_state.get('show_context_success'):
+                    success_container = st.empty()
+                    success_container.success(st.session_state.context_menu_success)
+                    st.session_state.show_context_success = False
+                    
+                    # Remover a mensagem após 3 segundos
+                    import time
+                    time.sleep(3)
+                    success_container.empty()
+                
+                if st.session_state.get('show_context_error'):
+                    error_container = st.empty()
+                    error_container.error(st.session_state.context_menu_error)
+                    st.session_state.show_context_error = False
+                    
+                    import time
+                    time.sleep(3)
+                    error_container.empty()
+                
+                # HTML completo com CSS e JavaScript para o menu visual
+                context_menu_html = f"""
+                <style>
+                #context-menu {{
+                    position: fixed;
+                    background: white;
+                    border: 1px solid #ccc;
+                    border-radius: 5px;
+                    box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
+                    z-index: 10000;
+                    display: none;
+                    font-family: Arial, sans-serif;
+                }}
+                .context-menu-item {{
+                    padding: 12px 20px;
+                    cursor: pointer;
+                    border-bottom: 1px solid #eee;
+                    font-size: 14px;
+                    transition: background-color 0.2s;
+                }}
+                .context-menu-item:hover {{
+                    background: #f0f0f0;
+                }}
+                .context-menu-item:last-child {{
+                    border-bottom: none;
+                }}
+                #gantt-chart-area {{
+                    position: relative;
+                    border: 2px dashed #ccc;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background-color: #f9f9f9;
+                    cursor: pointer;
+                    margin: 10px 0;
+                    user-select: none;
+                    min-height: 100px;
+                }}
+                #baseline-status {{
+                    margin-top: 10px;
+                    padding: 10px;
+                    border-radius: 5px;
+                    text-align: center;
+                    font-weight: bold;
+                    display: none;
+                }}
+                .status-creating {{
+                    background-color: #fff3cd;
+                    border: 1px solid #ffeaa7;
+                    color: #856404;
+                }}
+                .status-success {{
+                    background-color: #d1ecf1;
+                    border: 1px solid #bee5eb;
+                    color: #0c5460;
+                }}
+                .status-error {{
+                    background-color: #f8d7da;
+                    border: 1px solid #f5c6cb;
+                    color: #721c24;
+                }}
+                #hidden-iframe {{
+                    position: absolute;
+                    width: 1px;
+                    height: 1px;
+                    border: none;
+                    opacity: 0;
+                    pointer-events: none;
+                }}
+                .loading-overlay {{
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(255, 255, 255, 0.8);
+                    display: none;
+                    justify-content: center;
+                    align-items: center;
+                    z-index: 10001;
+                    font-family: Arial, sans-serif;
+                }}
+                .loading-spinner {{
+                    background: white;
+                    padding: 20px;
+                    border-radius: 10px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    text-align: center;
+                }}
+                .gantt-context-hint {{
+                    text-align: center;
+                    color: #666;
+                    font-size: 12px;
+                    margin-top: 5px;
+                }}
+                </style>
+
+                <div id="gantt-chart-area">
+                    <div style="text-align: center;">
+                        <h3>📊 Área do Gráfico de Gantt</h3>
+                        <p>Clique com o botão direito para abrir o menu de linha de base</p>
+                        <div class="gantt-context-hint">Empreendimento: {selected_empreendimento}</div>
+                    </div>
+                </div>
+
+                <div id="baseline-status"></div>
+
+                <!-- Overlay de loading -->
+                <div id="loading-overlay" class="loading-overlay">
+                    <div class="loading-spinner">
+                        <h3>🔄 Criando Linha de Base</h3>
+                        <p>Por favor, aguarde...</p>
+                    </div>
+                </div>
+
+                <!-- Iframe invisível para carregamentos -->
+                <iframe id="hidden-iframe" name="hidden-iframe"></iframe>
+
+                <div id="context-menu">
+                    <div class="context-menu-item" id="take-baseline">📸 Criar Linha de Base</div>
+                    <div class="context-menu-item" id="restore-baseline">🔄 Restaurar Linha de Base</div>
+                    <div class="context-menu-item" id="compare-baseline">📊 Comparar com Baseline</div>
+                    <div class="context-menu-item" id="delete-baseline">🗑️ Deletar Linha de Base</div>
+                </div>
+
+                <script>
+                // Elementos
+                const ganttArea = document.getElementById('gantt-chart-area');
+                const contextMenu = document.getElementById('context-menu');
+                const statusDiv = document.getElementById('baseline-status');
+                const takeBaselineBtn = document.getElementById('take-baseline');
+                const loadingOverlay = document.getElementById('loading-overlay');
+                const hiddenIframe = document.getElementById('hidden-iframe');
+                
+                // Função para mostrar o menu
+                function showContextMenu(x, y) {{
+                    contextMenu.style.left = x + 'px';
+                    contextMenu.style.top = y + 'px';
+                    contextMenu.style.display = 'block';
+                }}
+                
+                // Função para esconder o menu
+                function hideContextMenu() {{
+                    contextMenu.style.display = 'none';
+                }}
+                
+                // Função para mostrar/ocultar loading
+                function showLoading() {{
+                    loadingOverlay.style.display = 'flex';
+                }}
+                
+                function hideLoading() {{
+                    loadingOverlay.style.display = 'none';
+                }}
+                
+                // Função para mostrar status
+                function showStatus(message, type) {{
+                    statusDiv.textContent = message;
+                    statusDiv.className = '';
+                    statusDiv.classList.add(type);
+                    statusDiv.style.display = 'block';
+                    
+                    // Auto-esconder após 3 segundos
+                    setTimeout(() => {{
+                        statusDiv.style.display = 'none';
+                    }}, 3000);
+                }}
+                
+                // Função para criar linha de base via iframe invisível
+                function executeTakeBaseline() {{
+                    showStatus('🔄 Criando linha de base...', 'status-creating');
+                    showLoading();
+                    
+                    // Criar URL com parâmetros para o Streamlit processar
+                    const timestamp = new Date().getTime();
+                    const url = `?context_action=take_baseline&empreendimento={selected_empreendimento}&t=${{timestamp}}`;
+                    
+                    // Usar iframe invisível para carregar a URL
+                    hiddenIframe.src = url;
+                    
+                    // Quando o iframe terminar de carregar
+                    hiddenIframe.onload = function() {{
+                        hideLoading();
+                        showStatus('✅ Linha de base criada! Verifique a barra lateral para enviar para AWS.', 'status-success');
+                        
+                        // Forçar uma atualização suave após 1 segundo
+                        setTimeout(() => {{
+                            // Disparar um evento customizado para atualizar a interface
+                            const event = new Event('baselineCreated');
+                            document.dispatchEvent(event);
+                        }}, 1000);
+                    }};
+                    
+                    hideContextMenu();
+                }}
+                
+                // Event Listeners
+                if (ganttArea) {{
+                    ganttArea.addEventListener('contextmenu', function(e) {{
+                        e.preventDefault();
+                        e.stopPropagation();
+                        showContextMenu(e.pageX, e.pageY);
+                    }});
+                }}
+                
+                // Event listener para o botão de criar linha de base
+                if (takeBaselineBtn) {{
+                    takeBaselineBtn.addEventListener('click', function() {{
+                        executeTakeBaseline();
+                    }});
+                }}
+                
+                // Event listeners para outros botões (placeholder)
+                const restoreBaselineBtn = document.getElementById('restore-baseline');
+                const compareBaselineBtn = document.getElementById('compare-baseline');
+                const deleteBaselineBtn = document.getElementById('delete-baseline');
+                
+                if (restoreBaselineBtn) {{
+                    restoreBaselineBtn.addEventListener('click', function() {{
+                        showStatus('🔄 Funcionalidade em desenvolvimento...', 'status-creating');
+                        hideContextMenu();
+                    }});
+                }}
+                
+                if (compareBaselineBtn) {{
+                    compareBaselineBtn.addEventListener('click', function() {{
+                        showStatus('📊 Funcionalidade em desenvolvimento...', 'status-creating');
+                        hideContextMenu();
+                    }});
+                }}
+                
+                if (deleteBaselineBtn) {{
+                    deleteBaselineBtn.addEventListener('click', function() {{
+                        showStatus('🗑️ Funcionalidade em desenvolvimento...', 'status-creating');
+                        hideContextMenu();
+                    }});
+                }}
+                
+                // Fechar menu ao clicar fora
+                document.addEventListener('click', function(e) {{
+                    if (contextMenu && !contextMenu.contains(e.target) && e.target !== ganttArea) {{
+                        hideContextMenu();
+                    }}
+                }});
+                
+                // Fechar menu com ESC
+                document.addEventListener('keydown', function(e) {{
+                    if (e.key === 'Escape') {{
+                        hideContextMenu();
+                    }}
+                }});
+                
+                // Prevenir menu de contexto padrão na área do Gantt
+                document.addEventListener('contextmenu', function(e) {{
+                    if (e.target.id === 'gantt-chart-area' || e.target.closest('#gantt-chart-area')) {{
+                        e.preventDefault();
+                    }}
+                }}, true);
+                
+                // Atualizar interface quando linha de base for criada
+                document.addEventListener('baselineCreated', function() {{
+                    console.log('Linha de base criada - interface pode ser atualizada');
+                    // Aqui você pode adicionar lógica para atualizar elementos específicos
+                }});
+                </script>
+                """
+                
+                # Usar html() para injetar o componente completo
+                st.components.v1.html(context_menu_html, height=200)
 
         # --- FIM DO NOVO LAYOUT ---
         # Mantemos a chamada a filter_dataframe, mas com os valores padrão para EMP, GRUPO e SETOR
@@ -3801,24 +7042,61 @@ with st.spinner("Carregando e processando dados..."):
         # Copiar o dataframe filtrado para ser usado nas tabelas
         df_detalhes = df_para_exibir.copy()
         # A lógica de pulmão foi removida da sidebar, então não é mais aplicada aqui.
-        tab1, tab2 = st.tabs(["Gráfico de Gantt", "Tabelão Horizontal"])
-        with tab1:
-            st.subheader("Gantt Comparativo")
-            if df_para_exibir.empty:
-                st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
-                pass
-            else:
-                df_para_gantt = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo, selected_setor)
+        
+        # CONTROLE DE ACESSO PARA ABA "LINHAS DE BASE"
+        def verificar_acesso_baseline():
+            """Verifica se o usuario tem acesso a aba Linhas de Base"""
+            try:
+                # Obter lista de emails autorizados do secrets
+                authorized_emails = st.secrets.get('baseline_access', {}).get('authorized_emails', [])
+                
+                # Obter email do usuario logado
+                user_email = st.session_state.get('user_email', '').strip().lower()
+                
+                # Verificar se o email esta na lista (case-insensitive)
+                authorized_emails_lower = [email.strip().lower() for email in authorized_emails]
+                
+                return user_email in authorized_emails_lower
+            except Exception as e:
+                # Se houver erro ao carregar secrets, nao mostra a aba
+                print(f"Erro ao verificar acesso baseline: {e}")
+                return False
+        
+        # Criar tabs baseado no acesso do usuário
+        has_baseline_access = verificar_acesso_baseline()
+        
+        if has_baseline_access:
+            # Usuário autorizado - mostra todas as 3 tabs
+            tab1, tab2, tab3 = st.tabs(["Gráfico de Gantt", "Tabelão Horizontal", "Linhas de Base"])
+        else:
+            # Usuário não autorizado - mostra apenas 2 tabs
+            tab1, tab2 = st.tabs(["Gráfico de Gantt", "Tabelão Horizontal"])
+            tab3 = None  # Define como None para evitar erros
 
-                gerar_gantt(
-                    df_para_gantt.copy(), # Passa o DF filtrado (sem filtro de etapa/concluídas)
-                    tipo_visualizacao, 
-                    filtrar_nao_concluidas, # Passa o *estado* do checkbox
-                    df_data, 
-                    pulmao_status, 
-                    pulmao_meses,
-                    selected_etapa_nome  # Novo parâmetro
-                )
+    with tab1:
+        st.subheader("Gantt Comparativo")
+        
+        # Processar mudança de baseline PRIMEIRO
+        process_baseline_change()
+        
+        
+        if df_para_exibir.empty:
+            st.warning("⚠️ Nenhum dado encontrado com os filtros aplicados.")
+        else:
+            df_para_gantt = filter_dataframe(df_data, selected_ugb, selected_emp, selected_grupo, selected_setor)
+            
+            # gerar_gantt now reads baseline from session state internally
+            gerar_gantt(
+                df_para_gantt.copy(),
+                tipo_visualizacao, 
+                filtrar_nao_concluidas,
+                df_data, 
+                pulmao_status, 
+                pulmao_meses,
+                selected_etapa_nome
+            )
+            # Botão para limpar baseline (se houver uma ativa)
+                                                                                                                                                      
             st.markdown('<div id="visao-detalhada"></div>', unsafe_allow_html=True)
             st.subheader("Visão Detalhada por Empreendimento")
 
@@ -3986,7 +7264,7 @@ with st.spinner("Carregando e processando dados..."):
                     
                     st.markdown(tabela_estilizada.to_html(), unsafe_allow_html=True)
 
-        with tab2:
+    with tab2:
             st.subheader("Tabelão Horizontal")
             
             if df_detalhes.empty: # Usando df_detalhes
@@ -4266,15 +7544,127 @@ with st.spinner("Carregando e processando dados..."):
                     hide_index=True,
                     use_container_width=True
                 )
+    
+
+    # Tab3 - Linhas de Base (apenas para usuarios autorizados)
+    if tab3 is not None:
+        with tab3:
+            st.title("Gerenciamento de Linhas de Base")
+            
+            # Seleção de empreendimento
+            empreendimentos_baseline = df_data['Empreendimento'].unique().tolist() if not df_data.empty else []
+            
+            if not empreendimentos_baseline:
+                st.warning("Nenhum empreendimento disponível")
+            else:
+                selected_empreendimento_baseline = st.selectbox(
+                    "Selecione o Empreendimento",
+                    empreendimentos_baseline,
+                    key="baseline_emp_tab3"
+                )
                 
-                st.markdown("""<div style="margin-top: 10px; font-size: 12px; color: #555;">
-                    <strong>Legenda:</strong> 
-                    <span style="color: #2EAF5B; font-weight: bold;">■ Concluído antes do prazo</span> | 
-                    <span style="color: #C30202; font-weight: bold;">■ Concluído com atraso</span> | 
-                    <span style="color: #A38408; font-weight: bold;">■ Aguardando atualização</span> | 
-                    <span style="color: #000000; font-weight: bold;">■ Em andamento</span> | 
-                    <span style="color: #999; font-style: italic;"> - Dados não disponíveis</span>
-                </div>""", unsafe_allow_html=True)
+                st.divider()
+                
+                # === CRIAR BASELINE ===
+                st.subheader("📝 Criar Nova Baseline")
+                
+                user_email = st.session_state.get('user_email', '')
+                
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.write(f"**Empreendimento:** {selected_empreendimento_baseline}")
+                    if user_email:
+                        st.write(f"**Responsável:** {user_email}")
+                
+                with col2:
+                    if st.button("Criar Baseline", use_container_width=True, type="primary", key="create_baseline_main"):
+                        try:
+                            version_name = take_gantt_baseline(
+                                df_data, 
+                                selected_empreendimento_baseline, 
+                                tipo_visualizacao,
+                                created_by=user_email if user_email else "usuario"
+                            )
+                            st.success(f"✅ Baseline {version_name} criada!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
+                
+                st.divider()
+                
+                
+                # === LISTA DE BASELINES ===
+                st.subheader("📋 Baselines Existentes")
+                
+                baselines = load_baselines()
+                unsent_baselines = st.session_state.get('unsent_baselines', {})
+                emp_unsent = unsent_baselines.get(selected_empreendimento_baseline, [])
+                emp_baselines = baselines.get(selected_empreendimento_baseline, {})
+                
+                if emp_baselines:
+                    for i, version_name in enumerate(sorted(emp_baselines.keys(), reverse=True)):
+                        is_unsent = version_name in emp_unsent
+                        baseline_info = emp_baselines[version_name]
+                        data_criacao = baseline_info.get('date', 'N/A')
+                        baseline_data_info = baseline_info.get('data', {})
+                        created_by = baseline_data_info.get('created_by', 'N/A')
+                        
+                        col1, col2, col3 = st.columns([4, 2, 1])
+                        
+                        with col1:
+                            status = "🟡 Pendente" if is_unsent else "🟢 Enviada"
+                            st.write(f"**{version_name}** - {status}")
+                            st.caption(f"Criado por: {created_by} | Data: {data_criacao}")
+                        
+                        with col2:
+                            st.write("")  # Espaçamento
+                        
+                        with col3:
+                            if st.button("Excluir", key=f"del_{i}", use_container_width=True):
+                                if delete_baseline(selected_empreendimento_baseline, version_name):
+                                    if 'unsent_baselines' in st.session_state:
+                                        if version_name in st.session_state.unsent_baselines.get(selected_empreendimento_baseline, []):
+                                            st.session_state.unsent_baselines[selected_empreendimento_baseline].remove(version_name)
+                                    st.success("Excluída")
+                                    st.rerun()
+                                else:
+                                    st.error("Erro ao excluir")
+                        
+                        if i < len(emp_baselines) - 1:
+                            st.divider()
+                    
+                    # Estatísticas simples
+                    st.divider()
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total", len(emp_baselines))
+                    with col2:
+                        st.metric("Pendentes", len(emp_unsent))
+                    with col3:
+                        st.metric("Enviadas", len(emp_baselines) - len(emp_unsent))
+                else:
+                    st.info("Nenhuma baseline criada ainda")
+
+def verificar_implementacao_baseline():
+    """Verifica se todas as funcoes de baseline foram implementadas"""
+    funcoes_necessarias = [
+            'get_db_connection', 'create_baselines_table', 'load_baselines',
+            'save_baseline', 'delete_baseline', 'take_gantt_baseline', 'send_to_aws'
+    ]
+    
+    for func in funcoes_necessarias:
+            if func not in globals():
+                st.error(f"❌ Função {func} não encontrada na implementação")
+            return False
+    
+    return True
+
+# No final do arquivo, antes do if __name__:
+if __name__ == "__main__":
+    # Verificar implementação (pode remover depois)
+    if 'df_data' in globals() and not df_data.empty:
+            verificar_implementacao_baseline()
 
     else:
-        st.error("❌ Não foi possível carregar ou gerar os dados.")
+            st.error("❌ Não foi possível carregar ou gerar os dados.")

@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radial Menu - Figma Style</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: 
+                repeating-linear-gradient(
+                    0deg,
+                    rgba(0,0,0,0.03) 0px,
+                    transparent 1px,
+                    transparent 20px,
+                    rgba(0,0,0,0.03) 21px
+                ),
+                repeating-linear-gradient(
+                    90deg,
+                    rgba(0,0,0,0.03) 0px,
+                    transparent 1px,
+                    transparent 20px,
+                    rgba(0,0,0,0.03) 21px
+                );
+            background-color: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .radial-menu-wrapper {
+            position: relative;
+            width: 500px;
+            height: 500px;
+        }
+
+        /* Centro vazado com borda azul */
+        .radial-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+            border: 6px solid #007AFF;
+            border-radius: 50%;
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            z-index: 10;
+        }
+
+        .radial-center:hover {
+            border-width: 8px;
+            transform: translate(-50%, -50%) scale(1.08);
+            box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1);
+        }
+
+        /* SVG para fatia ativa */
+        .radial-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Linhas conectoras sutis */
+        .radial-connector {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 1px;
+            height: 90px;
+            background: rgba(0, 0, 0, 0.06);
+            transform-origin: top center;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* Ícones dos itens */
+        .radial-item {
+            position: absolute;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            z-index: 5;
+        }
+
+        .radial-item svg {
+            width: 28px;
+            height: 28px;
+            transition: all 0.2s ease;
+        }
+
+        .radial-item.active svg {
+            fill: #007AFF;
+        }
+
+        .radial-item:not(.active) svg {
+            fill: #333333;
+        }
+
+        .radial-item:hover:not(.active) svg {
+            fill: #666666;
+            transform: scale(1.1);
+        }
+
+        /* Tooltips pill-shape */
+        .radial-tooltip {
+            position: absolute;
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            pointer-events: none;
+            transition: all 0.2s ease;
+            z-index: 15;
+        }
+
+        .radial-tooltip.active {
+            background: #007AFF;
+            color: white;
+            box-shadow: 0 2px 12px rgba(0, 122, 255, 0.3);
+        }
+
+        .radial-tooltip:not(.active) {
+            background: white;
+            color: #333;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+        }
+
+        .tooltip-badge {
+            padding: 3px 8px;
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 600;
+            min-width: 20px;
+            text-align: center;
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+        }
+
+        .tooltip-badge.active-badge {
+            background: white;
+            color: #007AFF;
+        }
+
+        .tooltip-badge.inactive-badge {
+            background: #f0f0f0;
+            color: #666;
+        }
+
+        /* Botão More */
+        .radial-more {
+            position: absolute;
+            padding: 10px 18px;
+            background: #e8e8e8;
+            color: #666;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            z-index: 5;
+        }
+
+        .radial-more:hover {
+            background: #d8d8d8;
+            transform: scale(1.05);
+        }
+
+        /* Rodapé */
+        .footer-badge {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            background: white;
+            border-radius: 25px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+            color: #333;
+            z-index: 20;
+        }
+
+        .footer-badge .shortcut {
+            padding: 4px 10px;
+            background: #f0f0f0;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+        }
+
+        /* Animações de entrada */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.8); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .radial-item, .radial-tooltip, .radial-more {
+            animation: fadeIn 0.3s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div class="radial-menu-wrapper">
+        <!-- SVG para fatia ativa (12h - 60 graus) -->
+        <svg class="radial-svg" viewBox="0 0 500 500">
+            <!-- Fatia de pizza no topo -->
+            <path d="M 250 250 L 250 90 A 160 160 0 0 1 332.8 128.4 Z" 
+                  fill="rgba(0, 122, 255, 0.08)" 
+                  stroke="#007AFF" 
+                  stroke-width="2.5"
+                  opacity="1"/>
+        </svg>
+
+        <!-- Linhas conectoras -->
+        <div class="radial-connector" style="transform: translate(-0.5px, -40px) rotate(0deg);"></div>
+        <div class="radial-connector" style="transform: translate(-0.5px, -40px) rotate(45deg);"></div>
+        <div class="radial-connector" style="transform: translate(-0.5px, -40px) rotate(90deg);"></div>
+        <div class="radial-connector" style="transform: translate(-0.5px, -40px) rotate(135deg);"></div>
+        <div class="radial-connector" style="transform: translate(-0.5px, -40px) rotate(180deg);"></div>
+        <div class="radial-connector" style="transform: translate(-0.5px, -40px) rotate(225deg);"></div>
+        <div class="radial-connector" style="transform: translate(-0.5px, -40px) rotate(270deg);"></div>
+        <div class="radial-connector" style="transform: translate(-0.5px, -40px) rotate(315deg);"></div>
+
+        <!-- Centro vazado -->
+        <div class="radial-center" title="Radial Menu"></div>
+
+        <!-- 12h: Move Tool (ATIVO) -->
+        <div class="radial-item active" style="top: 60px; left: 234px;">
+            <svg viewBox="0 0 24 24">
+                <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
+            </svg>
+        </div>
+        <div class="radial-tooltip active" style="top: 20px; left: 50%; transform: translateX(-50%);">
+            Move Tool
+            <span class="tooltip-badge active-badge">M</span>
+        </div>
+
+        <!-- 1h30: Frame -->
+        <div class="radial-item" style="top: 133px; left: 352px;">
+            <svg viewBox="0 0 24 24">
+                <rect x="3" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2"/>
+                <rect x="14" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2"/>
+                <rect x="3" y="14" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2"/>
+                <rect x="14" y="14" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2"/>
+            </svg>
+        </div>
+        <div class="radial-tooltip" style="top: 118px; right: 20px;">
+            Frame
+            <span class="tooltip-badge inactive-badge">F</span>
+        </div>
+
+        <!-- 3h: Pen Tool -->
+        <div class="radial-item" style="top: 234px; left: 410px;">
+            <svg viewBox="0 0 24 24">
+                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+            </svg>
+        </div>
+        <div class="radial-tooltip" style="top: 50%; right: 10px; transform: translateY(-50%);">
+            Pen Tool
+            <span class="tooltip-badge inactive-badge">P</span>
+        </div>
+
+        <!-- 4h30: Text -->
+        <div class="radial-item" style="top: 335px; left: 352px;">
+            <svg viewBox="0 0 24 24">
+                <path d="M5 4v3h5.5v12h3V7H19V4z"/>
+            </svg>
+        </div>
+        <div class="radial-tooltip" style="bottom: 118px; right: 20px;">
+            Text
+            <span class="tooltip-badge inactive-badge">T</span>
+        </div>
+
+        <!-- 6h: More -->
+        <div class="radial-more" style="top: 420px; left: 50%; transform: translateX(-50%);">
+            More ...
+        </div>
+
+        <!-- 7h30: Actions -->
+        <div class="radial-item" style="top: 335px; left: 116px;">
+            <svg viewBox="0 0 24 24">
+                <rect x="3" y="3" width="7" height="7" rx="1"/>
+                <rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/>
+                <path d="M18 18l-3-3m3 3l3-3m-3 3v-6" stroke="currentColor" fill="none" stroke-width="2"/>
+            </svg>
+        </div>
+        <div class="radial-tooltip" style="bottom: 118px; left: 20px;">
+            Actions
+        </div>
+
+        <!-- 9h: Objects -->
+        <div class="radial-item" style="top: 234px; left: 58px;">
+            <svg viewBox="0 0 24 24">
+                <circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+                <rect x="12" y="12" width="9" height="9" rx="1" fill="none" stroke="currentColor" stroke-width="2"/>
+            </svg>
+        </div>
+        <div class="radial-tooltip" style="top: 50%; left: 10px; transform: translateY(-50%);">
+            Objects
+            <span class="tooltip-badge inactive-badge">O</span>
+        </div>
+
+        <!-- 10h30: Comment -->
+        <div class="radial-item" style="top: 133px; left: 116px;">
+            <svg viewBox="0 0 24 24">
+                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" fill="none" stroke="currentColor" stroke-width="2"/>
+            </svg>
+        </div>
+        <div class="radial-tooltip" style="top: 118px; left: 20px;">
+            Comment
+            <span class="tooltip-badge inactive-badge">C</span>
+        </div>
+    </div>
+
+    <!-- Rodapé -->
+    <div class="footer-badge">
+        Radial Toolkit
+        <span class="shortcut">Alt + W</span>
+    </div>
+
+    <script>
+        // Event listeners para interatividade
+        document.querySelectorAll('.radial-item').forEach(item => {
+            item.addEventListener('click', function() {
+                console.log('Item clicado:', this);
+                // Aqui você pode adicionar a lógica para cada ação
+            });
+        });
+
+        document.querySelector('.radial-center').addEventListener('click', function() {
+            console.log('Centro clicado - fechar menu');
+        });
+
+        document.querySelector('.radial-more').addEventListener('click', function() {
+            console.log('More clicado');
+        });
+    </script>
+</body>
+</html>
