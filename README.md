@@ -114,6 +114,64 @@ stateDiagram-v2
     end note
 ```
 
+## Fluxo Completo da Lógica de Iframe
+
+```mermaid
+sequenceDiagram
+    participant U as Usuário
+    participant UI as Interface (HTML/JS)
+    participant IF as iframe Invisível
+    participant ST as Streamlit Backend
+    participant DB as MySQL AWS
+
+    U->>UI: Clique direito no Gantt
+    UI->>UI: Mostra menu de contexto
+    U->>UI: Clica em "Criar Linha de Base"
+    
+    UI->>UI: showLoading() - Mostra overlay
+    UI->>UI: Cria URL com parâmetros
+    Note over UI: ?context_action=take_baseline&empreendimento=X
+    
+    UI->>IF: Define iframe.src = URL
+    IF->>ST: Carrega página com query params
+    
+    ST->>ST: process_context_menu_actions()
+    Note over ST: Detecta context_action=take_baseline
+    
+    ST->>ST: take_gantt_baseline()
+    Note over ST: Cria snapshot dos dados
+    
+    ST->>DB: save_baseline()
+    DB-->>ST: Confirmação
+    
+    ST->>ST: Limpa query params
+    ST-->>IF: Página carregada (onload)
+    
+    IF->>UI: Dispara evento onload
+    UI->>UI: hideLoading()
+    UI->>UI: showStatus("✅ Criada!")
+    UI->>UI: Dispara evento 'baselineCreated'
+```
+
+### 🔒 Restrições de Segurança do iframe
+
+O iframe usado em `st.components.v1.html()` possui restrições de segurança que impedem comunicação direta:
+
+**❌ Bloqueado pelo Sandbox:**
+- `window.parent` - Same-Origin Policy bloqueia acesso ao contexto pai
+- `postMessage()` - Streamlit não possui receptor para mensagens
+- `Streamlit.setComponentValue()` - Não disponível em componentes HTML simples
+- Shared storage/cookies - Isolamento de origem
+
+**✅ Solução Implementada:**
+- **Navegação HTTP** via `iframe.src = URL` com query parameters
+- Streamlit detecta params com `st.query_params`
+- Python processa a ação no backend
+- Feedback visual via `iframe.onload`
+
+**Por que funciona:**
+A navegação HTTP não viola Same-Origin Policy pois cria uma nova requisição GET, permitindo que o JavaScript no iframe comunique com o backend Python através da URL.
+
 ## Estrutura de Dados - DataFrame
 
 ```mermaid
