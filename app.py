@@ -6515,9 +6515,27 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
         
         grupos_por_setor_dict[setor_nome] = sorted(list(grupos_presentes))
     
+    # *** NOVO: Identificar macroetapas (ORÇ, PE, PL, SUP) por setor ***
+    MACROETAPAS_PREFIXOS = ['ORÇ', 'PE', 'PL', 'SUP']
+    macroetapas_por_setor_dict = {}
+    
+    for setor_nome in all_sector_names:
+        etapas_do_setor = df_gantt_agg[df_gantt_agg['SETOR'] == setor_nome]['Etapa'].unique()
+        macroetapas_presentes = set()
+        
+        for etapa in etapas_do_setor:
+            # Verificar se a etapa começa com algum dos prefixos de macroetapa
+            for prefixo in MACROETAPAS_PREFIXOS:
+                if str(etapa).startswith(prefixo):
+                    macroetapas_presentes.add(prefixo)
+                    break
+        
+        macroetapas_por_setor_dict[setor_nome] = sorted(list(macroetapas_presentes))
+    
     # Definir etapas iniciais para HTML renderizado pelo Python (evita flicker com etapas erradas)
     etapas_iniciais_html = [e['nome'] for e in etapas_por_setor_dict.get(setor_selecionado_inicialmente, [])]
     grupos_iniciais_html = grupos_por_setor_dict.get(setor_selecionado_inicialmente, [])
+    macroetapas_iniciais_html = macroetapas_por_setor_dict.get(setor_selecionado_inicialmente, [])
         
     filter_options = {
         "empreendimentos": ["Todos"] + empreendimentos_no_df,
@@ -6526,6 +6544,8 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
         "etapas_por_setor": etapas_por_setor_dict,
         "grupos": grupos_iniciais_html,
         "grupos_por_setor": grupos_por_setor_dict,
+        "macroetapas": macroetapas_iniciais_html,
+        "macroetapas_por_setor": macroetapas_por_setor_dict,
         "mapeamento_grupos": GRUPOS
     }
     
@@ -6846,6 +6866,7 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
         <script id="all-data-by-sector" type="application/json">{json.dumps(all_data_by_sector_js)}</script>
         <script id="etapas-by-sector" type="application/json">{json.dumps(etapas_por_setor_dict)}</script>
         <script id="grupos-por-setor" type="application/json">{json.dumps(grupos_por_setor_dict)}</script>
+        <script id="macroetapas-por-setor" type="application/json">{json.dumps(macroetapas_por_setor_dict)}</script>
         <script id="mapeamento-grupos" type="application/json">{json.dumps(GRUPOS)}</script>
         
         <div class="gantt-container" id="gantt-container-{project['id']}">
@@ -6897,6 +6918,10 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                 <div class="filter-group">
                     <label for="filter-etapa-{project['id']}">Etapa</label>
                     <div id="filter-etapa-{project['id']}"></div>
+                </div>
+                <div class="filter-group">
+                    <label for="filter-macroetapa-{project['id']}">Macroetapas</label>
+                    <div id="filter-macroetapa-{project['id']}"></div>
                 </div>
                 <div class="filter-group">
                     <div class="filter-group-checkbox">
@@ -6996,6 +7021,7 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             const allDataBySector = JSON.parse(document.getElementById('all-data-by-sector').textContent);
             const etapasBySector = JSON.parse(document.getElementById('etapas-by-sector').textContent);
             const gruposPorSetor = JSON.parse(document.getElementById('grupos-por-setor').textContent);
+            const macroetapasPorSetor = JSON.parse(document.getElementById('macroetapas-por-setor').textContent);
             const mapeamentoGrupos = JSON.parse(document.getElementById('mapeamento-grupos').textContent);
             
             // *** NOVAS VARIÁVEIS GLOBAIS ***
@@ -7010,6 +7036,7 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             // *** Variável Global para Virtual Select ***
             let vsEtapa;
             let vsGrupo;
+            let vsMacroetapas;
 
             // *** FUNÇÃO AUXILIAR: Inicializar Virtual Select de Etapas ***
             function renderStageCheckboxes(sectorName) {{
@@ -7061,6 +7088,32 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                     selectedValue: options.map(o => o.value)  // Todos selecionados por padrão
                 }});
             }}
+            
+            // *** FUNÇÃO AUXILIAR: Inicializar Virtual Select de Macroetapas ***
+            function renderMacroetapasCheckboxes(sectorName) {{
+                // Usar macroetapas do setor selecionado
+                const macroetapas = macroetapasPorSetor[sectorName] || [];
+                
+                // Converter para formato do Virtual Select
+                const options = macroetapas.map(macro => ({{
+                    label: macro,
+                    value: macro
+                }}));
+                
+                // Destruir instância anterior se existir
+                if (vsMacroetapas) {{
+                    vsMacroetapas.destroy();
+                }}
+                
+                // Inicializar Virtual Select
+                vsMacroetapas = VirtualSelect.init({{
+                    ele: '#filter-macroetapa-{project["id"]}',
+                    options: options,
+                    multiple: true,
+                    search: true,
+                    selectedValue: options.map(o => o.value)  // Todos selecionados por padrão
+                }});
+            }}
 
             // *** FUNÇÃO AUXILIAR: Atualizar Título do Projeto ***
             function updateProjectTitle(newSectorName) {{
@@ -7096,9 +7149,10 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                     // 2. LER OUTROS FILTROS
                     const selEmp = document.getElementById('filter-project-{project["id"]}').value;
                     
-                    // *** ATUALIZADO: Obter etapas e grupos selecionados do Virtual Select ***
+                    // *** ATUALIZADO: Obter etapas, grupos e macroetapas selecionados do Virtual Select ***
                     let etapasSelecionadas = vsEtapa ? vsEtapa.getValue() : [];
                     let gruposSelecionados = vsGrupo ? vsGrupo.getValue() : [];
+                    let macroetapasSelecionadas = vsMacroetapas ? vsMacroetapas.getValue() : [];
                     
                     const selConcluidas = document.getElementById('filter-concluidas-{project["id"]}').checked;
                     const selVis = document.querySelector('input[name="filter-vis-{project["id"]}"]:checked').value;
@@ -7116,9 +7170,10 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                         console.log(`✅ Mudando para setor: ${{currentSector}}. Tasks carregadas: ${{allTasks_baseData.length}}`);
                         updateProjectTitle(currentSector);
                         
-                        // *** NOVO: Atualizar filtros de etapas E grupos para o novo setor ***
+                        // *** NOVO: Atualizar filtros de etapas, grupos E macroetapas para o novo setor ***
                         renderStageCheckboxes(currentSector);
                         renderGroupCheckboxes(currentSector);
+                        renderMacroetapasCheckboxes(currentSector);
                         
                         // Como os checkboxes foram recriados (e todos vêm checked por padrão na função render),
                         // atualizamos a lista de etapas selecionadas para incluir todas as novas etapas.
@@ -7157,6 +7212,21 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                             return false; // Task não pertence a nenhum grupo selecionado
                         }});
                         console.log(`📉 Filtro Grupos: ${{countAntes}} -> ${{filteredTasks.length}}`);
+                    }}
+                    
+                    // *** NOVO: Filtro de macroetapas ***
+                    if (macroetapasSelecionadas.length > 0) {{
+                        const countAntes = filteredTasks.length;
+                        filteredTasks = filteredTasks.filter(task => {{
+                            // Verificar se a etapa da task começa com alguma das macroetapas selecionadas
+                            for (const macro of macroetapasSelecionadas) {{
+                                if (task.etapa.startsWith(macro)) {{
+                                    return true; // Task começa com uma macroetapa selecionada
+                                }}
+                            }}
+                            return false; // Task não começa com nenhuma macroetapa selecionada
+                        }});
+                        console.log(`📉 Filtro Macroetapas: ${{countAntes}} -> ${{filteredTasks.length}}`);
                     }}
                     
                     // Filtro de etapas (melhorado - comparação exata)
@@ -7793,9 +7863,10 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                 }});
             }}
             
-            // Inicializar filtros de etapas e grupos para o setor atual
+            // Inicializar filtros de etapas, grupos e macroetapas para o setor atual
             renderStageCheckboxes(initialSectorName);
             renderGroupCheckboxes(initialSectorName);
+            renderMacroetapasCheckboxes(initialSectorName);
             
             // Renderizar inicial com filtros aplicados
             applyFiltersAndRedraw();
