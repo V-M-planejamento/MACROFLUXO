@@ -91,7 +91,7 @@ GRUPOS = {
     "INFRA INCIDENTE": ["PL.INFRA", "LEG.INFRA", "ENG. INFRA", "EXECUÇÃO INFRA", "PE. INFRA", "ORÇ. INFRA", "SUP. INFRA"],
     "PAVIMENTAÇÃO": ["ENG. PAV", "EXECUÇÃO PAV.", "PE. PAV", "ORÇ. PAV", "SUP. PAV"],
     "PULMÃO": ["PULMÃO INFRA"],
-    "RADIER": ["PL.RADIER", "LEG.RADIER", "PULMÃO RADIER", "RADIER"],
+    "RADIER": ["PL.RADIER", "PL.RAD", "LEG.RADIER", "LEG.RAD", "PULMÃO RADIER", "PUL.RAD", "RADIER", "RAD"],
     "DM": ["DEMANDA MÍNIMA"],
     "EQUIPANENTOS COMUNS": ["PE. ÁREAS COMUNS (URB)", "PE. ÁREAS COMUNS (ENG)", "ORÇ. ÁREAS COMUNS", "SUP. ÁREAS COMUNS", "EXECUÇÃO ÁREAS COMUNS"],
 }
@@ -6349,6 +6349,10 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             end_real_original = row.get("Termino_Real")
             progress = row.get("% concluído", 0)
             
+            # DEBUG: Verificar se datas previstas existem para PULMÃO
+            if setor == "PULMÃO":
+                print(f"DEBUG [{setor}] {empreendimento} - {etapa}: Inicio_Prevista={start_date}, Termino_Prevista={end_date}")
+            
             if pd.isna(start_date): start_date = datetime.now()
             if pd.isna(end_date): end_date = start_date + timedelta(days=30)
             end_real_visual = end_real_original
@@ -6491,15 +6495,38 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                 "nome": sigla_para_nome_completo.get(e, e)
             })
         etapas_por_setor_dict[setor_nome] = etapas_data
+    
+    
+    # *** NOVO: Determinar quais grupos do dicionário GRUPOS têm etapas presentes em cada setor ***
+    grupos_por_setor_dict = {}
+    for setor_nome in all_sector_names:
+        etapas_do_setor = set(df_gantt_agg[df_gantt_agg['SETOR'] == setor_nome]['Etapa'].unique())
+        grupos_presentes = set()
         
+        # Para cada grupo no dicionário GRUPOS
+        for grupo_nome, etapas_do_grupo in GRUPOS.items():
+            # Normalizar etapas do grupo (remover pontos finais)
+            etapas_normalizadas_grupo = set(e.strip().rstrip('.') for e in etapas_do_grupo)
+            etapas_normalizadas_setor = set(e.strip().rstrip('.') for e in etapas_do_setor)
+            
+            # Se alguma etapa do grupo está presente no setor, incluir o grupo
+            if etapas_normalizadas_grupo.intersection(etapas_normalizadas_setor):
+                grupos_presentes.add(grupo_nome)
+        
+        grupos_por_setor_dict[setor_nome] = sorted(list(grupos_presentes))
+    
     # Definir etapas iniciais para HTML renderizado pelo Python (evita flicker com etapas erradas)
     etapas_iniciais_html = [e['nome'] for e in etapas_por_setor_dict.get(setor_selecionado_inicialmente, [])]
+    grupos_iniciais_html = grupos_por_setor_dict.get(setor_selecionado_inicialmente, [])
         
     filter_options = {
         "empreendimentos": ["Todos"] + empreendimentos_no_df,
         "setores_disponiveis": sorted(all_sector_names),
-        "etapas": etapas_iniciais_html, # Apenas etapas do setor inicial
-        "etapas_por_setor": etapas_por_setor_dict
+        "etapas": etapas_iniciais_html,
+        "etapas_por_setor": etapas_por_setor_dict,
+        "grupos": grupos_iniciais_html,
+        "grupos_por_setor": grupos_por_setor_dict,
+        "mapeamento_grupos": GRUPOS
     }
     
     tasks_base_data_inicial = all_data_by_sector_js.get(setor_selecionado_inicialmente, [])
@@ -6577,6 +6604,8 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/virtual-select-plugin@1.0.39/dist/virtual-select.min.css">
         
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -6709,65 +6738,23 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                 background-color: #1a202c;
             }}
             
-            /* Estilos para o container de checkboxes de etapas */
-            .filter-group .etapas-multiselect-container {{
-                max-height: 150px;
-                overflow-y: auto;
+            /* Estilos para Virtual Select nos filtros */
+            .floating-filter-menu .vscomp-toggle-button {{
                 border: 1px solid #cbd5e0;
                 border-radius: 4px;
-                padding: 8px;
-                background: white;
-            }}
-            
-            /* Scrollbar customizado para o container de etapas */
-            .filter-group .etapas-multiselect-container::-webkit-scrollbar {{
-                width: 6px;
-            }}
-            .filter-group .etapas-multiselect-container::-webkit-scrollbar-track {{
-                background: #f1f1f1;
-                border-radius: 3px;
-            }}
-            .filter-group .etapas-multiselect-container::-webkit-scrollbar-thumb {{
-                background: #cbd5e0;
-                border-radius: 3px;
-            }}
-            .filter-group .etapas-multiselect-container::-webkit-scrollbar-thumb:hover {{
-                background: #a0aec0;
-            }}
-            
-            /* Estilos para labels de checkbox de etapas */
-            .filter-group .etapas-multiselect-container label {{
-                display: flex;
-                align-items: center;
-                cursor: pointer;
-                padding: 4px 0;
-                transition: background-color 0.15s ease;
-                border-radius: 3px;
-                margin: 0;
-                text-transform: none;
-            }}
-            .filter-group .etapas-multiselect-container label:hover {{
-                background-color: #f7fafc;
-            }}
-            
-            /* Checkbox "Todas as Etapas" */
-            .filter-group .etapas-multiselect-container \u003e div:first-child {{
-                margin-bottom: 8px;
-                border-bottom: 1px solid #e2e8f0;
-                padding-bottom: 6px;
-            }}
-            .filter-group .etapas-multiselect-container \u003e div:first-child label {{
-                font-weight: 600;
-            }}
-            
-            /* Checkboxes individuais */
-            .filter-group .etapas-multiselect-container input[type="checkbox"] {{
-                margin-right: 6px;
-                cursor: pointer;
-            }}
-            .filter-group .etapas-multiselect-container span {{
+                padding: 6px 8px;
                 font-size: 13px;
-                color: #2d3748;
+                min-height: 30px;
+            }}
+            .floating-filter-menu .vscomp-options {{
+                font-size: 13px;
+            }}
+            .floating-filter-menu .vscomp-option {{
+                min-height: 30px;
+            }}
+            .floating-filter-menu .vscomp-search-input {{
+                height: 30px;
+                font-size: 13px;
             }}
             .baseline-selector {{
                 display: none;
@@ -6858,6 +6845,8 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
     <body>
         <script id="all-data-by-sector" type="application/json">{json.dumps(all_data_by_sector_js)}</script>
         <script id="etapas-by-sector" type="application/json">{json.dumps(etapas_por_setor_dict)}</script>
+        <script id="grupos-por-setor" type="application/json">{json.dumps(grupos_por_setor_dict)}</script>
+        <script id="mapeamento-grupos" type="application/json">{json.dumps(GRUPOS)}</script>
         
         <div class="gantt-container" id="gantt-container-{project['id']}">
             <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
@@ -6902,21 +6891,12 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                     </select>
                 </div>
                 <div class="filter-group">
-                    <label>Etapas</label>
-                    <div class="etapas-multiselect-container">
-                        <div>
-                            <label style="display: flex; align-items: center; cursor: pointer; font-weight: 600;">
-                                <input type="checkbox" id="filter-etapas-all-{project['id']}" checked style="margin-right: 6px;">
-                                <span>Todas as Etapas</span>
-                            </label>
-                        </div>
-                        {"".join([f'''
-                        <label style="display: flex; align-items: center; cursor: pointer; padding: 4px 0;">
-                            <input type="checkbox" class="filter-etapa-checkbox" data-etapa="{etapa.replace('"', '&quot;')}" checked style="margin-right: 6px;">
-                            <span style="font-size: 13px;">{etapa}</span>
-                        </label>
-                        ''' for etapa in filter_options['etapas']])}
-                    </div>
+                    <label for="filter-grupo-{project['id']}">Grupo</label>
+                    <div id="filter-grupo-{project['id']}"></div>
+                </div>
+                <div class="filter-group">
+                    <label for="filter-etapa-{project['id']}">Etapa</label>
+                    <div id="filter-etapa-{project['id']}"></div>
                 </div>
                 <div class="filter-group">
                     <div class="filter-group-checkbox">
@@ -7009,10 +6989,14 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             <div class="tooltip" id="tooltip"></div>
         </div>
         
+        <script src="https://cdn.jsdelivr.net/npm/virtual-select-plugin@1.0.39/dist/virtual-select.min.js"></script>
+        
         <script>
             // Dados de todos os setores
             const allDataBySector = JSON.parse(document.getElementById('all-data-by-sector').textContent);
             const etapasBySector = JSON.parse(document.getElementById('etapas-by-sector').textContent);
+            const gruposPorSetor = JSON.parse(document.getElementById('grupos-por-setor').textContent);
+            const mapeamentoGrupos = JSON.parse(document.getElementById('mapeamento-grupos').textContent);
             
             // *** NOVAS VARIÁVEIS GLOBAIS ***
             const initialSectorName = "{setor_selecionado_inicialmente}";
@@ -7022,57 +7006,59 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             
             // Variável para armazenar o tipo de visualização selecionado
             let savedVisualizationType = 'Ambos';
+            
+            // *** Variável Global para Virtual Select ***
+            let vsEtapa;
+            let vsGrupo;
 
-            // *** FUNÇÃO AUXILIAR: Renderizar Checkboxes de Etapas ***
+            // *** FUNÇÃO AUXILIAR: Inicializar Virtual Select de Etapas ***
             function renderStageCheckboxes(sectorName) {{
-                const container = document.querySelector('.etapas-multiselect-container');
-                if (!container) return;
-                
                 const etapas = etapasBySector[sectorName] || [];
                 
-                let html = `
-                    <div>
-                        <label>
-                            <input type="checkbox" id="filter-etapas-all-{project['id']}" checked>
-                            <span>Todas as Etapas</span>
-                        </label>
-                    </div>
-                `;
+                // Converter para formato do Virtual Select
+                const options = etapas.map(etapa => ({{
+                    label: etapa.nome,
+                    value: etapa.nome
+                }}));
                 
-                etapas.forEach(etapa => {{
-                    // Escapar aspas duplas para não quebrar o atributo HTML
-                    const etapaNomeSafe = etapa.nome.replace(/"/g, '&quot;');
-                    html += `
-                    <label>
-                        <input type="checkbox" class="filter-etapa-checkbox" data-etapa="${{etapaNomeSafe}}" checked>
-                        <span>${{etapa.nome}}</span>
-                    </label>
-                    `;
-                }});
-                
-                container.innerHTML = html;
-                
-                // Reatribuir Event Listeners
-                const checkboxAll = document.getElementById('filter-etapas-all-{project["id"]}');
-                const etapaCheckboxes = container.querySelectorAll('.filter-etapa-checkbox');
-                
-                if (checkboxAll) {{
-                    checkboxAll.addEventListener('change', function() {{
-                        etapaCheckboxes.forEach(cb => {{
-                            cb.checked = this.checked;
-                        }});
-                    }});
+                // Destruir instância anterior se existir
+                if (vsEtapa) {{
+                    vsEtapa.destroy();
                 }}
                 
-                etapaCheckboxes.forEach(cb => {{
-                    cb.addEventListener('change', function() {{
-                        const allChecked = Array.from(etapaCheckboxes).every(c => c.checked);
-                        const someChecked = Array.from(etapaCheckboxes).some(c => c.checked);
-                        if (checkboxAll) {{
-                            checkboxAll.checked = allChecked;
-                            checkboxAll.indeterminate = someChecked && !allChecked;
-                        }}
-                    }});
+                // Inicializar Virtual Select
+                vsEtapa = VirtualSelect.init({{
+                    ele: '#filter-etapa-{project["id"]}',
+                    options: options,
+                    multiple: true,
+                    search: true,
+                    selectedValue: options.map(o => o.value)
+                }});
+            }}
+
+            // *** FUNÇÃO AUXILIAR: Inicializar Virtual Select de Grupos ***
+            function renderGroupCheckboxes(sectorName) {{
+                // Usar apenas os grupos que têm etapas presentes neste setor
+                const gruposDoSetor = gruposPorSetor[sectorName] || [];
+                
+                // Converter para formato do Virtual Select
+                const options = gruposDoSetor.map(grupo => ({{
+                    label: grupo,
+                    value: grupo
+                }}));
+                
+                // Destruir instância anterior se existir
+                if (vsGrupo) {{
+                    vsGrupo.destroy();
+                }}
+                
+                // Inicializar Virtual Select
+                vsGrupo = VirtualSelect.init({{
+                    ele: '#filter-grupo-{project["id"]}',
+                    options: options,
+                    multiple: true,
+                    search: true,
+                    selectedValue: options.map(o => o.value)  // Todos selecionados por padrão
                 }});
             }}
 
@@ -7109,8 +7095,11 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                     
                     // 2. LER OUTROS FILTROS
                     const selEmp = document.getElementById('filter-project-{project["id"]}').value;
-                    let etapaCheckboxes = document.querySelectorAll('.filter-etapa-checkbox:checked');
-                    let etapasSelecionadas = Array.from(etapaCheckboxes).map(cb => cb.dataset.etapa);
+                    
+                    // *** ATUALIZADO: Obter etapas e grupos selecionados do Virtual Select ***
+                    let etapasSelecionadas = vsEtapa ? vsEtapa.getValue() : [];
+                    let gruposSelecionados = vsGrupo ? vsGrupo.getValue() : [];
+                    
                     const selConcluidas = document.getElementById('filter-concluidas-{project["id"]}').checked;
                     const selVis = document.querySelector('input[name="filter-vis-{project["id"]}"]:checked').value;
                     
@@ -7127,8 +7116,9 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                         console.log(`✅ Mudando para setor: ${{currentSector}}. Tasks carregadas: ${{allTasks_baseData.length}}`);
                         updateProjectTitle(currentSector);
                         
-                        // *** NOVO: Atualizar checkboxes de etapa para o novo setor ***
+                        // *** NOVO: Atualizar filtros de etapas E grupos para o novo setor ***
                         renderStageCheckboxes(currentSector);
+                        renderGroupCheckboxes(currentSector);
                         
                         // Como os checkboxes foram recriados (e todos vêm checked por padrão na função render),
                         // atualizamos a lista de etapas selecionadas para incluir todas as novas etapas.
@@ -7146,6 +7136,27 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                     // Filtro de empreendimento
                     if (selEmp !== 'Todos') {{
                         filteredTasks = filteredTasks.filter(t => t.empreendimento === selEmp);
+                    }}
+                    
+                    // *** MODIFICADO: Filtro de grupos usando mapeamento ***
+                    if (gruposSelecionados.length > 0) {{
+                        const countAntes = filteredTasks.length;
+                        filteredTasks = filteredTasks.filter(task => {{
+                            // Verificar se a etapa da task pertence a algum dos grupos selecionados
+                            // Normalizar nome da etapa (remover pontos finais)
+                            const etapaNormalizada = task.etapa.trim().replace(/\.+$/, '');
+                            
+                            for (const grupoSelecionado of gruposSelecionados) {{
+                                const etapasDoGrupo = mapeamentoGrupos[grupoSelecionado] || [];
+                                // Normalizar etapas do grupo também
+                                const etapasNormalizadas = etapasDoGrupo.map(e => e.trim().replace(/\.+$/, ''));
+                                if (etapasNormalizadas.includes(etapaNormalizada)) {{
+                                    return true; // Task pertence a um dos grupos selecionados
+                                }}
+                            }}
+                            return false; // Task não pertence a nenhum grupo selecionado
+                        }});
+                        console.log(`📉 Filtro Grupos: ${{countAntes}} -> ${{filteredTasks.length}}`);
                     }}
                     
                     // Filtro de etapas (melhorado - comparação exata)
@@ -7220,32 +7231,7 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             // Event listener APENAS para botão "Aplicar Filtros"
             document.getElementById('filter-apply-btn-{project["id"]}')?.addEventListener('click', applyFiltersAndRedraw);
             
-            // Event listeners para o filtro multiselect de etapas
-            // Checkbox "Todas as Etapas"
-            const checkboxAll = document.getElementById('filter-etapas-all-{project["id"]}');
-            if (checkboxAll) {{
-                checkboxAll.addEventListener('change', function() {{
-                    const checkboxes = document.querySelectorAll('.filter-etapa-checkbox');
-                    checkboxes.forEach(cb => {{
-                        cb.checked = this.checked;
-                    }});
-                }});
-            }}
-            
-            // Checkboxes individuais de etapas
-            const etapaCheckboxes = document.querySelectorAll('.filter-etapa-checkbox');
-            etapaCheckboxes.forEach(cb => {{
-                cb.addEventListener('change', function() {{
-                    // Atualizar checkbox "Todas" baseado no estado dos individuais
-                    const allChecked = Array.from(etapaCheckboxes).every(checkbox => checkbox.checked);
-                    const someChecked = Array.from(etapaCheckboxes).some(checkbox => checkbox.checked);
-                    
-                    if (checkboxAll) {{
-                        checkboxAll.checked = allChecked;
-                        checkboxAll.indeterminate = someChecked && !allChecked;
-                    }}
-                }});
-            }});
+            // *** REMOVIDO: Event listeners de checkboxes - agora usa Virtual Select ***
 
             
             // Função para aplicar baseline em um empreendimento
@@ -7473,6 +7459,11 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                     let barPrevisto = null;
                     let barReal = null;
                     
+                    // DEBUG: Verificar dados de previsto para PULMÃO
+                    if (task.setor === 'PULMÃO') {{
+                        console.log('DEBUG JS [' + task.setor + '] ' + task.name + ': start_previsto=' + task.start_previsto + ', end_previsto=' + task.end_previsto + ', tipoVis=' + tipoVisualizacao);
+                    }}
+                    
                     // Barra Prevista (só criar se visualização for "Previsto" ou "Ambos")
                     if ((tipoVisualizacao === 'Previsto' || tipoVisualizacao === 'Ambos') && task.start_previsto && task.end_previsto) {{
                         const startDate = new Date(task.start_previsto);
@@ -7482,7 +7473,12 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                         const diffEnd = (endDate - dataInicio) / (1000 * 60 * 60 * 24);
                         
                         const left = (diffStart / 30.4375) * larguraMes;
-                        const width = ((diffEnd - diffStart) / 30.4375) * larguraMes;
+                        let width = ((diffEnd - diffStart) / 30.4375) * larguraMes;
+                        
+                        // Se início e fim são o mesmo dia (width = 0), definir largura mínima
+                        if (width === 0) {{
+                            width = larguraMes / 30.4375; // Largura de 1 dia
+                        }}
                         
                         if (width > 0) {{
                             barPrevisto = document.createElement('div');
@@ -7515,7 +7511,12 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                         const diffEnd = (endDate - dataInicio) / (1000 * 60 * 60 * 24);
                         
                         const left = (diffStart / 30.4375) * larguraMes;
-                        const width = ((diffEnd - diffStart) / 30.4375) * larguraMes;
+                        let width = ((diffEnd - diffStart) / 30.4375) * larguraMes;
+                        
+                        // Se início e fim são o mesmo dia (width = 0), definir largura mínima
+                        if (width === 0) {{
+                            width = larguraMes / 30.4375; // Largura de 1 dia
+                        }}
                         
                         if (width > 0) {{
                             barReal = document.createElement('div');
@@ -7792,8 +7793,9 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                 }});
             }}
             
-            // Inicializar checkboxes de etapas para o setor atual
+            // Inicializar filtros de etapas e grupos para o setor atual
             renderStageCheckboxes(initialSectorName);
+            renderGroupCheckboxes(initialSectorName);
             
             // Renderizar inicial com filtros aplicados
             applyFiltersAndRedraw();
