@@ -804,6 +804,16 @@ def converter_dados_para_gantt(df):
             elif progress < 100 and pd.notna(start_real) and pd.notna(end_real_original) and (end_real_original < hoje):
                 status_color_class = 'status-yellow'  # Em andamento, mas data real já passou
 
+            # --- CORREÇÃO: Buscar UGB do DataFrame original, não do row ---
+            # O row pode não ter a coluna UGB após todas as transformações
+            # Buscar UGB do empreendimento no DataFrame original
+            ugb_value = "N/D"
+            if "UGB" in df_emp.columns:
+                # Pegar a primeira UGB não-nula do empreendimento
+                ugb_series = df_emp["UGB"].dropna()
+                if not ugb_series.empty:
+                    ugb_value = str(ugb_series.iloc[0])
+            
             task = {
                 "id": f"t{i}", "name": etapa_nome_completo, "numero_etapa": i + 1,
                 "start_previsto": start_date.strftime("%Y-%m-%d") if pd.notna(start_date) and start_date is not None else None,
@@ -811,6 +821,7 @@ def converter_dados_para_gantt(df):
                 "start_real": pd.to_datetime(start_real).strftime("%Y-%m-%d") if pd.notna(start_real) else None,
                 "end_real": pd.to_datetime(end_real_visual).strftime("%Y-%m-%d") if pd.notna(end_real_visual) else None,
                 "end_real_original_raw": pd.to_datetime(end_real_original).strftime("%Y-%m-%d") if pd.notna(end_real_original) else None,
+                "ugb": ugb_value,
                 "setor": row.get("SETOR", "Não especificado"),
                 "grupo": grupo,
                 "progress": int(progress),
@@ -1429,6 +1440,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
             Inicio_Real=('Inicio_Real', 'min'),
             Termino_Real=('Termino_Real', 'max'),
             **{'% concluído': ('% concluído', 'max')},
+            UGB=('UGB', 'first'),  # ← ADICIONADO: preservar UGB
             SETOR=('SETOR', 'first')
         ).reset_index()
         
@@ -1462,7 +1474,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
             return
 
         # --- Prepara opções de filtro ---
+        # Obter UGBs únicas dos dados
+        ugbs_disponiveis = sorted(df["UGB"].dropna().unique().tolist()) if not df.empty and "UGB" in df.columns else []
+        
         filter_options = {
+            "ugbs": ["Todas"] + ugbs_disponiveis,
             "setores": ["Todos"] + sorted(list(SETOR.keys())),
             "grupos": ["Todos"] + sorted(list(GRUPOS.keys())),
             "etapas": ["Todas"] + ORDEM_ETAPAS_NOME_COMPLETO
@@ -2111,6 +2127,10 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     </div>
                     <div class="floating-filter-menu" id="filter-menu-{project['id']}">
                         <div class="filter-group">
+                            <label for="filter-ugb-{project['id']}">UGB</label>
+                            <div id="filter-ugb-{project['id']}"></div>
+                        </div>
+                        <div class="filter-group">
                             <label for="filter-project-{project['id']}">Empreendimento</label>
                             <select id="filter-project-{project['id']}"></select>
                         </div>
@@ -2507,6 +2527,12 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     }}
                     
                     const filterOptions = {json.dumps(filter_options)};
+                    
+                    // Debug: verificar se ugbs está presente
+                    console.log('filterOptions:', filterOptions);
+                    if (!filterOptions.ugbs) {{
+                        console.warn('⚠️ filterOptions.ugbs está undefined! Usando fallback.');
+                    }}
 
                     let allTasks_baseData = {json.dumps(tasks_base_data)};
 
@@ -2517,7 +2543,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     let filtersPopulated = false;
 
                     // *** Variáveis Globais para Virtual Select ***
-                    let vsSetor, vsGrupo, vsEtapa;
+                    let vsUgb, vsSetor, vsGrupo, vsEtapa;
                     // *** FIM: Variáveis Globais para Virtual Select ***
                     
                     // *** RASTREAMENTO DE BASELINE ATIVA ***
@@ -3952,6 +3978,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         document.getElementById('filter-project-{project["id"]}').value = initialProjectIndex;
                         
                         // *** CORREÇÃO: Reset Virtual Select ***
+                        if(vsUgb) vsUgb.setValue(["Todas"]);
                         if(vsSetor) vsSetor.setValue(["Todos"]);
                         if(vsGrupo) vsGrupo.setValue(["Todos"]);
                         if(vsEtapa) vsEtapa.setValue(["Todas"]);
@@ -4018,15 +4045,60 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         }}
                     }}
                     
+                    // Função para atualizar opções de empreendimento baseado nas UGBs selecionadas
+                    function updateEmpreendimentoOptions() {{
+                        console.log('🔄 updateEmpreendimentoOptions() chamada');
+                        
+                        const selUgbArray = vsUgb ? vsUgb.getValue() || [] : [];
+                        console.log('📋 UGBs selecionadas:', selUgbArray);
+                        
+                        const selProject = document.getElementById('filter-project-{project["id"]}');
+                        
+                        // Debug: mostrar todos os projetos e suas UGBs
+                        console.log('📊 Total de projetos disponíveis:', allProjectsData.length);
+                        allProjectsData.forEach((proj, idx) => {{
+                            const ugbsDoProjeto = [...new Set(proj.tasks.map(t => t.ugb).filter(u => u))];
+                            console.log(`  Projeto ${{idx}}: ${{proj.name}} - UGBs: [${{ugbsDoProjeto.join(', ')}}]`);
+                        }});
+                        
+                        // Limpar opções atuais
+                        selProject.innerHTML = '';
+                        
+                        // Filtrar projetos por UGB
+                        let filteredProjects = allProjectsData;
+                        if (selUgbArray.length > 0 && !selUgbArray.includes('Todas')) {{
+                            console.log('🔍 Filtrando por UGBs:', selUgbArray);
+                            filteredProjects = allProjectsData.filter(proj => {{
+                                // Verificar se o projeto tem tasks com UGB selecionada
+                                const hasMatchingUgb = proj.tasks.some(task => {{
+                                    const match = selUgbArray.includes(task.ugb);
+                                    if (match) {{
+                                        console.log(`    ✓ Match: ${{proj.name}} tem task com UGB=${{task.ugb}}`);
+                                    }}
+                                    return match;
+                                }});
+                                return hasMatchingUgb;
+                            }});
+                            console.log('✅ Projetos após filtro:', filteredProjects.length);
+                        }} else {{
+                            console.log('📌 Mostrando todos os projetos (UGB = Todas ou vazio)');
+                        }}
+                        
+                        // Repovoar select de empreendimento com projetos filtrados
+                        filteredProjects.forEach((proj, index) => {{
+                            const originalIndex = allProjectsData.indexOf(proj);
+                            const isSelected = (originalIndex === currentProjectIndex) ? 'selected' : '';
+                            selProject.innerHTML += '<option value="' + originalIndex + '" ' + isSelected + '>' + proj.name + '</option>';
+                        }});
+                        
+                        console.log('✅ Opções de empreendimento atualizadas. Total:', filteredProjects.length);
+                    }}
+                    
                     function populateFilters() {{
                         if (filtersPopulated) return;
 
-                        // Popula o select normal de Projeto
-                        const selProject = document.getElementById('filter-project-{project["id"]}');
-                        allProjectsData.forEach((proj, index) => {{
-                            const isSelected = (index === initialProjectIndex) ? 'selected' : '';
-                            selProject.innerHTML += '<option value="' + index + '" ' + isSelected + '>' + proj.name + '</option>';
-                        }});
+                        // Nota: Select de projeto agora é populado por updateEmpreendimentoOptions()
+                        // após inicializar vsUgb, para garantir consistência com filtro UGB
 
                         // Configurações comuns para Virtual Select
                         const vsConfig = {{
@@ -4044,6 +4116,25 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             noOptionsText: 'Nenhuma opção encontrada',
                             noSearchResultsText: 'Nenhum resultado encontrado',
                         }};
+
+                        // Prepara opções e inicializa Virtual Select para UGB
+                        // Validação de segurança: garantir que ugbs existe
+                        const ugbOptions = (filterOptions.ugbs || ["Todas"]).map(u => ({{ label: u, value: u }}));
+                        vsUgb = VirtualSelect.init({{
+                            ...vsConfig,
+                            ele: '#filter-ugb-{project["id"]}',
+                            options: ugbOptions,
+                            placeholder: "Selecionar UGB(s)",
+                            selectedValue: ["Todas"]
+                        }});
+                        
+                        // Listener para atualizar opções de empreendimento quando UGB mudar
+                        document.querySelector('#filter-ugb-{project["id"]}').addEventListener('change', function() {{
+                            updateEmpreendimentoOptions();
+                        }});
+                        
+                        // Popular select de empreendimento inicialmente
+                        updateEmpreendimentoOptions();
 
                         // Prepara opções e inicializa Virtual Select para Setor
                         const setorOptions = filterOptions.setores.map(s => ({{ label: s, value: s }}));
@@ -4099,9 +4190,25 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     // *** FUNÇÃO applyFiltersAndRedraw ATUALIZADA ***
                     function applyFiltersAndRedraw() {{
                         try {{
-                            const selProjectIndex = parseInt(document.getElementById('filter-project-{project["id"]}').value, 10);
+                            const selProjectElement = document.getElementById('filter-project-{project["id"]}');
+                            
+                            // Validar se o select tem opções
+                            if (!selProjectElement || selProjectElement.options.length === 0) {{
+                                console.warn('⚠️ Select de empreendimento está vazio. Não é possível aplicar filtros.');
+                                alert('Nenhum empreendimento disponível com as UGBs selecionadas. Ajuste o filtro de UGB.');
+                                return;
+                            }}
+                            
+                            const selProjectIndex = parseInt(selProjectElement.value, 10);
+                            
+                            // Validar se o índice é válido
+                            if (isNaN(selProjectIndex)) {{
+                                console.warn('⚠️ Índice de projeto inválido:', selProjectElement.value);
+                                return;
+                            }}
                             
                             // *** LEITURA CORRIGIDA dos Virtual Select ***
+                            // Nota: UGB não é lido aqui pois apenas filtra opções de empreendimento, não tarefas
                             const selSetorArray = vsSetor ? vsSetor.getValue() || [] : [];
                             const selGrupoArray = vsGrupo ? vsGrupo.getValue() || [] : [];
                             const selEtapaArray = vsEtapa ? vsEtapa.getValue() || [] : [];
@@ -4112,6 +4219,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             const selPulmaoMeses = parseInt(document.getElementById('filter-pulmao-meses-{project["id"]}').value, 10) || 0;
 
                             console.log('Filtros aplicados:', {{
+                                projeto: selProjectIndex,
                                 setor: selSetorArray,
                                 grupo: selGrupoArray,
                                 etapa: selEtapaArray,
@@ -4160,6 +4268,8 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                             let filteredTasks = baseTasks;
 
                             // *** LÓGICA DE FILTRO CORRIGIDA ***
+                            // Nota: Filtro de UGB não filtra tarefas, apenas opções de empreendimento
+                            
                             // Filtro por Setor
                             if (selSetorArray.length > 0 && !selSetorArray.includes('Todos')) {{
                                 filteredTasks = filteredTasks.filter(t => selSetorArray.includes(t.setor));
@@ -4611,7 +4721,11 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 
     empreendimentos_no_df = sorted(list(df_gantt_agg["Empreendimento"].unique()))
     
+    # Obter UGBs únicas dos dados
+    ugbs_disponiveis = sorted(df["UGB"].dropna().unique().tolist()) if not df.empty and "UGB" in df.columns else []
+    
     filter_options = {
+        "ugbs": ["Todas"] + ugbs_disponiveis,
         "empreendimentos": ["Todos"] + empreendimentos_no_df, # Renomeado
         "etapas_consolidadas": sorted(all_stage_names_full) # Novo (sem "Todos")
     }
@@ -5081,6 +5195,11 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         <select id="filter-etapa-consolidada-{project['id']}">
                             </select>
                     </div>
+                    
+                    <div class="filter-group">
+                        <label for="filter-ugb-consolidado-{project['id']}">UGB</label>
+                        <div id="filter-ugb-consolidado-{project['id']}"></div>
+                    </div>
 
                     <div class="filter-group">
                         <label for="filter-empreendimento-{project['id']}">Empreendimento</label>
@@ -5239,6 +5358,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                 // *** Variáveis Globais para Filtros ***
                 // let vsSetor, vsGrupo; // REMOVIDO
+                let vsUgbConsolidado; // NOVO: Filtro de UGB
                 let vsEmpreendimento; 
                 let selEtapaConsolidada; // Novo <select>
 
@@ -5655,6 +5775,58 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     }}
                  }}
 
+                // Função para atualizar opções de empreendimento baseado nas UGBs selecionadas
+                function updateEmpreendimentoOptionsConsolidado() {{
+                    const selUgbArray = vsUgbConsolidado ? vsUgbConsolidado.getValue() || [] : [];
+                    
+                    // Obter tarefas da etapa atual (usar allTasks_baseData que é a fonte correta)
+                    let tasksAtual = allTasks_baseData || [];
+                    
+                    if (!tasksAtual || tasksAtual.length === 0) {{
+                        console.warn('Nenhuma task disponível para filtrar empreendimentos');
+                        return;
+                    }}
+                    
+                    // Filtrar empreendimentos por UGB
+                    let filteredEmps = [...new Set(tasksAtual.map(t => t.name))];
+                    if (selUgbArray.length > 0 && !selUgbArray.includes('Todas')) {{
+                        filteredEmps = [...new Set(tasksAtual
+                            .filter(t => selUgbArray.includes(t.ugb))
+                            .map(t => t.name))];
+                    }}
+                    
+                    // Atualizar opções do VirtualSelect de empreendimento
+                    const empreendimentoOptions = ["Todos"].concat(filteredEmps).map(e => ({{ label: e, value: e }}));
+                    
+                    // Destruir e recriar o VirtualSelect para forçar re-render
+                    if (vsEmpreendimento) {{
+                        vsEmpreendimento.destroy();
+                    }}
+                    
+                    vsEmpreendimento = VirtualSelect.init({{
+                        multiple: true,
+                        search: true,
+                        optionsCount: 6,
+                        showResetButton: true,
+                        resetButtonText: 'Limpar',
+                        selectAllText: 'Selecionar Todos',
+                        allOptionsSelectedText: 'Todos',
+                        optionsSelectedText: 'selecionados',
+                        searchPlaceholderText: 'Buscar...',
+                        optionHeight: '30px',
+                        popupDropboxBreakpoint: '3000px',
+                        noOptionsText: 'Nenhuma opção encontrada',
+                        noSearchResultsText: 'Nenhum resultado encontrado',
+                        ele: '#filter-empreendimento-{project["id"]}',
+                        options: empreendimentoOptions,
+                        placeholder: "Selecionar Empreendimento(s)",
+                        selectedValue: ["Todos"]
+                    }});
+                    
+                    console.log('Opções de empreendimento no consolidado atualizadas. Total:', filteredEmps.length);
+                    console.log('Empreendimentos:', filteredEmps);
+                }}
+
                 // *** FUNÇÃO populateFilters MODIFICADA ***
                 function populateFilters() {{
                     if (filtersPopulated) return;
@@ -5682,6 +5854,21 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         noSearchResultsText: 'Nenhum resultado encontrado',
                     }};
 
+                    // *** NOVO: FILTRO DE UGB ***
+                    const ugbOptions = (filterOptions.ugbs || ["Todas"]).map(u => ({{ label: u, value: u }}));
+                    vsUgbConsolidado = VirtualSelect.init({{
+                        ...vsConfig,
+                        ele: '#filter-ugb-consolidado-{project["id"]}',
+                        options: ugbOptions,
+                        placeholder: "Selecionar UGB(s)",
+                        selectedValue: ["Todas"]
+                    }});
+                    
+                    // Listener para atualizar opções de empreendimento quando UGB mudar
+                    document.querySelector('#filter-ugb-consolidado-{project["id"]}').addEventListener('change', function() {{
+                        updateEmpreendimentoOptionsConsolidado();
+                    }});
+
                     // *** 2. FILTRO DE SETOR (REMOVIDO) ***
                     // if (filterOptions.setores) {{
                     //     const setorOptions = filterOptions.setores.map(s => ({{ label: s, value: s }}));
@@ -5695,7 +5882,10 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     // }}
 
                     // *** 4. FILTRO DE EMPREENDIMENTO (Renomeado) ***
+                    // Inicializar com todas as opções primeiro
                     const empreendimentoOptions = filterOptions.empreendimentos.map(e => ({{ label: e, value: e }}));
+                    console.log('Inicializando vsEmpreendimento com opções:', empreendimentoOptions);
+                    
                     vsEmpreendimento = VirtualSelect.init({{ // Renomeado de vsEtapa
                         ...vsConfig,
                         ele: '#filter-empreendimento-{project["id"]}', // ID Modificado
@@ -5703,6 +5893,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         placeholder: "Selecionar Empreendimento(s)",
                         selectedValue: ["Todos"]
                     }});
+                    
+                    console.log('vsEmpreendimento inicializado:', vsEmpreendimento ? 'OK' : 'FALHOU');
 
                     // *** 5. RESTO DOS FILTROS (Idêntico) ***
                     const visRadio = document.querySelector('input[name="filter-vis-{project['id']}"][value="' + tipoVisualizacao + '"]');
@@ -5737,8 +5929,7 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         const selEtapaNome = selEtapaConsolidada.value;
                         
                         // *** 2. LER OUTROS FILTROS ***
-                        // const selSetorArray = vsSetor ? vsSetor.getValue() || [] : []; // REMOVIDO
-                        // const selGrupoArray = vsGrupo ? vsGrupo.getValue() || [] : []; // REMOVIDO
+                        // Nota: UGB não é lido aqui pois apenas filtra opções de empreendimento, não tarefas
                         const selEmpreendimentoArray = vsEmpreendimento ? vsEmpreendimento.getValue() || [] : []; // Renomeado
                         
                         const selConcluidas = document.getElementById('filter-concluidas-{project["id"]}').checked;
@@ -5769,6 +5960,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
 
                         // *** 5. APLICAR FILTROS SECUNDÁRIOS ***
                         let filteredTasks = baseTasks;
+
+                        // Nota: Filtro de UGB não filtra tarefas, apenas opções de empreendimento
 
                         // if (selSetorArray.length > 0 && !selSetorArray.includes('Todos')) {{
                         //     filteredTasks = filteredTasks.filter(t => selSetorArray.includes(t.setor));
@@ -6537,7 +6730,12 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
     grupos_iniciais_html = grupos_por_setor_dict.get(setor_selecionado_inicialmente, [])
     macroetapas_iniciais_html = macroetapas_por_setor_dict.get(setor_selecionado_inicialmente, [])
         
+        
+    # Obter UGBs únicas dos dados
+    ugbs_disponiveis = sorted(df["UGB"].dropna().unique().tolist()) if not df.empty and "UGB" in df.columns else []
+    
     filter_options = {
+        "ugbs": ["Todas"] + ugbs_disponiveis,
         "empreendimentos": ["Todos"] + empreendimentos_no_df,
         "setores_disponiveis": sorted(all_sector_names),
         "etapas": etapas_iniciais_html,
@@ -6904,12 +7102,15 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                         {"".join([f'<option value="{s}" {"selected" if s == setor_selecionado_inicialmente else ""}>{setor_icons.get(s, "")} {s}</option>' for s in sorted(all_sector_names)])}
                     </select>
                 </div>
+                
+                <div class="filter-group">
+                    <label for="filter-ugb-setor-{project['id']}">UGB</label>
+                    <div id="filter-ugb-setor-{project['id']}"></div>
+                </div>
+                
                 <div class="filter-group">
                     <label for="filter-project-{project['id']}">Empreendimento</label>
-                    <select id="filter-project-{project['id']}">
-                        <option value="Todos">Todos</option>
-                        {"".join([f'<option value="{emp}">{emp}</option>' for emp in empreendimentos_no_df])}
-                    </select>
+                    <div id="filter-project-{project['id']}"></div>
                 </div>
                 <div class="filter-group">
                     <label for="filter-grupo-{project['id']}">Grupo</label>
@@ -7024,6 +7225,9 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             const macroetapasPorSetor = JSON.parse(document.getElementById('macroetapas-por-setor').textContent);
             const mapeamentoGrupos = JSON.parse(document.getElementById('mapeamento-grupos').textContent);
             
+            // Opções de filtros
+            const filterOptions = {json.dumps(filter_options)};
+            
             // *** NOVAS VARIÁVEIS GLOBAIS ***
             const initialSectorName = "{setor_selecionado_inicialmente}";
             let currentSector = initialSectorName;
@@ -7037,6 +7241,8 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             let vsEtapa;
             let vsGrupo;
             let vsMacroetapas;
+            let vsUgbSetor; // NOVO: Filtro de UGB
+            let vsEmpreendimentoSetor; // NOVO: Filtro de Empreendimento
 
             // *** FUNÇÃO AUXILIAR: Inicializar Virtual Select de Etapas ***
             function renderStageCheckboxes(sectorName) {{
@@ -7136,6 +7342,75 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                 console.log(`🔄 Virtual Select Macroetapas renderizado: ${{options.length}} opções, todas selecionadas`);
             }}
 
+            // *** FUNÇÃO: Inicializar Virtual Select de UGB ***
+            function initUGBFilter() {{
+                const ugbOptions = (filterOptions.ugbs || ["Todas"]).map(u => ({{ label: u, value: u }}));
+                
+                if (vsUgbSetor) {{
+                    vsUgbSetor.destroy();
+                }}
+                
+                vsUgbSetor = VirtualSelect.init({{
+                    ele: '#filter-ugb-setor-{project["id"]}',
+                    options: ugbOptions,
+                    multiple: true,
+                    search: true,
+                    selectedValue: ["Todas"],
+                    placeholder: 'Selecionar UGB(s)',
+                    noOptionsText: 'Nenhuma UGB disponível',
+                    searchPlaceholderText: 'Buscar...',
+                    selectAllText: 'Selecionar todas',
+                    allOptionsSelectedText: 'Todas selecionadas'
+                }});
+                
+                // Listener para atualizar empreendimentos
+                document.querySelector('#filter-ugb-setor-{project["id"]}').addEventListener('change', function() {{
+                    updateEmpreendimentoOptionsSetor();
+                }});
+                
+                console.log('🔄 Virtual Select UGB renderizado');
+            }}
+
+            // *** FUNÇÃO: Atualizar opções de empreendimento baseado em UGB ***
+            function updateEmpreendimentoOptionsSetor() {{
+                const selUgbArray = vsUgbSetor ? vsUgbSetor.getValue() || [] : [];
+                let tasksAtual = allTasks_baseData || [];
+                
+                if (!tasksAtual || tasksAtual.length === 0) {{
+                    console.warn('Nenhuma task disponível para filtrar empreendimentos');
+                    return;
+                }}
+                
+                // Filtrar empreendimentos por UGB
+                let filteredEmps = [...new Set(tasksAtual.map(t => t.empreendimento))];
+                if (selUgbArray.length > 0 && !selUgbArray.includes('Todas')) {{
+                    filteredEmps = [...new Set(tasksAtual
+                        .filter(t => selUgbArray.includes(t.ugb))
+                        .map(t => t.empreendimento))];
+                }}
+                
+                // Destruir e recriar VirtualSelect de empreendimento
+                if (vsEmpreendimentoSetor) {{
+                    vsEmpreendimentoSetor.destroy();
+                }}
+                
+                const empreendimentoOptions = ["Todos"].concat(filteredEmps).map(e => ({{ label: e, value: e }}));
+                vsEmpreendimentoSetor = VirtualSelect.init({{
+                    ele: '#filter-project-{project["id"]}',
+                    options: empreendimentoOptions,
+                    multiple: true,
+                    search: true,
+                    selectedValue: ["Todos"],
+                    placeholder: 'Selecionar Empreendimento(s)',
+                    noOptionsText: 'Nenhum empreendimento disponível',
+                    searchPlaceholderText: 'Buscar...',
+                    selectAllText: 'Selecionar todos',
+                    allOptionsSelectedText: 'Todos selecionados'
+                }});
+                
+                console.log('Opções de empreendimento atualizadas no setor. Total:', filteredEmps.length);
+            }}
+
             // *** FUNÇÃO AUXILIAR: Atualizar Título do Projeto ***
             function updateProjectTitle(newSectorName) {{
                 const projectTitle = document.querySelector('#gantt-sidebar-wrapper-{project["id"]} .project-title-row span');
@@ -7168,7 +7443,7 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                     const selSetor = document.getElementById('filter-setor-{project["id"]}').value;
                     
                     // 2. LER OUTROS FILTROS
-                    const selEmp = document.getElementById('filter-project-{project["id"]}').value;
+                    const selEmpArray = vsEmpreendimentoSetor ? vsEmpreendimentoSetor.getValue() || [] : ["Todos"];
                     
                     // *** ATUALIZADO: Obter etapas, grupos e macroetapas selecionados do Virtual Select ***
                     let etapasSelecionadas = vsEtapa ? vsEtapa.getValue() : [];
@@ -7187,7 +7462,7 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                     const selVis = document.querySelector('input[name="filter-vis-{project["id"]}"]:checked').value;
                     
                     console.log('Setor:', selSetor);
-                    console.log('Empreendimento:', selEmp);
+                    console.log('Empreendimento:', selEmpArray);
                     console.log('Visualização:', selVis);
                     console.log('Mostrar apenas não concluídas:', selConcluidas);
                     console.log('Etapas selecionadas:', etapasSelecionadas.length);
@@ -7203,6 +7478,7 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                         renderStageCheckboxes(currentSector);
                         renderGroupCheckboxes(currentSector);
                         renderMacroetapasCheckboxes(currentSector);
+                        initUGBFilter(); // NOVO: Inicializar filtro de UGB
                         
                         // Como os checkboxes foram recriados (e todos vêm checked por padrão na função render),
                         // atualizamos TODAS as listas de selecionadas para incluir as novas opções.
@@ -7227,9 +7503,9 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                     // 5. APLICAR FILTROS SECUNDÁRIOS
                     let filteredTasks = baseTasks;
                     
-                    // Filtro de empreendimento
-                    if (selEmp !== 'Todos') {{
-                        filteredTasks = filteredTasks.filter(t => t.empreendimento === selEmp);
+                    // Filtro de empreendimento (multiseleção)
+                    if (selEmpArray.length > 0 && !selEmpArray.includes('Todos')) {{
+                        filteredTasks = filteredTasks.filter(t => selEmpArray.includes(t.empreendimento));
                     }}
                     
                     // *** MODIFICADO: Filtro de grupos usando mapeamento ***
@@ -7921,6 +8197,7 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             renderStageCheckboxes(initialSectorName);
             renderGroupCheckboxes(initialSectorName);
             renderMacroetapasCheckboxes(initialSectorName);
+            initUGBFilter();
             
             // Renderizar inicial com filtros aplicados
             // Pequeno delay para garantir que Virtual Selects estão completamente inicializados
@@ -8107,29 +8384,38 @@ def load_data():
         df_merged = pd.merge(df_previsto, df_real[["Empreendimento", "Etapa", "Inicio_Real", "Termino_Real", "% concluído"]], on=["Empreendimento", "Etapa"], how="outer")
 
         # --- Lógica de Exceção para Etapas Apenas no Real ---
-    etapas_excecao = [
-        "PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.",
-        "PE. TER.", "ORÇ. TER.", "SUP. TER.", 
-        "PE. INFRA", "ORÇ. INFRA", "SUP. INFRA",
-        "PE. PAV", "ORÇ. PAV", "SUP. PAV"
-    ]
+        etapas_excecao = [
+            "PE. LIMP.", "ORÇ. LIMP.", "SUP. LIMP.",
+            "PE. TER.", "ORÇ. TER.", "SUP. TER.", 
+            "PE. INFRA", "ORÇ. INFRA", "SUP. INFRA",
+            "PE. PAV", "ORÇ. PAV", "SUP. PAV"
+        ]
 
-    # Identifica linhas onde o previsto (Inicio_Prevista) é nulo, mas a etapa é de exceção
-    filtro_excecao = df_merged["Etapa"].isin(etapas_excecao) & df_merged["Inicio_Prevista"].isna()
-    df_merged.loc[filtro_excecao, "Inicio_Prevista"] = df_merged.loc[filtro_excecao, "Inicio_Real"]
-    df_merged.loc[filtro_excecao, "Termino_Prevista"] = df_merged.loc[filtro_excecao, "Termino_Real"]
+        # Identifica linhas onde o previsto (Inicio_Prevista) é nulo, mas a etapa é de exceção
+        filtro_excecao = df_merged["Etapa"].isin(etapas_excecao) & df_merged["Inicio_Prevista"].isna()
+        df_merged.loc[filtro_excecao, "Inicio_Prevista"] = df_merged.loc[filtro_excecao, "Inicio_Real"]
+        df_merged.loc[filtro_excecao, "Termino_Prevista"] = df_merged.loc[filtro_excecao, "Termino_Real"]
 
-    # CORREÇÃO: Buscar UGB correta para as subetapas
-    if not df_previsto.empty:
-        # Criar mapeamento de UGB por empreendimento
-        ugb_por_empreendimento = df_previsto.groupby('Empreendimento')['UGB'].first().to_dict()
-        
-        # Para cada subetapa sem UGB, buscar a UGB do empreendimento correspondente
-        for idx in df_merged[filtro_excecao & df_merged["UGB"].isna()].index:
-            empreendimento = df_merged.loc[idx, 'Empreendimento']
-            if empreendimento in ugb_por_empreendimento:
-                df_merged.loc[idx, 'UGB'] = ugb_por_empreendimento[empreendimento]
-        
+        # CORREÇÃO: Buscar UGB correta para as subetapas
+        if not df_previsto.empty:
+            # Criar mapeamento de UGB por empreendimento
+            ugb_por_empreendimento = df_previsto.groupby('Empreendimento')['UGB'].first().to_dict()
+            
+            # Para cada subetapa sem UGB, buscar a UGB do empreendimento correspondente
+            for idx in df_merged[filtro_excecao & df_merged["UGB"].isna()].index:
+                empreendimento = df_merged.loc[idx, 'Empreendimento']
+                if empreendimento in ugb_por_empreendimento:
+                    df_merged.loc[idx, 'UGB'] = ugb_por_empreendimento[empreendimento]
+    elif not df_previsto.empty:
+        # Se só temos dados previstos
+        df_merged = df_previsto.copy()
+    elif not df_real.empty:
+        # Se só temos dados reais
+        df_merged = df_real.copy()
+    else:
+        # Nenhum dado disponível
+        df_merged = pd.DataFrame()
+
 
         # Verifica se há etapas não mapeadas
     if etapas_nao_mapeadas:
@@ -8310,26 +8596,6 @@ with st.spinner("Carregando e processando dados..."):
                     pass
         
             st.markdown("---")
-            # Título centralizado
-            st.markdown("""
-            <div style='
-                margin: 1px 0 -70px 0; 
-                padding: 12px 16px;
-                border-radius: 6px;
-                height: 60px;
-                display: flex;
-                justify-content: flex-start;
-                align-items: center;
-            '>
-                <h4 style='
-                    color: #707070; 
-                    margin: 0; 
-                    font-weight: 600;
-                    font-size: 18px;
-                    text-align: left;
-                '>Filtros:</h4>
-            </div>
-            """, unsafe_allow_html=True)
             
             # Filtro UGB centralizado
             st.markdown("""
@@ -8346,18 +8612,12 @@ with st.spinner("Carregando e processando dados..."):
             
             ugb_options = get_unique_values(df_data, "UGB")
             
-            # Inicializar session_state para UGB se não existir
+            # Inicializar selected_ugb com todas as UGBs para manter compatibilidade com filter_dataframe
             if 'selected_ugb' not in st.session_state:
-                st.session_state.selected_ugb = ugb_options  # Todos selecionados por padrão
+                st.session_state.selected_ugb = ugb_options
             
-            # Usar o valor da session_state no multiselect
-            selected_ugb = simple_multiselect_dropdown(
-                "UGB",
-                options=ugb_options,
-                key="ugb_multiselect"
-            )
-            
-            # Atualizar session_state com a seleção atual
+            # UGB automaticamente selecionado (todas as opções) - filtro removido da sidebar
+            selected_ugb = ugb_options  # Todas as UGBs sempre selecionadas
             st.session_state.selected_ugb = selected_ugb
             
             # Botão centralizado
@@ -8422,20 +8682,28 @@ with st.spinner("Carregando e processando dados..."):
             # --- TRÊS BOTÕES SEPARADOS PARA NAVEGAÇÃO ---
             st.markdown("Gráficos Gantt:")
             
+            # Determinar qual está ativo
+            projeto_ativo = not st.session_state.consolidated_view and not st.session_state.sector_view
+            consolidado_ativo = st.session_state.consolidated_view
+            setor_ativo = st.session_state.sector_view
+            
+            # Por Projeto - com checkmark se ativo
             st.button(
-                "Por Projeto", 
+                f"{'✓ ' if projeto_ativo else ''}Por Projeto", 
                 on_click=set_project_view, 
                 use_container_width=True
             )
             
+            # Por Etapa (Consolidado) - com checkmark se ativo
             st.button(
-                "Por Etapa", 
+                f"{'✓ ' if consolidado_ativo else ''}Por Etapa", 
                 on_click=set_consolidated_view, 
                 use_container_width=True
             )
             
+            # Por Setor - com checkmark se ativo
             st.button(
-                "Por Setor", 
+                f"{'✓ ' if setor_ativo else ''}Por Setor", 
                 on_click=set_sector_view, 
                 use_container_width=True
             )
