@@ -7623,9 +7623,26 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                 }}
             }}
             
-            // Event listener para dropdown de setor (apenas atualiza, não aplica filtros automaticamente)
+            // Event listener para dropdown de setor (atualiza filtros, mas não renderiza)
             document.getElementById('filter-setor-{project["id"]}').addEventListener('change', function() {{
-                // Não fazer nada aqui - deixar para o botão "Aplicar Filtros"
+                const novoSetor = this.value;
+                console.log(`🔄 Setor alterado para: ${{novoSetor}} (filtros serão atualizados)`);
+                
+                // Atualizar título do projeto
+                updateProjectTitle(novoSetor);
+                
+                // Atualizar filtros de Etapas (CORRIGIDO: nome correto da função)
+                renderStageCheckboxes(novoSetor);
+                
+                // Atualizar filtros de Grupos (CORRIGIDO: nome correto da função)
+                renderGroupCheckboxes(novoSetor);
+                
+                // Atualizar filtros de Macroetapas
+                renderMacroetapasCheckboxes(novoSetor);
+                
+                console.log(`✅ Filtros atualizados. Clique em "Aplicar Filtros" para visualizar.`);
+                
+                // NÃO chamar applyFiltersAndRedraw() - deixar para o botão
             }});
             
             // Event listener APENAS para botão "Aplicar Filtros"
@@ -7927,7 +7944,7 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                             
                             const label = document.createElement('div');
                             label.className = 'bar-label';
-                            label.textContent = `${{task.progress}}%`;
+                            label.textContent = `${{task.empreendimento}} - ${{task.etapa}} (${{task.progress}}%)`;
                             barReal.appendChild(label);
                             
                             // Tooltip
