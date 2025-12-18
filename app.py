@@ -8538,6 +8538,8 @@ def load_data():
         </div>
         """, unsafe_allow_html=True)
 
+    if "% concluído" not in df_merged.columns:
+        df_merged["% concluído"] = 0.0
     df_merged["% concluído"] = df_merged["% concluído"].fillna(0)
     df_merged.dropna(subset=["Empreendimento", "Etapa"], inplace=True)
 
