@@ -1411,21 +1411,6 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         df_sem_pulmao = df.copy()
         df_gantt_sem_pulmao = df_sem_pulmao.copy()
 
-        # --- AQUI: GARANTIR QUE TODAS AS COLUNAS EXISTAM ANTES DO GROUPBY ---
-        required_cols = {
-            'Inicio_Prevista': pd.NaT,
-            'Termino_Prevista': pd.NaT,
-            'Inicio_Real': pd.NaT,
-            'Termino_Real': pd.NaT,
-            'UGB': "Não definido",
-            'SETOR': "Não definido",
-            '% concluído': 0.0
-        }
-        
-        for col, default_val in required_cols.items():
-            if col not in df_gantt_sem_pulmao.columns:
-                df_gantt_sem_pulmao[col] = default_val
-
 
 
         for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
@@ -6521,22 +6506,6 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             print(f"  - '{etapa}'")
     print("=" * 80)
     
-    # --- AQUI: GARANTIR QUE TODAS AS COLUNAS EXISTAM ANTES DO GROUPBY ---
-    required_cols_setor = {
-        'Inicio_Prevista': pd.NaT,
-        'Termino_Prevista': pd.NaT,
-        'Inicio_Real': pd.NaT,
-        'Termino_Real': pd.NaT,
-        '% concluído': 0.0,
-        'UGB': "Não definido",
-        'GRUPO': "Não definido",
-        'SETOR': "Não definido"
-    }
-
-    for col, default_val in required_cols_setor.items():
-        if col not in df_gantt.columns:
-            df_gantt[col] = default_val
-
     # Agrupar por SETOR, Empreendimento e Etapa
     df_gantt_agg = df_gantt.groupby(['SETOR', 'Empreendimento', 'Etapa']).agg(
         Inicio_Prevista=('Inicio_Prevista', 'min'),
@@ -8569,8 +8538,6 @@ def load_data():
         </div>
         """, unsafe_allow_html=True)
 
-    if "% concluído" not in df_merged.columns:
-        df_merged["% concluído"] = 0.0
     df_merged["% concluído"] = df_merged["% concluído"].fillna(0)
     df_merged.dropna(subset=["Empreendimento", "Etapa"], inplace=True)
 
@@ -9163,19 +9130,6 @@ with st.spinner("Carregando e processando dados..."):
                 pass
             else:
                 hoje = pd.Timestamp.now().normalize()
-
-                # --- AQUI: GARANTIR QUE TODAS AS COLUNAS EXISTAM ANTES DO GROUPBY DO TABELÃO ---
-                required_cols_tabelao = {
-                    'Inicio_Prevista': pd.NaT,
-                    'Termino_Prevista': pd.NaT,
-                    'Inicio_Real': pd.NaT,
-                    'Termino_Real': pd.NaT,
-                    '% concluído': 0.0
-                }
-                
-                for col, default_val in required_cols_tabelao.items():
-                    if col not in df_detalhes.columns:
-                        df_detalhes[col] = default_val
 
                 for col in ['Inicio_Prevista', 'Termino_Prevista', 'Inicio_Real', 'Termino_Real']:
                     if col in df_detalhes.columns:
