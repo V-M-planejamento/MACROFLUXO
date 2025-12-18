@@ -1411,6 +1411,21 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         df_sem_pulmao = df.copy()
         df_gantt_sem_pulmao = df_sem_pulmao.copy()
 
+        # --- AQUI: GARANTIR QUE TODAS AS COLUNAS EXISTAM ANTES DO GROUPBY ---
+        required_cols = {
+            'Inicio_Prevista': pd.NaT,
+            'Termino_Prevista': pd.NaT,
+            'Inicio_Real': pd.NaT,
+            'Termino_Real': pd.NaT,
+            'UGB': "Não definido",
+            'SETOR': "Não definido",
+            '% concluído': 0.0
+        }
+        
+        for col, default_val in required_cols.items():
+            if col not in df_gantt_sem_pulmao.columns:
+                df_gantt_sem_pulmao[col] = default_val
+
 
 
         for col in ["Inicio_Prevista", "Termino_Prevista", "Inicio_Real", "Termino_Real"]:
