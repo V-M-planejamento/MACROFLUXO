@@ -16,22 +16,32 @@ TEMP_DOWNLOAD_DIR = "."
 
 def carregar_configuracao():
     """Carrega as configurações e verifica o ambiente"""
+    token = None
+    
+    # 1. Tenta carregar de variáveis de ambiente (local ou nuvem)
     try:
-        if not os.path.exists('.env'):
-            raise FileNotFoundError("Arquivo .env não encontrado")
-        
         load_dotenv()
         token = os.getenv("SMARTSHEET_ACCESS_TOKEN")
-        
-        if not token:
-            raise ValueError("Token não encontrado no arquivo .env")
-        
-        print("INFO: Arquivo .env carregado com sucesso.")
-        return token
-    
     except Exception as e:
-        print(f"\nERRO DE CONFIGURAÇÃO: {str(e)}")
-        return None
+        print(f"AVISO: Erro ao ler variáveis de ambiente: {e}")
+
+    # 2. Se não achou, tenta carregar dos segredos do Streamlit
+    if not token:
+        try:
+            import streamlit as st
+            # Verifica se existe nos secrets (suporta acesso direto ou aninhado se necessário)
+            token = st.secrets.get("SMARTSHEET_ACCESS_TOKEN")
+            if token:
+                print("INFO: Token carregado via Streamlit Secrets.")
+        except Exception:
+            # Se não estiver rodando no Streamlit ou secrets não configurados
+            pass
+            
+    if token:
+        return token
+        
+    print("\nERRO DE CONFIGURAÇÃO: Token 'SMARTSHEET_ACCESS_TOKEN' não encontrado.")
+    return None
 
 def setup_smartsheet_client(token):
     """Configura o cliente Smartsheet"""
