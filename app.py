@@ -9148,6 +9148,19 @@ with st.spinner("Carregando e processando dados..."):
             else:
                 hoje = pd.Timestamp.now().normalize()
 
+                # --- AQUI: GARANTIR QUE TODAS AS COLUNAS EXISTAM ANTES DO GROUPBY DO TABELÃO ---
+                required_cols_tabelao = {
+                    'Inicio_Prevista': pd.NaT,
+                    'Termino_Prevista': pd.NaT,
+                    'Inicio_Real': pd.NaT,
+                    'Termino_Real': pd.NaT,
+                    '% concluído': 0.0
+                }
+                
+                for col, default_val in required_cols_tabelao.items():
+                    if col not in df_detalhes.columns:
+                        df_detalhes[col] = default_val
+
                 for col in ['Inicio_Prevista', 'Termino_Prevista', 'Inicio_Real', 'Termino_Real']:
                     if col in df_detalhes.columns:
                         df_detalhes[col] = pd.to_datetime(df_detalhes[col], errors='coerce')
