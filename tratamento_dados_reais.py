@@ -29,18 +29,37 @@ def carregar_configuracao():
     if not token:
         try:
             import streamlit as st
-            # Verifica se existe nos secrets (suporta acesso direto ou aninhado se necessário)
-            token = st.secrets.get("SMARTSHEET_ACCESS_TOKEN")
-            if token:
-                print("INFO: Token carregado via Streamlit Secrets.")
-        except Exception:
+            
+            # Debug: Listar chaves disponíveis para ajudar no diagnóstico
+            try:
+                available_keys = list(st.secrets.keys())
+                print(f"DEBUG: Chaves encontradas em st.secrets: {available_keys}")
+            except:
+                print("DEBUG: Não foi possível listar chaves de st.secrets")
+
+            # Verifica se existe nos secrets (suporta acesso direto)
+            if "SMARTSHEET_ACCESS_TOKEN" in st.secrets:
+                token = st.secrets["SMARTSHEET_ACCESS_TOKEN"]
+                print("INFO: Token carregado via Streamlit Secrets (raiz).")
+            
+            # Fallback: Tenta procurar dentro de seções comuns (ex: [smartsheet])
+            elif "smartsheet" in st.secrets and "access_token" in st.secrets["smartsheet"]:
+                token = st.secrets["smartsheet"]["access_token"]
+                print("INFO: Token carregado via Streamlit Secrets (seção [smartsheet]).")
+                
+            elif "env" in st.secrets and "SMARTSHEET_ACCESS_TOKEN" in st.secrets["env"]:
+                token = st.secrets["env"]["SMARTSHEET_ACCESS_TOKEN"]
+                print("INFO: Token carregado via Streamlit Secrets (seção [env]).")
+                
+        except Exception as e:
             # Se não estiver rodando no Streamlit ou secrets não configurados
+            print(f"AVISO: Falha ao tentar ler Streamlit Secrets: {e}")
             pass
             
     if token:
         return token
         
-    print("\nERRO DE CONFIGURAÇÃO: Token 'SMARTSHEET_ACCESS_TOKEN' não encontrado.")
+    print("\nERRO DE CONFIGURAÇÃO: Token 'SMARTSHEET_ACCESS_TOKEN' não encontrado nem no .env nem no st.secrets.")
     return None
 
 def setup_smartsheet_client(token):
