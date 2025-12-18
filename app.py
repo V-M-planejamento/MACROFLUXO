@@ -6521,6 +6521,22 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             print(f"  - '{etapa}'")
     print("=" * 80)
     
+    # --- AQUI: GARANTIR QUE TODAS AS COLUNAS EXISTAM ANTES DO GROUPBY ---
+    required_cols_setor = {
+        'Inicio_Prevista': pd.NaT,
+        'Termino_Prevista': pd.NaT,
+        'Inicio_Real': pd.NaT,
+        'Termino_Real': pd.NaT,
+        '% concluído': 0.0,
+        'UGB': "Não definido",
+        'GRUPO': "Não definido",
+        'SETOR': "Não definido"
+    }
+
+    for col, default_val in required_cols_setor.items():
+        if col not in df_gantt.columns:
+            df_gantt[col] = default_val
+
     # Agrupar por SETOR, Empreendimento e Etapa
     df_gantt_agg = df_gantt.groupby(['SETOR', 'Empreendimento', 'Etapa']).agg(
         Inicio_Prevista=('Inicio_Prevista', 'min'),
