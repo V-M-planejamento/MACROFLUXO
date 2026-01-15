@@ -6493,6 +6493,174 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     }});
                 }}
                 
+                // --- CONTEXT MENU LITE (FOCUS + NOTES) ---
+                (function() {{
+                    const container = document.getElementById('gantt-container-{project["id"]}');
+                    if (!container) return;
+
+                    // Limpeza visual
+                    const oldMenu = container.querySelector('#radial-menu');
+                    if (oldMenu) oldMenu.remove();
+                    const oldNotepad = container.querySelector('#floating-notepad');
+                    if (oldNotepad) oldNotepad.remove();
+
+                    // 1. Criar Menu Radial (LITE)
+                    const menu = document.createElement('div');
+                    menu.id = 'radial-menu';
+                    menu.style.cssText = "position:fixed; z-index:2147483647; display:none; font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;";
+                    menu.innerHTML = `
+                        <style>
+                            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+                            .radial-menu-wrapper {{ position: relative; width: 260px; height: 260px; }}
+                            .radial-center {{
+                                position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                                width: 44px; height: 44px; border: 3px solid #007AFF; border-radius: 50%;
+                                background: transparent; cursor: pointer; transition: all 0.2s ease; z-index: 10;
+                            }}
+                            .radial-center:hover {{ transform: translate(-50%, -50%) scale(1.1); border-width: 4px; }}
+                            .radial-background-circle {{
+                                position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                                width: 140px; height: 140px; border: 4px solid #f0f0f0; border-radius: 50%;
+                                background: transparent; z-index: 1;
+                            }}
+                            .radial-item {{
+                                position: absolute; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+                                cursor: pointer; transition: all 0.2s ease; z-index: 5; background: white;
+                                border: 2px solid #f0f0f0; border-radius: 7px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+                            }}
+                            .radial-item:hover {{
+                                background: #f5f5f5; transform: scale(1.1); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15); border-color: #007AFF;
+                            }}
+                            .radial-item svg {{ width: 20px; height: 20px; transition: all 0.2s ease; fill: #333; stroke: #333; }}
+                            .radial-item:hover svg {{ fill: #007AFF; stroke: #007AFF; }}
+                            
+                            /* Tooltip */
+                            .radial-tooltip {{
+                                position: absolute; padding: 5px 9px; border-radius: 14px; font-size: 10px; font-weight: 500;
+                                white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.2s ease;
+                                z-index: 15; background: #2c3e50; color: white;
+                            }}
+                            .radial-item:hover + .radial-tooltip {{ opacity: 1; }}
+
+                            /* Notepad */
+                            .notepad-header {{
+                                padding: 14px 18px; background: #2E384A; color: white; display: flex; justify-content: space-between;
+                                align-items: center; cursor: move; user-select: none;
+                            }}
+                            .notepad-close {{ background: rgba(255,255,255,0.15); border: none; color: white; cursor: pointer; padding: 4px 8px; border-radius: 6px; }}
+                            .notepad-content {{
+                                flex: 1; padding: 20px; border: none; resize: none; font-family: 'Inter', sans-serif;
+                                font-size: 14px; line-height: 1.6; outline: none; color: #333; background: #fafafa;
+                            }}
+                            
+                            /* Focus Mode */
+                            .gantt-bar.focus-mode {{ filter: grayscale(100%) brightness(0.4) !important; opacity: 0.5 !important; transition: all 0.3s ease; }}
+                            .gantt-bar.focus-mode.focused {{ filter: none !important; opacity: 1 !important; }}
+                        </style>
+                        
+                        <div class="radial-menu-wrapper">
+                            <div class="radial-background-circle"></div>
+                            <div class="radial-center" title="Fechar Menu"></div>
+                            
+                            <!-- Direita: Notas -->
+                            <div class="radial-item" id="btn-notes" style="top: 114px; left: 184px;">
+                                <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                            </div>
+                            <div class="radial-tooltip" style="top: 114px; left: 224px;">Notas</div>
+                            
+                            <!-- Esquerda: Modo Foco -->
+                            <div class="radial-item" id="btn-focus" style="top: 114px; left: 44px;">
+                                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M18 18l-3-3m3 3l3-3m-3 3v-6" stroke="currentColor" fill="none" stroke-width="2"/></svg>
+                            </div>
+                            <div class="radial-tooltip" style="top: 114px; right: 224px;">Modo Foco</div>
+                        </div>
+                    `;
+                    container.appendChild(menu);
+
+                    // 2. Criar Notepad
+                    const notepad = document.createElement('div');
+                    notepad.id = 'floating-notepad';
+                    notepad.style.cssText = "display:none; position:fixed; top:100px; right:50px; width:320px; height:420px; background:white; border:1px solid #e8e8e8; border-radius:16px; box-shadow:0 8px 32px rgba(0,0,0,0.08); z-index:9999; flex-direction:column; font-family:'Inter', sans-serif; overflow:hidden;";
+                    notepad.innerHTML = `
+                        <div class="notepad-header">
+                            <div style="display:flex; gap:8px;"><span>📝 Notas</span></div>
+                            <button class="notepad-close">×</button>
+                        </div>
+                        <textarea class="notepad-content" placeholder="Suas notas..."></textarea>
+                    `;
+                    container.appendChild(notepad);
+
+                    // 3. Event Listeners (Menu)
+                    container.addEventListener('contextmenu', function(e) {{
+                        if (e.target.closest('.gantt-chart-content') || e.target.closest('.gantt-sidebar-wrapper') || e.target.closest('.gantt-row')) {{
+                            e.preventDefault();
+                            menu.style.display = 'block';
+                            menu.style.left = (e.clientX - 130) + 'px';
+                            menu.style.top = (e.clientY - 130) + 'px';
+                        }}
+                    }});
+
+                    document.addEventListener('click', function(e) {{
+                        if (menu.style.display === 'block' && !menu.contains(e.target)) menu.style.display = 'none';
+                    }}, true);
+                    
+                    menu.querySelector('.radial-center').addEventListener('click', () => menu.style.display = 'none');
+
+                    // 4. Lógica Notepad
+                    let notepadActive = false;
+                    const notesBtn = menu.querySelector('#btn-notes');
+                    const textarea = notepad.querySelector('textarea');
+                    const NOTEPAD_KEY = 'gantt_notes_consolidated'; // Chave única para consolidado? Ou compartilhada? Vamos usar compartilhada
+
+                    if(textarea) textarea.value = localStorage.getItem(NOTEPAD_KEY) || '';
+                    if(textarea) textarea.addEventListener('input', () => localStorage.setItem(NOTEPAD_KEY, textarea.value));
+
+                    notesBtn.addEventListener('click', (e) => {{
+                        e.stopPropagation();
+                        notepadActive = !notepadActive;
+                        notepad.style.display = notepadActive ? 'flex' : 'none';
+                        menu.style.display = 'none';
+                    }});
+                    
+                    notepad.querySelector('.notepad-close').addEventListener('click', () => {{
+                        notepadActive = false;
+                        notepad.style.display = 'none';
+                    }});
+
+                    // Drag Notepad
+                    let isDragging = false, offX, offY;
+                    const header = notepad.querySelector('.notepad-header');
+                    header.addEventListener('mousedown', (e) => {{ isDragging=true; offX=e.clientX-notepad.offsetLeft; offY=e.clientY-notepad.offsetTop; header.style.cursor='grabbing'; }});
+                    document.addEventListener('mousemove', (e) => {{ if(isDragging) {{ notepad.style.left=(e.clientX-offX)+'px'; notepad.style.top=(e.clientY-offY)+'px'; notepad.style.right='auto'; }} }});
+                    document.addEventListener('mouseup', () => {{ isDragging=false; header.style.cursor='move'; }});
+
+                    // 5. Lógica Focus Mode
+                    let focusActive = false;
+                    const focusBtn = menu.querySelector('#btn-focus');
+                    
+                    focusBtn.addEventListener('click', (e) => {{
+                        e.stopPropagation();
+                        focusActive = !focusActive;
+                        const bars = container.querySelectorAll('.gantt-bar');
+                        
+                        if (focusActive) {{
+                            bars.forEach(b => b.classList.add('focus-mode'));
+                            focusBtn.style.background = '#e6f2ff';
+                        }} else {{
+                            bars.forEach(b => {{ b.classList.remove('focus-mode', 'focused'); }});
+                            focusBtn.style.background = 'white';
+                        }}
+                        menu.style.display = 'none';
+                    }});
+
+                    container.addEventListener('click', (e) => {{
+                        if (!focusActive) return;
+                        const bar = e.target.closest('.gantt-bar');
+                        if (bar) bar.classList.toggle('focused');
+                    }});
+
+                }})();
+
                 // Inicializar o Gantt Consolidado
                 initGantt();
                 setupBaselineListeners();  // *** NOVO: Ativar event listeners de baseline ***
@@ -8269,6 +8437,174 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                 }});
             }}
             
+            // --- CONTEXT MENU LITE (FOCUS + NOTES) ---
+            (function() {{
+                const container = document.getElementById('gantt-container-{project["id"]}');
+                if (!container) return;
+
+                // Limpeza visual
+                const oldMenu = container.querySelector('#radial-menu');
+                if (oldMenu) oldMenu.remove();
+                const oldNotepad = container.querySelector('#floating-notepad');
+                if (oldNotepad) oldNotepad.remove();
+
+                // 1. Criar Menu Radial (LITE)
+                const menu = document.createElement('div');
+                menu.id = 'radial-menu';
+                menu.style.cssText = "position:fixed; z-index:2147483647; display:none; font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;";
+                menu.innerHTML = `
+                    <style>
+                        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+                        .radial-menu-wrapper {{ position: relative; width: 260px; height: 260px; }}
+                        .radial-center {{
+                            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                            width: 44px; height: 44px; border: 3px solid #007AFF; border-radius: 50%;
+                            background: transparent; cursor: pointer; transition: all 0.2s ease; z-index: 10;
+                        }}
+                        .radial-center:hover {{ transform: translate(-50%, -50%) scale(1.1); border-width: 4px; }}
+                        .radial-background-circle {{
+                            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                            width: 140px; height: 140px; border: 4px solid #f0f0f0; border-radius: 50%;
+                            background: transparent; z-index: 1;
+                        }}
+                        .radial-item {{
+                            position: absolute; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+                            cursor: pointer; transition: all 0.2s ease; z-index: 5; background: white;
+                            border: 2px solid #f0f0f0; border-radius: 7px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+                        }}
+                        .radial-item:hover {{
+                            background: #f5f5f5; transform: scale(1.1); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15); border-color: #007AFF;
+                        }}
+                        .radial-item svg {{ width: 20px; height: 20px; transition: all 0.2s ease; fill: #333; stroke: #333; }}
+                        .radial-item:hover svg {{ fill: #007AFF; stroke: #007AFF; }}
+                        
+                        /* Tooltip */
+                        .radial-tooltip {{
+                            position: absolute; padding: 5px 9px; border-radius: 14px; font-size: 10px; font-weight: 500;
+                            white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.2s ease;
+                            z-index: 15; background: #2c3e50; color: white;
+                        }}
+                        .radial-item:hover + .radial-tooltip {{ opacity: 1; }}
+
+                        /* Notepad */
+                        .notepad-header {{
+                            padding: 14px 18px; background: #2E384A; color: white; display: flex; justify-content: space-between;
+                            align-items: center; cursor: move; user-select: none;
+                        }}
+                        .notepad-close {{ background: rgba(255,255,255,0.15); border: none; color: white; cursor: pointer; padding: 4px 8px; border-radius: 6px; }}
+                        .notepad-content {{
+                            flex: 1; padding: 20px; border: none; resize: none; font-family: 'Inter', sans-serif;
+                            font-size: 14px; line-height: 1.6; outline: none; color: #333; background: #fafafa;
+                        }}
+                        
+                        /* Focus Mode */
+                        .gantt-bar.focus-mode {{ filter: grayscale(100%) brightness(0.4) !important; opacity: 0.5 !important; transition: all 0.3s ease; }}
+                        .gantt-bar.focus-mode.focused {{ filter: none !important; opacity: 1 !important; }}
+                    </style>
+                    
+                    <div class="radial-menu-wrapper">
+                        <div class="radial-background-circle"></div>
+                        <div class="radial-center" title="Fechar Menu"></div>
+                        
+                        <!-- Direita: Notas -->
+                        <div class="radial-item" id="btn-notes" style="top: 114px; left: 184px;">
+                            <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                        </div>
+                        <div class="radial-tooltip" style="top: 114px; left: 224px;">Notas</div>
+                        
+                        <!-- Esquerda: Modo Foco -->
+                        <div class="radial-item" id="btn-focus" style="top: 114px; left: 44px;">
+                            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M18 18l-3-3m3 3l3-3m-3 3v-6" stroke="currentColor" fill="none" stroke-width="2"/></svg>
+                        </div>
+                        <div class="radial-tooltip" style="top: 114px; right: 224px;">Modo Foco</div>
+                    </div>
+                `;
+                container.appendChild(menu);
+
+                // 2. Criar Notepad
+                const notepad = document.createElement('div');
+                notepad.id = 'floating-notepad';
+                notepad.style.cssText = "display:none; position:fixed; top:100px; right:50px; width:320px; height:420px; background:white; border:1px solid #e8e8e8; border-radius:16px; box-shadow:0 8px 32px rgba(0,0,0,0.08); z-index:9999; flex-direction:column; font-family:'Inter', sans-serif; overflow:hidden;";
+                notepad.innerHTML = `
+                    <div class="notepad-header">
+                        <div style="display:flex; gap:8px;"><span>📝 Notas</span></div>
+                        <button class="notepad-close">×</button>
+                    </div>
+                    <textarea class="notepad-content" placeholder="Suas notas..."></textarea>
+                `;
+                container.appendChild(notepad);
+
+                // 3. Event Listeners (Menu)
+                container.addEventListener('contextmenu', function(e) {{
+                    if (e.target.closest('.gantt-chart-content') || e.target.closest('.gantt-sidebar-wrapper') || e.target.closest('.gantt-row')) {{
+                        e.preventDefault();
+                        menu.style.display = 'block';
+                        menu.style.left = (e.clientX - 130) + 'px';
+                        menu.style.top = (e.clientY - 130) + 'px';
+                    }}
+                }});
+
+                document.addEventListener('click', function(e) {{
+                    if (menu.style.display === 'block' && !menu.contains(e.target)) menu.style.display = 'none';
+                }}, true);
+                
+                menu.querySelector('.radial-center').addEventListener('click', () => menu.style.display = 'none');
+
+                // 4. Lógica Notepad
+                let notepadActive = false;
+                const notesBtn = menu.querySelector('#btn-notes');
+                const textarea = notepad.querySelector('textarea');
+                const NOTEPAD_KEY = 'gantt_notes_sector'; // Chave única para setor
+
+                if(textarea) textarea.value = localStorage.getItem(NOTEPAD_KEY) || '';
+                if(textarea) textarea.addEventListener('input', () => localStorage.setItem(NOTEPAD_KEY, textarea.value));
+
+                notesBtn.addEventListener('click', (e) => {{
+                    e.stopPropagation();
+                    notepadActive = !notepadActive;
+                    notepad.style.display = notepadActive ? 'flex' : 'none';
+                    menu.style.display = 'none';
+                }});
+                
+                notepad.querySelector('.notepad-close').addEventListener('click', () => {{
+                    notepadActive = false;
+                    notepad.style.display = 'none';
+                }});
+
+                // Drag Notepad
+                let isDragging = false, offX, offY;
+                const header = notepad.querySelector('.notepad-header');
+                header.addEventListener('mousedown', (e) => {{ isDragging=true; offX=e.clientX-notepad.offsetLeft; offY=e.clientY-notepad.offsetTop; header.style.cursor='grabbing'; }});
+                document.addEventListener('mousemove', (e) => {{ if(isDragging) {{ notepad.style.left=(e.clientX-offX)+'px'; notepad.style.top=(e.clientY-offY)+'px'; notepad.style.right='auto'; }} }});
+                document.addEventListener('mouseup', () => {{ isDragging=false; header.style.cursor='move'; }});
+
+                // 5. Lógica Focus Mode
+                let focusActive = false;
+                const focusBtn = menu.querySelector('#btn-focus');
+                
+                focusBtn.addEventListener('click', (e) => {{
+                    e.stopPropagation();
+                    focusActive = !focusActive;
+                    const bars = container.querySelectorAll('.gantt-bar');
+                    
+                    if (focusActive) {{
+                        bars.forEach(b => b.classList.add('focus-mode'));
+                        focusBtn.style.background = '#e6f2ff';
+                    }} else {{
+                        bars.forEach(b => {{ b.classList.remove('focus-mode', 'focused'); }});
+                        focusBtn.style.background = 'white';
+                    }}
+                    menu.style.display = 'none';
+                }});
+
+                container.addEventListener('click', (e) => {{
+                    if (!focusActive) return;
+                    const bar = e.target.closest('.gantt-bar');
+                    if (bar) bar.classList.toggle('focused');
+                }});
+
+            }})();
+
             // Inicializar filtros de etapas, grupos e macroetapas para o setor atual
             renderStageCheckboxes(initialSectorName);
             renderGroupCheckboxes(initialSectorName);
