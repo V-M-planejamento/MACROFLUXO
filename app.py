@@ -1523,7 +1523,8 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         baseline_options_por_empreendimento = {}
 
         # Carregar baselines para todos os empreendimentos nos dados
-        todos_empreendimentos = df["Empreendimento"].unique().tolist() if not df.empty else []
+        # ⭐ NOVO: Ordenar por data meta (DEMANDA MÍNIMA)
+        todos_empreendimentos = criar_ordenacao_empreendimentos(df) if not df.empty else []
         for emp in todos_empreendimentos:
             # Obter opções de baseline para este empreendimento
             emp_baseline_options = get_baseline_options(emp)
@@ -1544,8 +1545,9 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
         empreendimento_atual = todos_empreendimentos[0] if len(todos_empreendimentos) == 1 else "Múltiplos"
         baseline_options = baseline_options_por_empreendimento.get(empreendimento_atual, []) if empreendimento_atual != "Múltiplos" else []
         
-        # Obter todos os empreendimentos disponíveis nos dados filtrados
-        todos_empreendimentos = df["Empreendimento"].unique().tolist() if not df.empty else []
+        # Obter todos os empreendimentos disponíveis nos dados filtrados  
+        # ⭐ NOVO: Ordenar por data meta (DEMANDA MÍNIMA)
+        todos_empreendimentos = criar_ordenacao_empreendimentos(df) if not df.empty else []
         
         # Determinar empreendimento atual baseado no filtro ou no primeiro da lista
         empreendimento_atual = todos_empreendimentos[0] if len(todos_empreendimentos) == 1 else "Múltiplos"
@@ -1937,8 +1939,8 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     .gantt-bar {{ position: absolute; height: 14px; top: 8px; border-radius: 3px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
                     .gantt-bar-overlap {{ position: absolute; height: 14px; top: 8px; background-image: linear-gradient(45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%, transparent 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25) 75%, transparent 75%, transparent); background-size: 8px 8px; z-index: 9; pointer-events: none; border-radius: 3px; }}
                     .gantt-bar:hover {{ transform: translateY(-1px) scale(1.01); box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 10 !important; }}
-                    .gantt-bar.previsto {{ z-index: 7; }}
-                    .gantt-bar.real {{ z-index: 8; }}
+                    .gantt-bar.previsto {{ z-index: 7 !important; }}
+                    .gantt-bar.real {{ z-index: 8 !important; }}
                     .bar-label {{ font-size: 8px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }}
                     .gantt-bar.real .bar-label {{ color: white; }}
                     .gantt-bar.previsto .bar-label {{ color: #6C6C6C; }}
@@ -2167,7 +2169,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                 <label for="filter-vis-real-{project['id']}">Real</label>
                             </div>
                         </div>
-                        <div class="filter-group">
+                        <div class="filter-group" id="pulmao-filter-group-{project['id']}" style="display: {'none' if baseline_name and baseline_name != 'P0-(padrão)' else 'block'};">
                             <label>Simulação Pulmão</label>
                             <div class="filter-group-radio">
                                 <input type="radio" id="filter-pulmao-sem-{project['id']}" name="filter-pulmao-{project['id']}" value="Sem Pulmão">
@@ -2244,6 +2246,9 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                     const initialProjectIndex = {correct_project_index_for_js};
 
                     let projectData = {json.dumps([project])};
+
+                    // ⭐ Lista ordenada de empreendimentos por meta
+                    const empreendimentosOrdenados = {json.dumps(todos_empreendimentos)};
 
                     // Datas originais (Python)
                     const dataMinStr = '{data_min_proj.strftime("%Y-%m-%d")}';
@@ -2515,6 +2520,9 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         
                         // Redesenhar gráfico
                         try {{
+                            // ⭐ ATUALIZAR VISIBILIDADE DO FILTRO DE PULMÃO
+                            updatePulmaoFilterVisibility(baselineName);
+                            
                             renderChart();
                             renderSidebar();
                         }} catch (e) {{
@@ -3421,6 +3429,11 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         
                         // Inicializar monitoramento do dropdown de baseline
                         updateBaselineDropdownForProject(projectData[0].name);
+                        
+                        // ⭐ APLICAR ESTADO INICIAL DO FILTRO DE PULMÃO
+                        const dropdown = document.getElementById('baseline-dropdown-{project["id"]}');
+                        const initialBaseline = dropdown ? dropdown.value : 'P0-(padrão)';
+                        updatePulmaoFilterVisibility(initialBaseline);
                     }}
 
                     function applyInitialPulmaoState() {{
@@ -3649,10 +3662,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                     }}
                                     if (barPrevisto && barReal) {{
                                         const s_prev = parseDate(task.start_previsto), e_prev = parseDate(task.end_previsto), s_real = parseDate(task.start_real), e_real = parseDate(task.end_real_original_raw || task.end_real);
-                                        if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{ 
-                                            barPrevisto.style.zIndex = '8'; 
-                                            barReal.style.zIndex = '7'; 
-                                        }}
+
                                         renderOverlapBar(task, row);
                                     }}
                                     chartBody.appendChild(row);
@@ -3689,10 +3699,7 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                                 }}
                                                 if (subBarPrevisto && subBarReal) {{
                                                     const s_prev = parseDate(subetapa.start_previsto), e_prev = parseDate(subetapa.end_previsto), s_real = parseDate(subetapa.start_real), e_real = parseDate(subetapa.end_real_original_raw || subetapa.end_real);
-                                                    if (s_prev && e_prev && s_real && e_real && s_real <= s_prev && e_real >= e_prev) {{ 
-                                                        subBarPrevisto.style.zIndex = '8'; 
-                                                        subBarReal.style.zIndex = '7'; 
-                                                    }}
+
                                                     renderOverlapBar(subetapa, subtaskRow);
                                                 }}
                                                 chartBody.appendChild(subtaskRow);
@@ -3921,6 +3928,19 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         document.getElementById('gantt-sidebar-wrapper-{project["id"]}').classList.toggle('collapsed'); 
                     }}
 
+                    // Função para mostrar/esconder o filtro de pulmão baseado na baseline ativa
+                    function updatePulmaoFilterVisibility(baselineName) {{
+                        const pulmaoFilterGroup = document.getElementById('pulmao-filter-group-{project["id"]}');
+                        if (pulmaoFilterGroup) {{
+                            // Esconde pulmão se há baseline ativa (diferente de P0)
+                            if (baselineName && baselineName !== 'P0-(padrão)') {{
+                                pulmaoFilterGroup.style.display = 'none';
+                            }} else {{
+                                pulmaoFilterGroup.style.display = 'block';
+                            }}
+                        }}
+                    }}
+
                     function updatePulmaoInputVisibility() {{
                         const radioCom = document.getElementById('filter-pulmao-com-{project["id"]}');
                         const mesesGroup = document.getElementById('pulmao-meses-group-{project["id"]}');
@@ -3994,6 +4014,9 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         document.getElementById('filter-pulmao-meses-{project["id"]}').value = initialPulmaoMeses;
 
                         updatePulmaoInputVisibility();
+
+                        // ⭐ ATUALIZAR VISIBILIDADE DO FILTRO DE PULMÃO (volta para P0)
+                        updatePulmaoFilterVisibility('P0-(padrão)');
 
                         renderHeader();
                         renderMonthDividers();
@@ -4243,6 +4266,9 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                                 // *** ATUALIZAR BASELINE PARA O NOVO EMPREENDIMENTO ***
                                 const newProjectName = newProject.name;
                                 updateBaselineDropdownForProject(newProjectName);
+                                
+                                // ⭐ ATUALIZAR VISIBILIDADE DO FILTRO DE PULMÃO (baseline reseta para P0)
+                                updatePulmaoFilterVisibility('P0-(padrão)');
                             }}
 
                             let baseTasks = JSON.parse(JSON.stringify(allTasks_baseData));
@@ -4535,7 +4561,8 @@ def converter_dados_para_gantt_consolidado(df, etapa_selecionada):
                 "duracao_real_meses": f"{dur_real_meses:.1f}".replace('.', ',') if dur_real_meses is not None else "-",
                 "vt_text": f"{int(vt):+d}d" if pd.notna(vt) else "-",
                 "vd_text": f"{int(vd):+d}d" if pd.notna(vd) else "-",
-                "status_color_class": status_color_class
+                "status_color_class": status_color_class,
+                "baseline_ativa": "P0-(padrão)"  # ⭐ NOVO: rastreia baseline de cada empreendimento
             }
             tasks.append(task)
 
@@ -4862,8 +4889,8 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 .gantt-bar {{ position: absolute; height: 14px; top: 8px; border-radius: 3px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
                 .gantt-bar-overlap {{ position: absolute; height: 14px; top: 8px; background-image: linear-gradient(45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%, transparent 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25) 75%, transparent 75%, transparent); background-size: 8px 8px; z-index: 9; pointer-events: none; border-radius: 3px; }}
                 .gantt-bar:hover {{ transform: translateY(-1px) scale(1.01); box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 10 !important; }}
-                .gantt-bar.previsto {{ z-index: 7; }}
-                .gantt-bar.real {{ z-index: 8; }}
+                .gantt-bar.previsto {{ z-index: 7 !important; }}
+                .gantt-bar.real {{ z-index: 8 !important; }}
                 .bar-label {{ font-size: 8px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }}
                 .gantt-bar.real .bar-label {{ color: white; }}
                 .gantt-bar.previsto .bar-label {{ color: #6C6C6C; }}
@@ -5380,9 +5407,15 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         console.log("Etapa Pulmão: movendo apenas início PREVISTO.");
                         // Para etapas de pulmão, move apenas o Início PREVISTO
                         tasks.forEach(task => {{
-                            task.start_previsto = addMonths(task.start_previsto, offsetMeses);
-                            // DATAS REAIS PERMANECEM INALTERADAS
-                            task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                            // ⭐ NOVO: Verifica se baseline é P0 antes de aplicar pulmão
+                            if (!task.baseline_ativa || task.baseline_ativa === 'P0-(padrão)') {{
+                                task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                                // DATAS REAIS PERMANECEM INALTERADAS
+                                task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                console.log(`  ✅ Pulmão aplicado em ${{task.name}} (P0)`);
+                            }} else {{
+                                console.log(`  ⏸️ Pulmão ignorado em ${{task.name}} (baseline: ${{task.baseline_ativa}})`);
+                            }}
                             // Não mexe no 'end_date' real
                         }});
                     
@@ -5390,12 +5423,18 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         console.log("Etapa Padrão: movendo apenas PREVISTO.");
                         // Para todas as outras etapas, move apenas Início e Fim PREVISTOS
                         tasks.forEach(task => {{
-                            task.start_previsto = addMonths(task.start_previsto, offsetMeses);
-                            task.end_previsto = addMonths(task.end_previsto, offsetMeses);
-                            // DATAS REAIS PERMANECEM INALTERADAS
+                            // ⭐ NOVO: Verifica se baseline é P0 antes de aplicar pulmão
+                            if (!task.baseline_ativa || task.baseline_ativa === 'P0-(padrão)') {{
+                                task.start_previsto = addMonths(task.start_previsto, offsetMeses);
+                                task.end_previsto = addMonths(task.end_previsto, offsetMeses);
+                                // DATAS REAIS PERMANECEM INALTERADAS
 
-                            task.inicio_previsto = formatDateDisplay(task.start_previsto);
-                            task.termino_previsto = formatDateDisplay(task.end_previsto);
+                                task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                task.termino_previsto = formatDateDisplay(task.end_previsto);
+                                console.log(`  ✅ Pulmão aplicado em ${{task.name}} (P0)`);
+                            }} else {{
+                                console.log(`  ⏸️ Pulmão ignorado em ${{task.name}} (baseline: ${{task.baseline_ativa}})`);
+                            }}
                             // Datas reais mantêm seus valores originais
                         }});
                     }}
@@ -5407,6 +5446,12 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     if (initialPulmaoStatus === 'Com Pulmão' && initialPulmaoMeses > 0) {{
                         const offsetMeses = -initialPulmaoMeses;
                         let baseTasks = JSON.parse(JSON.stringify(allTasks_baseData));
+                        
+                        // ⭐ NOVO: Sincronizar baseline_ativa com estado inicial
+                        baseTasks.forEach(task => {{
+                            const selectedBaseline = baselinesPorEmpreendimento[task.name];
+                            task.baseline_ativa = selectedBaseline || 'P0-(padrão)';
+                        }});
                         
                         // Passa o nome da etapa inicial - APENAS DATAS PREVISTAS SERÃO MODIFICADAS
                         const tasksProcessadas = aplicarLogicaPulmaoConsolidado(baseTasks, offsetMeses, initialStageName);
@@ -5951,11 +5996,31 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                         // Começar com os dados da etapa (já atualizados ou não)
                         let baseTasks = JSON.parse(JSON.stringify(allTasks_baseData));
 
+                        // ⭐ NOVO: Sincronizar baseline_ativa com estado selecionado
+                        baseTasks.forEach(task => {{
+                            const selectedBaseline = baselinesPorEmpreendimento[task.name];
+                            task.baseline_ativa = selectedBaseline || 'P0-(padrão)';
+                        }});
+                        console.log('🔄 baseline_ativa sincronizado com seleções do usuário');
+                        console.log('📋 Estado de baselines:', baselinesPorEmpreendimento);
+
                         // *** 4. APLICAR LÓGICA DE PULMÃO (CORRIGIDO) ***
                         if (selPulmao === 'Com Pulmão' && selPulmaoMeses > 0) {{
+                            console.log(`🎯 ANTES do pulmão - Primeira task:`, baseTasks[0] ? {{
+                                name: baseTasks[0].name,
+                                baseline_ativa: baseTasks[0].baseline_ativa,
+                                start_previsto: baseTasks[0].start_previsto
+                            }} : 'nenhuma');
+                            
                             const offsetMeses = -selPulmaoMeses;
                             // Passa o nome da etapa atual para a lógica - APENAS PREVISTO AFETADO
                             baseTasks = aplicarLogicaPulmaoConsolidado(baseTasks, offsetMeses, currentStageName);
+                            
+                            console.log(`🎯 DEPOIS do pulmão - Primeira task:`, baseTasks[0] ? {{
+                                name: baseTasks[0].name,
+                                baseline_ativa: baseTasks[0].baseline_ativa,
+                                start_previsto: baseTasks[0].start_previsto
+                            }} : 'nenhuma');
                         }}
 
                         // *** 5. APLICAR FILTROS SECUNDÁRIOS ***
@@ -5994,32 +6059,14 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                             const selectedBaseline = baselinesPorEmpreendimento[emp];
                             
                             if (selectedBaseline && selectedBaseline !== "P0-(padrão)") {{
-                                // Aplicar baseline sem re-renderizar (será feito no final)
+                                // ⭐ Aplicar baseline SEM PULMÃO (pulmão só afeta P0!)
                                 if (task.baselines && task.baselines[selectedBaseline]) {{
                                     const baselineData = task.baselines[selectedBaseline];
                                     
                                     if (baselineData.start !== null && baselineData.end !== null) {{
-                                        // Aplicar dados da baseline
-                                        let startPrevisto = baselineData.start;
-                                        let endPrevisto = baselineData.end;
-                                        
-                                        // *** APLICAR PULMÃO SE NECESSÁRIO ***
-                                        if (selPulmao === 'Com Pulmão' && selPulmaoMeses > 0) {{
-                                            const offsetMeses = -selPulmaoMeses;
-                                            const startDate = parseDate(startPrevisto);
-                                            const endDate = parseDate(endPrevisto);
-                                            
-                                            if (startDate && endDate) {{
-                                                startDate.setMonth(startDate.getMonth() + offsetMeses);
-                                                endDate.setMonth(endDate.getMonth() + offsetMeses);
-                                                
-                                                startPrevisto = startDate.toISOString().split('T')[0];
-                                                endPrevisto = endDate.toISOString().split('T')[0];
-                                            }}
-                                        }}
-                                        
-                                        task.start_previsto = startPrevisto;
-                                        task.end_previsto = endPrevisto;
+                                        // Aplicar dados da baseline DIRETAMENTE (sem pulmão)
+                                        task.start_previsto = baselineData.start;
+                                        task.end_previsto = baselineData.end;
                                         task.inicio_previsto = formatDateDisplay(task.start_previsto);
                                         task.termino_previsto = formatDateDisplay(task.end_previsto);
                                         
@@ -6038,6 +6085,9 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                                                 task.vt_text = diffDays > 0 ? `+${{diffDays}}d` : diffDays < 0 ? `${{diffDays}}d` : '0d';
                                             }}
                                         }}
+                                        
+                                        // ⭐ ATUALIZAR baseline_ativa do task
+                                        task.baseline_ativa = selectedBaseline;
                                     }}
                                 }}
                             }}
@@ -6093,68 +6143,77 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 function applyBaselineForEmp(empreendimento, baselineName) {{
                     console.log(`🔄 Aplicando baseline "${{baselineName}}" para: ${{empreendimento}}`);
                     
+                    // ⭐ NOVO: Atualizar estado de rastreamento
+                    baselinesPorEmpreendimento[empreendimento] = baselineName;
+                    console.log('📊 Estado atualizado:', baselinesPorEmpreendimento);
+                    
                     const tasks = projectData[0].tasks;
                     if (!tasks || tasks.length === 0) {{
                         console.warn('Nenhuma task disponível');
                         return;
                     }}
                     
-                    // Atualizar estado
-                    baselinesPorEmpreendimento[empreendimento] = baselineName;
-                    
-                    // Encontrar a task deste empreendimento
                     const task = tasks.find(t => t.name === empreendimento);
-                    
                     if (!task) {{
-                        console.warn(`Task não encontrada para empreendimento: ${{empreendimento}}`);
+                        console.warn(`Empreendimento "${{empreendimento}}" não encontrado`);
                         return;
                     }}
                     
-                    if (!task.baselines || !task.baselines[baselineName]) {{
-                        console.warn(`Task ${{task.name}} não tem baseline ${{baselineName}}`);
-                        return;
-                    }}
+                    // ⭐ NOVO: Atualizar baseline_ativa do task
+                    task.baseline_ativa = baselineName;
                     
-                    const baselineData = task.baselines[baselineName];
-                    
-                    if (baselineData.start !== null && baselineData.end !== null) {{
-                        // Atualizar datas previstas
-                        task.start_previsto = baselineData.start;
-                        task.end_previsto = baselineData.end;
-                        
-                        // Recalcular campos de exibição
-                        task.inicio_previsto = formatDateDisplay(task.start_previsto);
-                        task.termino_previsto = formatDateDisplay(task.end_previsto);
-                        
-                        // Recalcular duração
-                        const startDate = parseDate(task.start_previsto);
-                        const endDate = parseDate(task.end_previsto);
-                        if (startDate && endDate) {{
-                            const diffDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
-                            task.duracao_prev_meses = (diffDays / 30.4375).toFixed(1).replace('.', ',');
+                    // Se for P0, restaurar dados originais
+                    if (baselineName === "P0-(padrão)") {{
+                        const originalTask = allTasks_baseData.find(t => t.name === empreendimento);
+                        if (originalTask) {{
+                            task.start_previsto = originalTask.start_previsto;
+                            task.end_previsto = originalTask.end_previsto;
+                            task.inicio_previsto = originalTask.inicio_previsto;
+                            task.termino_previsto = originalTask.termino_previsto;
+                            task.duracao_prev_meses = originalTask.duracao_prev_meses;
                         }}
-                        
-                        // Recalcular VT (Variação de Término)
-                        if (task.end_real_original_raw && task.end_previsto) {{
-                            const endReal = parseDate(task.end_real_original_raw);
-                            const endPrev = parseDate(task.end_previsto);
-                            if (endReal && endPrev) {{
-                                const diffDays = Math.round((endReal - endPrev) / (1000 * 60 * 60 * 24));
-                                task.vt_text = diffDays > 0 ? `+${{diffDays}}d` : diffDays < 0 ? `${{diffDays}}d` : '0d';
+                    }} else {{
+                        // Aplicar baseline específica
+                        if (task.baselines && task.baselines[baselineName]) {{
+                            const baselineData = task.baselines[baselineName];
+                            
+                            if (baselineData.start !== null && baselineData.end !== null) {{
+                                task.start_previsto = baselineData.start;
+                                task.end_previsto = baselineData.end;
+                                task.inicio_previsto = formatDateDisplay(task.start_previsto);
+                                task.termino_previsto = formatDateDisplay(task.end_previsto);
+                                
+                                // Recalcular duração
+                                const startDate = parseDate(task.start_previsto);
+                                const endDate = parseDate(task.end_previsto);
+                                if (startDate && endDate) {{
+                                    const diffDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
+                                    task.duracao_prev_meses = (diffDays / 30.4375).toFixed(1).replace('.', ',');
+                                }}
+                                
+                                // Recalcular VT
+                                if (task.end_real_original_raw && task.end_previsto) {{
+                                    const endReal = parseDate(task.end_real_original_raw);
+                                    const endPrev = parseDate(task.end_previsto);
+                                    if (endReal && endPrev) {{
+                                        const diffDays = Math.round((endReal - endPrev) / (1000 * 60 * 60 * 24));
+                                        task.vt_text = diffDays > 0 ? `+${{diffDays}}d` : diffDays < 0 ? `${{diffDays}}d` : '0d';
+                                    }}
+                                }}
+                                
+                                console.log(`✅ Baseline aplicada para ${{empreendimento}}: ${{baselineName}}`);
+                            }} else {{
+                                // Baseline não tem dados para esta etapa
+                                task.start_previsto = null;
+                                task.end_previsto = null;
+                                task.inicio_previsto = "N/D";
+                                task.termino_previsto = "N/D";
+                                task.duracao_prev_meses = "-";
+                                task.vt_text = "-";
+                                
+                                console.log(`⚠️ Baseline ${{baselineName}} não tem dados para ${{empreendimento}}`);
                             }}
                         }}
-                        
-                        console.log(`✅ Baseline aplicada para ${{empreendimento}}: ${{baselineName}}`);
-                    }} else {{
-                        // Baseline não tem dados para esta etapa
-                        task.start_previsto = null;
-                        task.end_previsto = null;
-                        task.inicio_previsto = "N/D";
-                        task.termino_previsto = "N/D";
-                        task.duracao_prev_meses = "-";
-                        task.vt_text = "-";
-                        
-                        console.log(`⚠️ Baseline ${{baselineName}} não tem dados para ${{empreendimento}}`);
                     }}
                     
                     // Re-renderizar o gráfico
@@ -6865,8 +6924,8 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             .gantt-bar {{ position: absolute; height: 14px; top: 8px; border-radius: 3px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
             .gantt-bar-overlap {{ position: absolute; height: 14px; top: 8px; background-image: linear-gradient(45deg, rgba(0, 0, 0, 0.25) 25%, transparent 25%, transparent 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25) 75%, transparent 75%, transparent); background-size: 8px 8px; z-index: 9; pointer-events: none; border-radius: 3px; }}
             .gantt-bar:hover {{ transform: translateY(-1px) scale(1.01); box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 10 !important; }}
-            .gantt-bar.previsto {{ z-index: 7; }}
-            .gantt-bar.real {{ z-index: 8; }}
+            .gantt-bar.previsto {{ z-index: 7 !important; }}
+            .gantt-bar.real {{ z-index: 8 !important; }}
             .bar-label {{ font-size: 8px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }}
             .gantt-bar.real .bar-label {{ color: white; }}
             .gantt-bar.previsto .bar-label {{ color: #6C6C6C; }}
