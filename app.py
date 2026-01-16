@@ -1981,15 +1981,48 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         background-color: #a8b2c1;
                     }}
                     .gantt-toolbar {{
-                        position: absolute; top: 10px; right: 10px;
+                        position: absolute; top: 2px; right: 10px;
                         z-index: 100;
                         display: flex;
                         flex-direction: column;
                         gap: 5px;
                         background: rgba(45, 55, 72, 0.9); /* Cor de fundo escura para minimalismo */
                         border-radius: 6px;
-                        padding: 5px;
+                        padding: 1px 5px;
                         box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                        transition: all 0.3s ease;
+                    }}
+                    .gantt-toolbar.collapsed {{
+                        background: transparent;
+                        box-shadow: none;
+                        pointer-events: none; /* Permite clicar através da área transparente */
+                    }}
+                    /* Esconde botões normais quando colapsado */
+                    .gantt-toolbar.collapsed .toolbar-btn:not(.toolbar-toggle-btn) {{
+                        display: none;
+                    }}
+                    /* Estiliza o botão de toggle quando colapsado */
+                    .gantt-toolbar.collapsed .toolbar-toggle-btn {{
+                        display: flex;
+                        pointer-events: auto;
+                        background: rgba(255, 255, 255, 0.3);
+                        color: #4a5568;
+                        width: 24px;
+                        height: 24px;
+                        border-radius: 4px;
+                        backdrop-filter: blur(2px);
+                    }}
+                    .gantt-toolbar.collapsed .toolbar-toggle-btn:hover {{
+                        background: rgba(255, 255, 255, 0.8);
+                        opacity: 1;
+                        transform: scale(1.1);
+                    }}
+                    /* Rotação do ícone ao colapsar */
+                    .toolbar-toggle-btn svg {{
+                        transition: transform 0.3s ease;
+                    }}
+                    .gantt-toolbar.collapsed .toolbar-toggle-btn svg {{
+                        transform: rotate(180deg);
                     }}
                     .toolbar-btn {{
                         background: none;
@@ -2006,9 +2039,13 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         transition: background-color 0.2s, box-shadow 0.2s;
                         padding: 0;
                     }}
+                    .toolbar-toggle-btn {{
+                        /* Botão normal dentro da toolbar */
+                        margin-bottom: 2px;
+                    }}
                     .toolbar-btn:hover {{
                         background-color: rgba(255, 255, 255, 0.1);
-                        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+                        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
                     }}
                     .toolbar-btn.is-fullscreen {{
                         background-color: #3b82f6; /* Cor de destaque para o botão ativo */
@@ -2098,6 +2135,13 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                 <div id="toast-loading" class="toast-loading">🔄 Processando...</div>
                 <div class="gantt-container" id="gantt-container-{project['id']}">
                     <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
+                        <button class="toolbar-btn toolbar-toggle-btn" id="toolbar-toggle-btn-{project["id"]}" title="Recolher Toolbar">
+                             <span>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="18 15 12 9 6 15"></polyline>
+                                </svg>
+                            </span>
+                        </button>
                         <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros">
                             <span>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -3889,6 +3933,20 @@ def gerar_gantt_por_projeto(df, tipo_visualizacao, df_original_para_ordenacao, p
                         const filterBtn = document.getElementById('filter-btn-{project["id"]}');
                         const filterMenu = document.getElementById('filter-menu-{project['id']}');
                         const container = document.getElementById('gantt-container-{project["id"]}');
+                        const toolbarToggleBtn = document.getElementById('toolbar-toggle-btn-{project["id"]}');
+
+                        if (toolbarToggleBtn) {{
+                            toolbarToggleBtn.addEventListener('click', (e) => {{
+                                e.stopPropagation();
+                                const toolbar = document.getElementById('gantt-toolbar-{project["id"]}');
+                                if (toolbar) toolbar.classList.toggle('collapsed');
+                                
+                                // Se a toolbar estiver colapsada, fecha o menu de filtro se estiver aberto
+                                if (toolbar && toolbar.classList.contains('collapsed')) {{
+                                    if (filterMenu) filterMenu.classList.remove('is-open');
+                                }}
+                            }});
+                        }}
 
                         const applyBtn = document.getElementById('filter-apply-btn-{project["id"]}');
                         if (applyBtn) applyBtn.addEventListener('click', () => applyFiltersAndRedraw());
@@ -4908,15 +4966,48 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 .gantt-chart-content:hover::-webkit-scrollbar-thumb, .gantt-sidebar-content:hover::-webkit-scrollbar-thumb {{ background-color: #d1d5db; }}
                 .gantt-chart-content:hover::-webkit-scrollbar-thumb:hover, .gantt-sidebar-content:hover::-webkit-scrollbar-thumb:hover {{ background-color: #a8b2c1; }}
                 .gantt-toolbar {{
-                    position: absolute; top: 10px; right: 10px;
+                    position: absolute; top: 2px; right: 10px;
                     z-index: 100;
                     display: flex;
                     flex-direction: column;
                     gap: 5px;
                     background: rgba(45, 55, 72, 0.9); /* Cor de fundo escura para minimalismo */
                     border-radius: 6px;
-                    padding: 5px;
+                    padding: 1px 5px;
                     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                    transition: all 0.3s ease;
+                }}
+                .gantt-toolbar.collapsed {{
+                    background: transparent;
+                    box-shadow: none;
+                    pointer-events: none; /* Permite clicar através da área transparente */
+                }}
+                /* Esconde botões normais quando colapsado */
+                .gantt-toolbar.collapsed .toolbar-btn:not(.toolbar-toggle-btn) {{
+                    display: none;
+                }}
+                /* Estiliza o botão de toggle quando colapsado */
+                .gantt-toolbar.collapsed .toolbar-toggle-btn {{
+                    display: flex;
+                    pointer-events: auto;
+                    background: rgba(255, 255, 255, 0.3);
+                    color: #4a5568;
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 4px;
+                    backdrop-filter: blur(2px);
+                }}
+                .gantt-toolbar.collapsed .toolbar-toggle-btn:hover {{
+                    background: rgba(255, 255, 255, 0.8);
+                    opacity: 1;
+                    transform: scale(1.1);
+                }}
+                /* Rotação do ícone ao colapsar */
+                .toolbar-toggle-btn svg {{
+                    transition: transform 0.3s ease;
+                }}
+                .gantt-toolbar.collapsed .toolbar-toggle-btn svg {{
+                    transform: rotate(180deg);
                 }}
                 .toolbar-btn {{
                     background: none;
@@ -4935,7 +5026,10 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                 }}
                 .toolbar-btn:hover {{
                     background-color: rgba(255, 255, 255, 0.1);
-                    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+                    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
+                }}
+                .toolbar-toggle-btn {{
+                    margin-bottom: 2px;
                 }}
                 .toolbar-btn.is-fullscreen {{
                     background-color: #3b82f6; /* Cor de destaque para o botão ativo */
@@ -5043,6 +5137,13 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
         <body>
             <div class="gantt-container" id="gantt-container-{project['id']}">
                     <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
+                        <button class="toolbar-btn toolbar-toggle-btn" id="toolbar-toggle-btn-{project["id"]}" title="Recolher Toolbar">
+                             <span>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="18 15 12 9 6 15"></polyline>
+                                </svg>
+                            </span>
+                        </button>
                         <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros">
                         <span>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -5753,6 +5854,20 @@ def gerar_gantt_consolidado(df, tipo_visualizacao, df_original_para_ordenacao, p
                     if (applyBtn) applyBtn.addEventListener('click', () => applyFiltersAndRedraw());
 
                     if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => toggleFullscreen());
+
+                    const toolbarToggleBtn = document.getElementById('toolbar-toggle-btn-{project["id"]}');
+                    if (toolbarToggleBtn) {{
+                        toolbarToggleBtn.addEventListener('click', (e) => {{
+                            e.stopPropagation();
+                            const toolbar = document.getElementById('gantt-toolbar-{project["id"]}');
+                            if (toolbar) toolbar.classList.toggle('collapsed');
+                            
+                            // Se a toolbar estiver colapsada, fecha o menu de filtro se estiver aberto
+                            if (toolbar && toolbar.classList.contains('collapsed')) {{
+                                if (filterMenu) filterMenu.classList.remove('is-open');
+                            }}
+                        }});
+                    }}
 
                     // Adiciona listener para o botão de filtro
                     if (filterBtn) {{
@@ -7103,15 +7218,48 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             .month-divider {{ position: absolute; top: 0; bottom: 0; width: 1px; background-color: #fcf6f6; z-index: 4; pointer-events: none; }}
             .month-divider.first {{ background-color: #eeeeee; width: 1px; }}
             .gantt-toolbar {{
-                position: absolute; top: 10px; right: 10px;
+                position: absolute; top: 2px; right: 10px;
                 z-index: 100;
                 display: flex;
                 flex-direction: column;
                 gap: 5px;
-                background: rgba(45, 55, 72, 0.9);
+                background: rgba(45, 55, 72, 0.9); /* Cor de fundo escura para minimalismo */
                 border-radius: 6px;
-                padding: 5px;
+                padding: 1px 5px;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                transition: all 0.3s ease;
+            }}
+            .gantt-toolbar.collapsed {{
+                background: transparent;
+                box-shadow: none;
+                pointer-events: none; /* Permite clicar através da área transparente */
+            }}
+            /* Esconde botões normais quando colapsado */
+            .gantt-toolbar.collapsed .toolbar-btn:not(.toolbar-toggle-btn) {{
+                display: none;
+            }}
+            /* Estiliza o botão de toggle quando colapsado */
+            .gantt-toolbar.collapsed .toolbar-toggle-btn {{
+                display: flex;
+                pointer-events: auto;
+                background: rgba(255, 255, 255, 0.3);
+                color: #4a5568;
+                width: 24px;
+                height: 24px;
+                border-radius: 4px;
+                backdrop-filter: blur(2px);
+            }}
+            .gantt-toolbar.collapsed .toolbar-toggle-btn:hover {{
+                background: rgba(255, 255, 255, 0.8);
+                opacity: 1;
+                transform: scale(1.1);
+            }}
+            /* Rotação do ícone ao colapsar */
+            .toolbar-toggle-btn svg {{
+                transition: transform 0.3s ease;
+            }}
+            .gantt-toolbar.collapsed .toolbar-toggle-btn svg {{
+                transform: rotate(180deg);
             }}
             .toolbar-btn {{
                 background: none;
@@ -7130,7 +7278,10 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
             }}
             .toolbar-btn:hover {{
                 background-color: rgba(255, 255, 255, 0.1);
-                box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+                box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
+            }}
+            .toolbar-toggle-btn {{
+                margin-bottom: 2px;
             }}
             .toolbar-btn.is-fullscreen {{
                 background-color: #3b82f6;
@@ -7296,6 +7447,13 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
         
         <div class="gantt-container" id="gantt-container-{project['id']}">
             <div class="gantt-toolbar" id="gantt-toolbar-{project["id"]}">
+                <button class="toolbar-btn toolbar-toggle-btn" id="toolbar-toggle-btn-{project["id"]}" title="Recolher Toolbar">
+                     <span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="18 15 12 9 6 15"></polyline>
+                        </svg>
+                    </span>
+                </button>
                 <button class="toolbar-btn" id="filter-btn-{project["id"]}" title="Filtros">
                     <span>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -8314,6 +8472,23 @@ def gerar_gantt_por_setor(df, tipo_visualizacao, df_original_para_ordenacao, pul
                     document.exitFullscreen();
                 }}
             }});
+            
+            const toolbarToggleBtn = document.getElementById('toolbar-toggle-btn-{project["id"]}');
+            if (toolbarToggleBtn) {{
+                toolbarToggleBtn.addEventListener('click', (e) => {{
+                    e.stopPropagation();
+                    const toolbar = document.getElementById('gantt-toolbar-{project["id"]}');
+                    if (toolbar) toolbar.classList.toggle('collapsed');
+                    
+                    // Se a toolbar estiver colapsada, fecha o menu de filtro se estiver aberto
+                    if (toolbar && toolbar.classList.contains('collapsed')) {{
+                        const filterMenu = document.getElementById('filter-menu-{project["id"]}');
+                        const baselineSelector = document.getElementById('baseline-selector-{project["id"]}');
+                        if (filterMenu) filterMenu.classList.remove('is-open');
+                        if (baselineSelector) baselineSelector.classList.remove('is-open');
+                    }}
+                }});
+            }}
             
             // Event listeners para radio buttons de visualização (para reordenar ao mudar)
             document.querySelectorAll('input[name="filter-vis-{project["id"]}"]').forEach(radio => {{
