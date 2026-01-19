@@ -10144,102 +10144,291 @@ with st.spinner("Carregando e processando dados..."):
     # Tab3 - Linhas de Base (apenas para usuarios autorizados)
     if tab3 is not None:
         with tab3:
-            st.title("Gerenciamento de Linhas de Base")
+            st.markdown("## Gerenciamento de Linhas de Base")
             
-            # Seleção de empreendimento
-            empreendimentos_baseline = df_data['Empreendimento'].unique().tolist() if not df_data.empty else []
+            # === SELETOR DE UGB ===
+            ugbs_disponiveis = sorted(df_data['UGB'].dropna().unique().tolist()) if not df_data.empty else []
             
-            if not empreendimentos_baseline:
-                st.warning("Nenhum empreendimento disponível")
+            if not ugbs_disponiveis:
+                st.warning("Nenhuma UGB disponível")
             else:
-                selected_empreendimento_baseline = st.selectbox(
-                    "Selecione o Empreendimento",
-                    empreendimentos_baseline,
-                    key="baseline_emp_tab3"
+                selected_ugb = st.selectbox(
+                    "UGB:",
+                    ugbs_disponiveis,
+                    key="baseline_ugb_selector"
                 )
                 
-                st.divider()
+                st.markdown("<br>", unsafe_allow_html=True)
                 
-                # === CRIAR BASELINE ===
-                st.subheader("📝 Criar Nova Baseline")
+                # Filtrar empreendimentos pela UGB selecionada
+                empreendimentos_na_ugb = df_data[
+                    df_data['UGB'] == selected_ugb
+                ]['Empreendimento'].unique().tolist()
                 
+                # Obter email do usuário
                 user_email = st.session_state.get('user_email', '')
                 
-                col1, col2 = st.columns([3, 1])
+                # CSS para tabelas profissionais
+                st.markdown("""
+                <style>
+                .baseline-container {
+                    background-color: #f8f9fa;
+                    border-radius: 8px;
+                    padding: 20px;
+                    margin-bottom: 20px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                }
                 
-                with col1:
-                    st.write(f"**Empreendimento:** {selected_empreendimento_baseline}")
-                    if user_email:
-                        st.write(f"**Responsável:** {user_email}")
+                .baseline-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 15px;
+                    padding-bottom: 10px;
+                    border-bottom: 2px solid #dee2e6;
+                }
                 
-                with col2:
-                    if st.button("Criar Baseline", use_container_width=True, type="primary", key="create_baseline_main"):
-                        try:
-                            version_name = take_gantt_baseline(
-                                df_data, 
-                                selected_empreendimento_baseline, 
-                                tipo_visualizacao,
-                                created_by=user_email if user_email else "usuario"
-                            )
-                            st.success(f"✅ Baseline {version_name} criada!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro: {e}")
+                .baseline-title {
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: #2c3e50;
+                    margin: 0;
+                }
                 
-                st.divider()
+                .baseline-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    background-color: white;
+                    border-radius: 6px;
+                    overflow: hidden;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+                }
                 
+                .baseline-table thead {
+                    background-color: #f1f3f5;
+                }
                 
-                # === LISTA DE BASELINES ===
-                st.subheader("📋 Baselines Existentes")
+                .baseline-table th {
+                    padding: 12px 15px;
+                    text-align: center;
+                    font-weight: 600;
+                    font-size: 13px;
+                    color: #495057;
+                    border-bottom: 2px solid #dee2e6;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
                 
-                baselines = load_baselines()
-                unsent_baselines = st.session_state.get('unsent_baselines', {})
-                emp_unsent = unsent_baselines.get(selected_empreendimento_baseline, [])
-                emp_baselines = baselines.get(selected_empreendimento_baseline, {})
+                .baseline-table td {
+                    padding: 12px 15px;
+                    border-bottom: 1px solid #e9ecef;
+                    color: #495057;
+                    font-size: 14px;
+                    text-align: center;
+                }
                 
-                if emp_baselines:
-                    for i, version_name in enumerate(sorted(emp_baselines.keys(), reverse=True)):
-                        is_unsent = version_name in emp_unsent
-                        baseline_info = emp_baselines[version_name]
-                        data_criacao = baseline_info.get('date', 'N/A')
-                        baseline_data_info = baseline_info.get('data', {})
-                        created_by = baseline_data_info.get('created_by', 'N/A')
-                        
-                        col1, col2, col3 = st.columns([4, 2, 1])
-                        
-                        with col1:
-                            status = "🟡 Pendente" if is_unsent else "🟢 Enviada"
-                            st.write(f"**{version_name}** - {status}")
-                            st.caption(f"Criado por: {created_by} | Data: {data_criacao}")
-                        
-                        with col2:
-                            st.write("")  # Espaçamento
-                        
-                        with col3:
-                            if st.button("Excluir", key=f"del_{i}", use_container_width=True):
-                                if delete_baseline(selected_empreendimento_baseline, version_name):
-                                    if 'unsent_baselines' in st.session_state:
-                                        if version_name in st.session_state.unsent_baselines.get(selected_empreendimento_baseline, []):
-                                            st.session_state.unsent_baselines[selected_empreendimento_baseline].remove(version_name)
-                                    st.success("Excluída")
-                                    st.rerun()
-                                else:
-                                    st.error("Erro ao excluir")
-                        
-                        if i < len(emp_baselines) - 1:
-                            st.divider()
+                .baseline-table tbody tr:hover {
+                    background-color: #f8f9fa;
+                }
+                
+                .baseline-table tbody tr:last-child td {
+                    border-bottom: none;
+                }
+                
+                .baseline-version {
+                    font-weight: 600;
+                    color: #0066cc;
+                    text-align: center;
+                }
+                
+                .baseline-email {
+                    color: #6c757d;
+                    font-size: 13px;
+                    text-align: center;
+                }
+                
+                .baseline-date {
+                    color: #495057;
+                    text-align: center;
+                }
+                
+                .baseline-action {
+                    text-align: center;
+                    padding: 8px;
+                }
+                
+                .no-baselines {
+                    text-align: center;
+                    padding: 30px;
+                    color: #6c757d;
+                    font-style: italic;
+                    background-color: white;
+                    border-radius: 6px;
+                    border: 1px dashed #dee2e6;
+                }
+                
+                .table-header {
+                    font-weight: 600;
+                    font-size: 13px;
+                    color: #495057;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    text-align: center;
+                    padding: 10px;
+                    background-color: #f1f3f5;
+                }
+                
+                .delete-btn-container {
+                    text-align: center;
+                }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                # === SEÇÃO POR EMPREENDIMENTO ===
+                for empreendimento in sorted(empreendimentos_na_ugb):
+                    # Container do empreendimento
+                    st.markdown(f'<div class="baseline-container">', unsafe_allow_html=True)
                     
-                    # Estatísticas simples
-                    st.divider()
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Total", len(emp_baselines))
-                    with col2:
-                        st.metric("Pendentes", len(emp_unsent))
-                    with col3:
-                        st.metric("Enviadas", len(emp_baselines) - len(emp_unsent))
-                else:
-                    st.info("Nenhuma baseline criada ainda")
+                    # Cabeçalho apenas com título
+                    st.markdown(f'<h3 class="baseline-title" style="margin-bottom: 5px;">{empreendimento}</h3>', unsafe_allow_html=True)
+                    
+                    # Carregar baselines do empreendimento
+                    baselines = load_baselines()
+                    emp_baselines = baselines.get(empreendimento, {})
+                    
+                    if emp_baselines:
+                        # Criar lista ordenada por número da versão
+                        baseline_list = []
+                        for version_name, baseline_info in emp_baselines.items():
+                            data_criacao = baseline_info.get('date', 'N/A')
+                            
+                            # Extrair número da versão para ordenação
+                            try:
+                                version_number_str = version_name.split('-')[0] if '-' in version_name else version_name
+                                if version_number_str.startswith('P'):
+                                    version_number = int(version_number_str[1:])
+                                else:
+                                    version_number = 9999
+                            except:
+                                version_number = 9999
+                            
+                            baseline_list.append((version_number, version_name, data_criacao))
+                        
+                        # Ordenar por número da versão
+                        baseline_list.sort(key=lambda x: x[0])
+                        
+                        # --- IMPLEMENTAÇÃO NATIVA COM ST.DATA_EDITOR ---
+                        import pandas as pd
+
+                        # Preparar dados para o DataFrame
+                        data_for_df = []
+                        for _, version_name, data_criacao in baseline_list:
+                            baseline_info = emp_baselines[version_name]
+                            baseline_data = baseline_info.get('data', {})
+                            created_by = baseline_data.get('created_by', 'N/A')
+                            version_display = version_name.split('-')[0] if '-' in version_name else version_name
+                            
+                            data_for_df.append({
+                                "Selecionar": False, # Coluna de Checkbox
+                                "Data": data_criacao,
+                                "Linha de Base": version_display,
+                                "Criado por": created_by,
+                                "version_full_name": version_name # Oculto para lógica
+                            })
+                        
+                        df_baselines = pd.DataFrame(data_for_df)
+                        
+                        # Configuração de Colunas do Data Editor
+                        column_config = {
+                            "Selecionar": st.column_config.CheckboxColumn(
+                                "Selecionar",
+                                default=False, 
+                                width="small"
+                            ),
+                            "Data": st.column_config.TextColumn(
+                                "Data",
+                                width="medium",
+                                disabled=True
+                            ),
+                            "Linha de Base": st.column_config.TextColumn(
+                                "Linha de Base",
+                                width="medium",
+                                disabled=True
+                            ),
+                            "Criado por": st.column_config.TextColumn(
+                                "Criado por",
+                                width="large",
+                                disabled=True
+                            ),
+                            "version_full_name": None # Coluna Oculta
+                        }
+                        
+                        # st.caption("Selecione as linhas que deseja excluir.") # Caption removida para visual mais limpo
+                        
+                        # Exibição da Tabela Editável
+                        edited_df = st.data_editor(
+                            df_baselines,
+                            hide_index=True,
+                            column_config=column_config,
+                            use_container_width=True,
+                            key=f"editor_baselines_{empreendimento}",
+                            disabled=["Data", "Linha de Base", "Criado por"] # Garantir imutabilidade
+                        )
+                        
+                        # Botões de Ação em Baixo
+                        # Layout: [Excluir (Esq)] --- Espaço --- [Nova (Dir)]
+                        col_del, _, col_new = st.columns([0.25, 0.50, 0.25])
+                        
+                        # Botão Esquerda: Excluir
+                        with col_del:
+                            if st.button("Excluir Selecionados", type="secondary", use_container_width=True, key=f"btn_del_{empreendimento}"):
+                                rows_to_delete = edited_df[edited_df["Selecionar"] == True]
+                                
+                                if not rows_to_delete.empty:
+                                    deleted_count = 0
+                                    for _, row in rows_to_delete.iterrows():
+                                        v_name = row["version_full_name"]
+                                        if delete_baseline(empreendimento, v_name):
+                                            # Limpar cache
+                                            if 'unsent_baselines' in st.session_state:
+                                                if v_name in st.session_state.unsent_baselines.get(empreendimento, []):
+                                                    st.session_state.unsent_baselines[empreendimento].remove(v_name)
+                                            deleted_count += 1
+                                    
+                                    if deleted_count > 0:
+                                        st.success(f"✅ {deleted_count} apagadas!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Erro ao apagar.")
+                                else:
+                                    st.warning("Selecione linhas para apagar.")
+
+                        # Botão Direita: Criar Nova (Movido do cabeçalho)
+                        with col_new:
+                             if st.button(
+                                "Nova Baseline",
+                                key=f"create_baseline_footer_{empreendimento}",
+                                type="secondary",
+                                use_container_width=True,
+                                help="Salva o estado atual como nova linha de base."
+                            ):
+                                try:
+                                    version_name = take_gantt_baseline(
+                                        df_data,
+                                        empreendimento,
+                                        tipo_visualizacao,
+                                        created_by=user_email if user_email else "usuario"
+                                    )
+                                    st.success(f"✅ Baseline {version_name} criada!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro: {e}")
+                        
+                    else:
+                        st.markdown('<div class="no-baselines">Nenhuma baseline criada ainda</div>', unsafe_allow_html=True)
+                    
+                    # Fechar container
+                    st.markdown('</div>', unsafe_allow_html=True)
 
 def verificar_implementacao_baseline():
     """Verifica se todas as funcoes de baseline foram implementadas"""
