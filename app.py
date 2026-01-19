@@ -10363,8 +10363,6 @@ with st.spinner("Carregando e processando dados..."):
                             "version_full_name": None # Coluna Oculta
                         }
                         
-                        # st.caption("Selecione as linhas que deseja excluir.") # Caption removida para visual mais limpo
-                        
                         # Exibição da Tabela Editável
                         edited_df = st.data_editor(
                             df_baselines,
@@ -10374,12 +10372,15 @@ with st.spinner("Carregando e processando dados..."):
                             key=f"editor_baselines_{empreendimento}",
                             disabled=["Data", "Linha de Base", "Criado por"] # Garantir imutabilidade
                         )
-                        
-                        # Botões de Ação em Baixo
-                        # Layout: [Excluir (Esq)] --- Espaço --- [Nova (Dir)]
-                        col_del, _, col_new = st.columns([0.25, 0.50, 0.25])
-                        
-                        # Botão Esquerda: Excluir
+                    else:
+                        st.markdown('<div class="no-baselines">Nenhuma baseline criada ainda</div>', unsafe_allow_html=True)
+
+                    # Botões de Ação em Baixo (SEMPRE VISÍVEIS)
+                    # Layout: [Excluir (Esq)] --- Espaço --- [Nova (Dir)]
+                    col_del, _, col_new = st.columns([0.25, 0.50, 0.25])
+                    
+                    # Botão Esquerda: Excluir (Só aparece se tiver baselines)
+                    if emp_baselines:
                         with col_del:
                             if st.button("Excluir Selecionados", type="secondary", use_container_width=True, key=f"btn_del_{empreendimento}"):
                                 rows_to_delete = edited_df[edited_df["Selecionar"] == True]
@@ -10403,29 +10404,26 @@ with st.spinner("Carregando e processando dados..."):
                                 else:
                                     st.warning("Selecione linhas para apagar.")
 
-                        # Botão Direita: Criar Nova (Movido do cabeçalho)
-                        with col_new:
-                             if st.button(
-                                "Nova Baseline",
-                                key=f"create_baseline_footer_{empreendimento}",
-                                type="secondary",
-                                use_container_width=True,
-                                help="Salva o estado atual como nova linha de base."
-                            ):
-                                try:
-                                    version_name = take_gantt_baseline(
-                                        df_data,
-                                        empreendimento,
-                                        tipo_visualizacao,
-                                        created_by=user_email if user_email else "usuario"
-                                    )
-                                    st.success(f"✅ Baseline {version_name} criada!")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Erro: {e}")
-                        
-                    else:
-                        st.markdown('<div class="no-baselines">Nenhuma baseline criada ainda</div>', unsafe_allow_html=True)
+                    # Botão Direita: Criar Nova (SEMPRE VISÍVEL)
+                    with col_new:
+                        if st.button(
+                            "Nova Baseline",
+                            key=f"create_baseline_footer_{empreendimento}",
+                            type="secondary",
+                            use_container_width=True,
+                            help="Salva o estado atual como nova linha de base."
+                        ):
+                            try:
+                                version_name = take_gantt_baseline(
+                                    df_data,
+                                    empreendimento,
+                                    tipo_visualizacao,
+                                    created_by=user_email if user_email else "usuario"
+                                )
+                                st.success(f"✅ Baseline {version_name} criada!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro: {e}")
                     
                     # Fechar container
                     st.markdown('</div>', unsafe_allow_html=True)
