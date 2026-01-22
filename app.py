@@ -36,6 +36,24 @@ except ImportError:
             return None
         return np.busday_count(pd.to_datetime(start).date(), pd.to_datetime(end).date())
 
+# ============================================
+# CONFIGURAÇÃO DE AUTO-REFRESH (3 HORAS)
+# ============================================
+import logging
+import pytz
+
+# Constante de TTL para cache (3 horas)
+TTL_HOURS = 3
+TTL_SECONDS = TTL_HOURS * 60 * 60  # 10800 segundos
+
+# Logging para monitoramento de refresh
+logging.basicConfig(
+    format='%(asctime)s [AUTO-REFRESH] %(message)s',
+    level=logging.INFO
+)
+
+# ============================================
+
 # --- Bloco de Importação de Dados ---
 try:
     from tratamento_dados_reais import buscar_e_processar_dados_completos
@@ -490,7 +508,7 @@ def create_baselines_table():
         if 'mock_baselines' not in st.session_state:
             st.session_state.mock_baselines = {}
 
-@st.cache_resource(ttl=3600) # Cache por 1 hora, ou até ser invalidado
+@st.cache_resource(ttl=TTL_SECONDS) # Cache por 3 horas (sincronizado com load_data)
 def load_baselines():
     return _fetch_baselines_from_db()
 
@@ -8868,7 +8886,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data
+@st.cache_data(ttl=TTL_SECONDS, show_spinner="🔄 Atualizando dados do Macrofluxo...")
 def load_data():
     df_real = pd.DataFrame()
     df_previsto = pd.DataFrame()
@@ -9176,6 +9194,74 @@ with st.spinner("Carregando e processando dados..."):
         with st.sidebar:
             st.markdown("<br>", unsafe_allow_html=True)
             col1, col2, col3 = st.columns([1, 2, 1])
+            
+            # --- WIDGET DE ATUALIZAÇÃO (COLUNA ESQUERDA) ---
+            with col1:
+                 # Inicializar timestamp se necessário
+                if 'data_loaded_at' not in st.session_state:
+                    st.session_state.data_loaded_at = datetime.now(pytz.timezone('America/Sao_Paulo'))
+                
+                # CSS para fixar o botão no CABEÇALHO da sidebar (Visualmente fora do fluxo)
+                st.markdown("""
+                <style>
+                    /* Fazer a coluna 1 servir de âncora mas o botão sair do fluxo */
+                    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] > div:first-child {
+                        /* Não precisamos de estilo na coluna em si se o botão for fixed */
+                    }
+
+                    /* Botão com position FIXED para ir ao topo absoluto */
+                    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] button[kind="secondary"] {
+                        position: fixed !important;
+                        top: 1rem !important; /* Teste visual solicitado pelo usuário (antes 0.5rem) */
+                        left: 1rem !important;
+                        z-index: 999999 !important;
+                        
+                        border: none !important;
+                        background: transparent !important;
+                        padding: 0 !important;
+                        color: #666 !important;
+                        font-size: 1.5rem !important;
+                        box-shadow: none !important;
+                        line-height: 1 !important;
+                        min-height: 0 !important;
+                        width: auto !important;
+                    }
+                    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
+                        color: #000 !important;
+                    }
+                    /* Remover seta */
+                    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] button[kind="secondary"] svg {
+                        display: none !important;
+                    }
+                </style>
+                """, unsafe_allow_html=True)
+
+                # Popover nativo
+                with st.popover("⚙", use_container_width=False):
+                    loaded_time = st.session_state.data_loaded_at.strftime("%d/%m %H:%M")
+                    next_refresh_time = (st.session_state.data_loaded_at + timedelta(hours=TTL_HOURS)).strftime("%H:%M")
+                    
+                    st.markdown(f"""
+                    <div style="min-width: 150px; padding: 0 5px;">
+                        <div style="font-size: 0.8em; color: #555; margin-bottom: 12px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                                <span>Última:</span>
+                                <span style="font-weight: 500; color: #333;">{loaded_time}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>Próxima:</span>
+                                <span style="font-weight: 500; color: #333;">{next_refresh_time}</span>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if st.button("↻ Atualizar", type="secondary", use_container_width=True, key="refresh_popover_top"):
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        st.session_state.data_loaded_at = datetime.now(pytz.timezone('America/Sao_Paulo'))
+                        st.rerun()
+
             with col2:
                 try:
                     st.image("logoNova.png", width=200)
@@ -9323,7 +9409,12 @@ with st.spinner("Carregando e processando dados..."):
             # Definir valores padrão para os filtros removidos
             pulmao_status = "Sem Pulmão"
             pulmao_meses = 0
-            tipo_visualizacao = "Ambos"  
+            tipo_visualizacao = "Ambos"
+
+            # ============================================
+            # ============================================
+            # (WIDGET DE ATUALIZAÇÃO MOVIDO PARA O TOPO EM COL1)
+            # ============================================  
 
             # --- Menu de Contexto para Gantt ---
             def create_gantt_context_menu_component(selected_empreendimento):
